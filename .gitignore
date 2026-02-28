@@ -1,0 +1,39 @@
+﻿# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL | .gitignore
+# -----------------------------------------------------------------------------
+
+# Environments
+venv/
+env/
+.env
+
+# Cache, Logs & Temporary Files
+__pycache__/
+*.py[cod]
+*$py.class
+.cache/
+backups/
+*.bak
+*.tmp
+*.log
+
+# Model Files (Too large for GitHub)
+models/*.gguf
+models/*.bin
+
+# Binaries & Executables (Strictly blocked to prevent 100MB+ push errors)
+*.exe
+ffmpeg.exe
+
+# Medical Research Module (Folding@home runtime data)
+cores/
+work/
+logs/
+client.db
+gpus.json
+
+# OS & IDE System Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

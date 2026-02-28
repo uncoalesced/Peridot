@@ -1,0 +1,15 @@
+{
+    "metadata": {
+        "os": "Windows 10",
+        "cpu": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+        "gpu_name": "NVIDIA GeForce RTX 5050 Laptop GPU",
+        "vram_gb": 7.96,
+        "cuda_version": "12.4",
+        "cuda_cap": "12.0"
+    },
+    "metrics": {
+        "test_duration_sec": 1.5003,
+        "tokens_per_sec": 57.25,
+        "timestamp": "2026-02-26 14:12:04"
+    }
+}
