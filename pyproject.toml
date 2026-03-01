@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peridot-local"
-version = "1.2 Beta"
+version = "1.2.0b1"
 description = "A sovereign local kernel with dynamic hardware scaling."
 readme = "README.md"
 requires-python = ">=3.11"
