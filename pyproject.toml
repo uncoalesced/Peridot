@@ -24,3 +24,6 @@ dependencies = [
     "flask-cors",
     "llama-cpp-python"
 ]
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["assets*", "docs*", "input*", ".github*"]
