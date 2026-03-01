@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "peridot-local"
+version = "1.2 Beta"
+description = "A sovereign local kernel with dynamic hardware scaling."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name="uncoalesced" }
+]
+dependencies = [
+    "huggingface_hub",
+    "requests",
+    "colorama",
+    "pynvml",
+    "psutil",
+    "sounddevice",
+    "numpy",
+    "pillow",
+    "flask",
+    "flask-cors",
+    "llama-cpp-python"
+]

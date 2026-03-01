@@ -1,13 +1,27 @@
 name: Tests
+
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install flake8 black
-      - run: black --check .
-      - run: flake8 . --max-line-length=100
+          
+      - name: Install dependencies
+        run: pip install flake8 black
+        
+      - name: Check formatting
+        run: black --check .
+        
+      - name: Lint with flake8
+        run: flake8 . --max-line-length=100
