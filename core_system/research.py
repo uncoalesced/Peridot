@@ -16,6 +16,9 @@ from config import RESEARCH_IDLE_THRESHOLD, RESEARCH_CHECK_INTERVAL
 
 logger = logging.getLogger("Peridot-Research")
 
+# Task 4: Command Whitelist
+ALLOWED_FAH_COMMANDS = ("pause", "unpause", "finish", "shutdown")
+
 class MedicalResearchModule:
     def __init__(self, core):
         self.core = core
@@ -87,6 +90,11 @@ class MedicalResearchModule:
         return False
 
     def _send_cmd(self, cmd) -> bool:
+        # Task 4: Hard Block on Unauthorized Commands
+        if cmd not in ALLOWED_FAH_COMMANDS:
+            logger.error(f"SECURITY BLOCK: Unauthorized FAH command '{cmd}' rejected.")
+            return False
+
         if not self.check_installation():
             return False
         try:

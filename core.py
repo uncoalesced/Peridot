@@ -12,6 +12,7 @@ import importlib
 from core_system.enhancedlogger import logger
 from core_system.command_router import CommandRouter
 from core_system.research import MedicalResearchModule
+from core_system.security import sanitize_input, load_constitution
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
 
 def safe_import(module_path, class_names):
@@ -43,6 +44,9 @@ class PeridotCore:
         self.chat_memory = []
         self.context_history = collections.deque(maxlen=5)
         self.last_interaction_time = time.time()
+        
+        # Load Security Configuration (Task 5)
+        self.constitution = load_constitution()
 
         # Core Modules
         self.research = MedicalResearchModule(core=self)
@@ -84,16 +88,22 @@ class PeridotCore:
             return
 
         self.last_interaction_time = time.time()
-        text_clean = text.strip()
+        
+        # Task 1: Security Gate - Sanitize Input BEFORE processing
+        clean_text, is_safe = sanitize_input(text)
+        if not is_safe:
+            self.logger.warning("Malicious input intercepted and destroyed.", source="SECURITY")
+            return "[SECURITY BLOCK] Access Denied: Malicious code pattern detected. Incident logged."
 
-        parts = text_clean.split(maxsplit=1)
+        clean_text = clean_text.strip()
+        parts = clean_text.split(maxsplit=1)
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
 
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        return self._ask_ai_with_memory(text_clean)
+        return self._ask_ai_with_memory(clean_text)
 
     def _ask_ai_with_memory(self, user_text):
         self.chat_memory.append({"role": "user", "content": user_text})
