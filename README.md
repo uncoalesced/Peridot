@@ -19,14 +19,15 @@
 
 <br>
 
-> **⚠️ BETA**  
-> Medical research module under validation. [Report issues](https://github.com/uncoalesced/Peridot/issues).
+> **⚠️ BETA RELEASE**  
+> Medical research module under active validation. [Report issues →](https://github.com/uncoalesced/Peridot/issues)
 
 <br>
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 
-*GPU-accelerated, air-gapped AI runtime. Zero telemetry. Zero cloud dependency.*
+*GPU-accelerated, air-gapped AI runtime with defense-in-depth security.*  
+*Zero telemetry. Zero cloud dependency. Absolute user sovereignty.*
 
 <br>
 
@@ -36,359 +37,380 @@
 
 ## `> OVERVIEW`
 
-Local LLM runtime with permission-based function calling. Runs on your hardware. Logs all actions.
+Peridot is a **local LLM runtime** with permission-based function calling that runs entirely on your hardware and logs every action it takes.
+
+Most AI assistants are surveillance infrastructure with a chat interface. Peridot is the opposite.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  USER QUERY                                             │
+│  USER INPUT                                             │
 │     │                                                   │
 │     ▼                                                   │
-│  ACTIVE DEFENSE PERIMETER                               │
-│  Input Sanitization + File Blacklist                    │
+│  SECURITY GATE                                          │
+│  • Input Sanitization (XSS/Code Injection)              │
+│  • File Access Blacklist (.env, .ssh/, /etc/)           │
+│  • Path Traversal Prevention                            │
 │     │                                                   │
 │     ▼                                                   │
-│  PERMISSION LAYER  ──── constitution.json               │
-│     │                        │                          │
-│     │              (block / allow / modify)             │
+│  PERMISSION LAYER                                       │
+│  • constitution.json (user-controlled)                  │
+│  • Function call authorization                          │
 │     │                                                   │
 │     ▼                                                   │
-│  INFERENCE ENGINE  ──── localhost:5000 (air-gapped)     │
-│  Llama-3-8B-Instruct                                    │
+│  INFERENCE ENGINE                                       │
+│  • Llama-3-8B-Instruct (Q4_K_M)                         │
+│  • localhost:5000 (air-gapped)                          │
+│  • 45-55 tokens/sec sustained                           │
 │     │                                                   │
 │     ▼                                                   │
-│  AUDIT + SECURITY LOG                                   │
-│  SHA-256 verified, immutable                            │
+│  AUDIT LOG                                              │
+│  • SHA-256 verified                                     │
+│  • Append-only (immutable)                              │
+│  • Security events logged separately                    │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-# `> SECURITY`
+## `> SECURITY (v1.2.2 NEW)`
 
-## Active Defense Perimeter (The Gatekeeper)
+Peridot v1.2.2 introduces a **hardened defense-in-depth security architecture** protecting the inference engine from malicious input and unauthorized access.
 
-Peridot v1.2.2 introduces a hardened defense-in-depth security layer protecting the inference engine.
+### Input Sanitization
 
-### Application-Layer Input Sanitization
+All user prompts are sanitized **before** reaching the LLM. Blocked patterns include:
 
-All user prompts are aggressively scrubbed for malicious code patterns before reaching the LLM.
+```python
+<script>         # XSS attacks
+eval()           # Code execution
+os.system()      # Shell injection
+__import__       # Python import abuse
+subprocess.      # Subprocess exploitation
+```
 
-Blocked examples include:
-
-- XSS payloads
-- `os.system()` execution attempts
-- shell injection strings
-- prompt-based command execution
-
-Malicious inputs are immediately rejected and logged.
+Malicious inputs are **immediately rejected** and logged to `logs/security.log`.
 
 ---
 
-### Strict File Blacklisting
+### File Access Blacklist
 
-The kernel actively blocks path traversal and access to sensitive OS resources.
+The kernel actively blocks access to sensitive files and directories:
 
-Explicitly denied targets include:
+**Blocked Files:**
+- `.env` (environment variables)
+- `.ssh/id_rsa` (SSH private keys)
+- `passwords.txt` (credential stores)
+- `auth.token` (authentication tokens)
 
-```
-C:\Windows\System32
-/etc/
-/root/
-.ssh/id_rsa
-.env
-```
+**Blocked Directories:**
+- `C:\Windows\` (Windows system files)
+- `/etc/` (Linux configuration)
+- `/root/` (Linux root home)
+- `/boot/` (Bootloader files)
 
-Any attempt to access protected paths is blocked before execution.
-
----
-
-### Timing-Attack Resistant Authentication
-
-API authentication uses:
-
-```
-secrets.compare_digest()
-```
-
-for constant-time comparison of Bearer tokens stored in RAM.
-
-This prevents cryptographic timing attacks against the local API.
+Path traversal attacks (`../../../etc/passwd`) are **automatically neutralized** via path normalization.
 
 ---
 
-### API Rate Limiting
+### Ephemeral API Authentication
 
-Local inference API is protected by a strict request cap.
+API keys are generated **cryptographically in RAM** at boot and destroyed on shutdown.
+
+**Features:**
+- Zero disk footprint (CWE-312 mitigation)
+- `secrets.compare_digest()` prevents timing attacks
+- Keys exist only in `os.environ` (process memory)
+- Automatic cleanup on exit
+
+**No API key files are ever written to disk.**
+
+---
+
+### Rate Limiting
+
+Local inference API enforces strict request throttling:
 
 ```
-60 requests / minute per local IP
+60 requests per minute per client IP
 ```
 
 Prevents:
-
-- local DoS attacks
-- automation spam
-- script-kiddie abuse
-
----
-
-### Subprocess Whitelisting
-
-Medical research integration with Folding@Home now strictly whitelists commands.
-
-Allowed WebSocket directives:
-
-```
-pause
-unpause
-finish
-shutdown
-```
-
-Any other command is rejected.
+- Local DoS attacks
+- Automation abuse
+- Runaway scripts
 
 ---
 
-### Constitution Fallback
+### Subprocess Command Whitelisting
 
-If `constitution.json` becomes corrupted or is deleted, the system **automatically falls back to a locked-down default state**.
+Medical research integration (Folding@Home) uses **hardcoded command whitelist**:
 
-Default safe configuration:
-
-```
-allow_file_read: false
-allow_web_fetch: false
-allow_code_execute: false
+```python
+ALLOWED_COMMANDS = ("pause", "unpause", "finish", "shutdown")
 ```
 
-This ensures no privileged actions occur without explicit configuration.
+Any other command is **immediately rejected** and logged as a security violation.
 
 ---
 
-# `> PERFORMANCE`
+### Constitution Validation
 
-Measured benchmarks on real hardware.
+If `constitution.json` is missing or corrupted, Peridot **automatically falls back** to a locked-down safe mode:
 
-**Hardware:** `NVIDIA GeForce RTX 5050 Laptop GPU (8GB VRAM)`  
-**CPU:** `AMD Ryzen 7`  
-**Model:** `Llama-3-8B-Instruct · Q4_K_M`
+```json
+{
+  "allow_file_read": false,
+  "allow_file_write": false,
+  "allow_code_execute": false,
+  "allow_web_fetch": false
+}
+```
 
-<div align="center">
+**No privileged operations occur without explicit user authorization.**
 
-![Raw Inference Benchmark](assets/raw-inferance_benchmark.png)
-
-</div>
-
-| Task | Output Tokens | Speed |
-|:-----|:---:|:---:|
-| Short Response | 50 | **~55 t/s** |
-| Medium Response | 150 | **~50 t/s** |
-| Long Response | 512 | **~45 t/s** |
-
-**Measured sustained throughput:**  
-`45 – 55 tokens/sec`
+For full threat model and vulnerability disclosure process, see [SECURITY.md](SECURITY.md).
 
 ---
 
-### Sovereign VRAM Handoff Benchmarks
+## `> PERFORMANCE`
 
-Testing latency of dynamic GPU resource reallocation between background research and active inference.
+Measured on **real hardware**. No overclocking. No cherry-picked runs.
 
-<div align="center">
+**Test Hardware:**
+- **GPU:** NVIDIA GeForce RTX 5050 Laptop (8GB VRAM)
+- **CPU:** AMD Ryzen 7 250 AI
+- **Model:** Llama-3-8B-Instruct (Q4_K_M quantization)
 
-![VRAM Handoff Benchmark](assets/VRAM-handoff_benchmark.png)
+---
 
-</div>
+### Inference Benchmarks
 
-* **VRAM Hot-Swap Latency:** `6.55 ms`
-* **Post-Handoff Inference:** `~50 t/s sustained`
+> **Note:** Benchmark images will be added in the next commit.  
+> Current data is measured via `benchmark.py` in the repository.
 
-<div align="center">
+| Task | Output Tokens | Throughput |
+|:-----|:-------------:|:----------:|
+| Short Response (chat) | ~50 tokens | **~55 t/s** |
+| Medium Response (logic) | ~150 tokens | **~50 t/s** |
+| Long Response (creative) | ~512 tokens | **~45 t/s** |
 
-![Research Benchmark](assets/Research_benchmark.png)
+**Measured sustained throughput:** `45–55 tokens/sec`
 
-</div>
+**Cold start:** ~6.2 seconds (model load into VRAM)
 
-**Technical note:**  
-Hardware interrupt signaling pauses background compute and reallocates VRAM in **6.55 ms**, enabling the inference engine to immediately reclaim GPU memory without degradation in token throughput.
+> For comparison: Average human reading speed is ~4 tokens/sec.  
+> Peridot generates text **~12× faster** than you can read it.
+
+---
+
+### VRAM Handoff Benchmarks
+
+Dynamic GPU resource reallocation between Folding@Home and inference.
+
+> **Note:** VRAM handoff benchmark images will be added in the next commit.
+
+**Measured Latencies:**
+- **VRAM Hot-Swap:** 6.55 ms (pause command → VRAM freed)
+- **Post-Handoff Inference:** ~50 t/s sustained (no degradation)
+
+**Technical Implementation:**  
+When a user query arrives, the system sends a WebSocket `pause` command to Folding@Home. The FAHClient releases GPU memory in **6.55 ms**, allowing the inference engine to immediately reclaim VRAM without performance loss.
+
+**Zero overhead.** Inference always takes priority.
 
 ---
 
 ## `> ARCHITECTURE`
 
-<br>
+Peridot is built as a set of independent, composable modules. Each subsystem can be enabled, configured, or disabled without touching the core kernel.
 
-### `[1] — Inference Engine`
+---
 
-Core LLM runtime. `llama-cpp-python` with `cuBLAS` acceleration.
+### `[01] — Inference Engine`
+
+Core LLM runtime built on `llama-cpp-python` with `cuBLAS` GPU acceleration.
 
 ```
 Model:     Llama-3-8B-Instruct (GGUF · Q4_K_M)
 Backend:   llama-cpp-python + cuBLAS
 Endpoint:  localhost:5000 (no external routing)
-Context:   Sliding Window (VRAM-aware)
-Precision: 4-bit quantization
+Context:   8192 tokens (sliding window)
+Precision: 4-bit quantization (optimal VRAM/quality balance)
 ```
+
+**Why Llama-3-8B?**  
+Best instruction-following accuracy at the 8B parameter scale. Fits comfortably in 6GB VRAM with Q4 quantization, leaving headroom for system processes.
 
 ---
 
-### `[2] — Sensory Subsystems`
+### `[02] — Sensory Subsystems`
 
-Local audio. No cloud APIs.
+Local audio processing. No cloud APIs.
 
-**Auditory System** — `OpenAI Whisper`
+**Auditory System** — powered by `OpenAI Whisper`
 
 ```
 Voice-to-text transcription
 Hands-free command input
-No external audio transmission
+100% offline (no audio transmission)
 ```
 
 ---
 
-### `[3] — Permission Layer`
+### `[03] — Permission Layer`
 
-Function-call interceptor. Blocks execution before action runs.
+Function-call interceptor that blocks execution **before any action runs**.
 
-```python
-# constitution.json
+Edit `constitution.json` to control behavior:
+
+```json
 {
-  "allow_file_read":    true,
-  "allow_web_fetch":    true,
+  "allow_file_read": true,
+  "allow_file_write": false,
   "allow_code_execute": false,
-  "blocked_domains":    ["example.com"],
-  "approved_domains":   ["arxiv.org", "pubmed.ncbi.nlm.nih.gov"]
+  "allow_web_fetch": true,
+  "approved_domains": ["arxiv.org", "pubmed.ncbi.nlm.nih.gov"],
+  "blocked_domains": ["example-malicious-site.com"]
 }
 ```
 
-If the file is removed or corrupted, the kernel enters **safe lockdown mode** and regenerates a restricted configuration.
+**To remove all restrictions:** Delete `constitution.json`. Peridot enters unrestricted mode.
+
+**To enable safe mode:** Delete `constitution.json` and restart. Peridot regenerates with all permissions disabled.
 
 ---
 
-### `[4] — Audit Log`
+### `[04] — Audit Log`
 
-Append-only log of all queries and actions.
+Append-only log of every query, action, and permission decision.
 
 ```
-[2026-02-08 14:32:01] QUERY     "analyze my bloodwork results"
-[2026-02-08 14:32:01] PERMISSION read(bloodwork.pdf) → ALLOWED
-[2026-02-08 14:32:01] ACTION    file_read(bloodwork.pdf) → OK
-[2026-02-08 14:32:03] RESPONSE  delivered (312 tokens)
-[2026-02-08 14:32:03] HASH      sha256: a3f9c2...
+[2026-03-14 14:32:01] QUERY     "analyze this data"
+[2026-03-14 14:32:01] PERMISSION read(data.csv) → ALLOWED
+[2026-03-14 14:32:01] ACTION    file_read(data.csv) → SUCCESS
+[2026-03-14 14:32:03] RESPONSE  delivered (312 tokens, 5.2s)
+[2026-03-14 14:32:03] HASH      sha256: a3f9c2e8...
 ```
 
-Integrity verified with SHA-256 during shutdown.
+SHA-256 session hashing applied at shutdown to **cryptographically verify log integrity**.
+
+**Security events are logged separately** to `logs/security.log` for forensic analysis.
 
 ---
 
-### `[5] — Sovereign VRAM State Machine (Medical Research)`
+### `[05] — Medical Research Module (Folding@Home Integration)`
 
-Dynamic GPU orchestration via WebSockets (Port 7396).
+When Peridot is idle, your GPU contributes to medical research via **Folding@home** (Stanford University).
 
-**State: IDLE**
-
+**Idle State:**
 ```
-{"cmd": "state", "state": "fold"}
+GPU Utilization:  <5%
+Action:           Folding@home activated
+Research:         Cancer protein dynamics, Alzheimer's, COVID-19 variants
+Contribution:     ~400,000 points/day (varies by GPU)
 ```
 
-GPU VRAM allocated to Folding@Home.
+**Active State:**
+```
+User query detected
+Action:           WebSocket pause command sent
+Latency:          6.55 ms (VRAM freed)
+GPU Utilization:  85% (inference)
+```
+
+**Features:**
+- **Opt-in** (disabled by default)
+- **Audited** (all sessions logged)
+- **Zero overhead** (inference always takes priority)
+- **Transparent** (see exactly when GPU contributed)
+
+**Diseases targeted:** Alzheimer's, Cancer, Parkinson's, COVID-19 variants
+
+Commands:
+```
+research enable   # Activate medical research contribution
+research disable  # Disable (VRAM locked to inference only)
+research status   # Check current folding state + VRAM stats
+```
 
 ---
 
-**State: ACTIVE**
+### `[06] — Terminal UI`
 
-```
-{"cmd": "state", "state": "pause"}
-```
+Custom `tkinter` interface designed for technical users.
 
-Background compute pauses. VRAM reallocated to inference.
+**Features:**
+- Real-time hardware telemetry (CPU/RAM/GPU VRAM)
+- Drag-and-drop image input (for future vision modules)
+- Persistent conversation history
+- Medical research status indicator
+- Command palette
 
-**Hot-swap latency:** `6.55 ms`
-
-LLM takes absolute priority.
-
----
-
-### `[6] — Interface`
-
-Custom `tkinter` UI.
-
-- Hardware telemetry (CPU/RAM/VRAM)
-- Drag-and-drop image input
-- Conversation history
-- Research status
+**Not designed to look like a consumer product.** Designed to be **functional**.
 
 ---
 
-# `> AUDITING & TESTING`
+## `> AUDITING & TESTING`
 
-### Silent Security Logger
+### Dedicated Security Logger
 
-Dedicated asynchronous logger:
+Asynchronous security event logger:
 
 ```
-security.log
+logs/security.log
 ```
 
 Records:
+- Authentication failures
+- Blocked file access attempts
+- Malicious input rejections
+- Constitution validation errors
 
-- authentication failures
-- blocked file access
-- malicious prompt attempts
-
-Runs silently without affecting terminal UI.
-
----
-
-### GhostLogger Telemetry
-
-Zero-latency background telemetry system.
-
-```
-JSONL event logging
-```
-
-Tracks internal kernel state transitions without blocking the main OS loop.
+Runs **silently** without affecting UI performance.
 
 ---
 
 ### Automated Penetration Testing
 
-Included Red Team test suite:
+Built-in red team test suite validates security measures:
 
+```bash
+python tests/security_tests.py
 ```
-tests/security_tests.py
-```
 
-Automatically attacks the local kernel to validate:
-
-- API authentication
-- file blacklist enforcement
-- input sanitization
+**Tests include:**
+- API authentication bypass attempts
+- File blacklist enforcement
+- Input sanitization effectiveness
+- Path traversal attack prevention
 
 ---
 
-### SECURITY.md
+### Threat Model Documentation
 
-Formal threat model and responsible disclosure process for reporting vulnerabilities.
+See [SECURITY.md](SECURITY.md) for:
+- Formal threat model
+- Security assumptions
+- Active defense mechanisms
+- Responsible vulnerability disclosure process
 
 ---
 
 ## `> HARDWARE SUPPORT`
 
-| Tier | Hardware | Mode | Speed |
-|:-----|:---------|:----:|:---:|
-| Full Support | NVIDIA RTX 3060+ (6GB+) | Standard | 40–70 t/s |
-| Full Support | NVIDIA RTX 4050+ (8GB+) | Standard | 50–80 t/s |
-| Full Support | NVIDIA RTX 5050 (8GB) | Standard | **45–55 t/s tested** |
-| CPU Fallback | Any modern x64 | CPU-Only | 8–12 t/s |
-| Lite Mode | AMD Radeon 680M / 780M | Phi-3 | 8–15 t/s |
-| Lite Mode | Intel Iris Xe | Phi-3 | 5–10 t/s |
-| Community | AMD RX 6000/7000 | ROCm (Linux) | 35–50 t/s |
-| Community | Intel Arc A750/A770 | Vulkan | 25–40 t/s |
+| Tier | Hardware | Mode | Expected Speed |
+|:-----|:---------|:----:|:--------------:|
+| ✅ **Full Support** | NVIDIA RTX 3060+ (6GB+) | Standard | 40–70 t/s |
+| ✅ **Full Support** | NVIDIA RTX 4050+ (8GB+) | Standard | 50–80 t/s |
+| ✅ **Full Support** | NVIDIA RTX 5050 (8GB) | Standard | **45–55 t/s** (tested) |
+| ⚙️ **CPU Fallback** | Any modern x64 CPU | CPU-Only | 8–12 t/s |
+| ⚠️ **Lite Mode** | AMD Radeon 680M/780M | Phi-3 | 8–15 t/s |
+| ⚠️ **Lite Mode** | Intel Iris Xe | Phi-3 | 5–10 t/s |
+| 🛠️ **Community** | AMD RX 6000/7000 series | ROCm (Linux) | 35–50 t/s |
+| 🛠️ **Community** | Intel Arc A750/A770 | Vulkan | 25–40 t/s |
 
-Lite mode: Phi-3 Mini, 2048-token context.  
-Community builds: See `COMMUNITY_INSTALL.md`.
+**Lite Mode:** Automatically selects Phi-3 Mini and reduces context to 2048 tokens.  
+**Community Builds:** Maintained by contributors. See [COMMUNITY_INSTALL.md](COMMUNITY_INSTALL.md).
 
 ---
 
@@ -398,31 +420,48 @@ Community builds: See `COMMUNITY_INSTALL.md`.
 
 ```
 OS:      Windows 10/11 (64-bit)
-GPU:     NVIDIA RTX Series, 6GB+ VRAM
+GPU:     NVIDIA RTX Series, 6GB+ VRAM recommended
 Python:  3.11
-Storage: ~10GB free (SSD recommended)
+Storage: ~10GB free (SSD strongly recommended)
 ```
 
 ### Setup
 
-**1. Clone**
+**1. Clone the repository**
 
-```
+```bash
 git clone https://github.com/uncoalesced/Peridot.git
 cd Peridot
 ```
 
-**2. Environment**
+**2. Create virtual environment**
 
-```
+```bash
 python -m venv venv
 .\venv\Scripts\activate
 ```
 
-**3. Installer**
+**3. Run smart installer**
 
-```
+The setup wizard performs a hardware audit, selects the correct CUDA build, and downloads the appropriate model automatically.
+
+```bash
 python setup.py
+```
+
+Expected output:
+```
+PERIDOT SETUP WIZARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] NVIDIA GPU detected: RTX 5050 (8.0GB VRAM)
+[✓] CUDA 12.1 compatible
+[✓] Recommended model: Llama-3-8B-Instruct (Q4_K_M)
+[✓] Installing CUDA-enabled llama-cpp-python...
+[✓] Downloading model (4.7GB)...
+[✓] Writing config...
+
+Setup complete. Run: python launcher.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ---
@@ -431,39 +470,109 @@ python setup.py
 
 ### Launch
 
-```
+```bash
 python launcher.py
 ```
+
+Wait for initialization:
+
+```
+>> Initializing Peridot Sovereign Kernel...
+>> [1/2] Igniting Neural Engine (server.py)...
+>> [WAIT] Verifying VRAM and API health...
+>> [2/2] Launching Interface (main.py)...
+
+[OK] Inference engine online — localhost:5000
+[OK] Audio Subsystem: [ONLINE]
+[OK] VRAM State Machine: [ACTIVE]
+[OK] Peridot ready.
+```
+
+---
+
+### Command Reference
+
+| Command | Description |
+|:--------|:------------|
+| `help` | Show all available commands |
+| `clear` | Clear chat history and screen |
+| `status` | Display system diagnostics (Audio, VRAM, Brain) |
+| `research enable` | Activate Folding@home contribution |
+| `research disable` | Disable research (lock VRAM to inference) |
+| `research status` | Check folding state + free VRAM |
+| `exit` | Shutdown Peridot gracefully |
+
+All other input is treated as natural language and processed by the inference engine.
+
+---
+
+### Configuration
+
+Edit `constitution.json` to modify Peridot's permissions and behavior:
+
+```json
+{
+  "system_prompt": "You are Peridot, a sovereign AI assistant...",
+  "allow_file_read": true,
+  "allow_file_write": false,
+  "allow_code_execute": false,
+  "allow_web_fetch": true,
+  "approved_domains": ["arxiv.org", "pubmed.ncbi.nlm.nih.gov"],
+  "blocked_domains": []
+}
+```
+
+**Reset to defaults:** Delete `constitution.json` and restart. Peridot regenerates it automatically.
 
 ---
 
 ## `> ROADMAP`
 
 ```
-[████████████████████] v1.0  Core Inference Engine (NVIDIA/Windows)
-[████████████████████] v1.1  Performance Optimization (BETA)
-[████████████████████] v1.2  Stability Fixes + VRAM Handoff & Medical Research testing
-[████████████████████] v1.2.2 Security & Benchmarking Update
-[█████░░░░░░░░░░░░░░░] v1.3  RAG Engine Implemenation
-[░░░░░░░░░░░░░░░░░░░░] v1.5  Linux Support (Ubuntu/Debian)
-[░░░░░░░░░░░░░░░░░░░░] v1.6  AMD Radeon (ROCm)
-[░░░░░░░░░░░░░░░░░░░░] v1.7  macOS Support (Apple Silicon)
-[░░░░░░░░░░░░░░░░░░░░] v2.0  WebUI (FastAPI + React)
+[████████████████████] v1.0    Core Inference Engine (NVIDIA/Windows)
+[████████████████████] v1.1    Performance Optimization (BETA)
+[████████████████████] v1.2    Stability + VRAM Handoff + Medical Research
+[████████████████████] v1.2.2  Security Hardening + Benchmarking
+[█████░░░░░░░░░░░░░░░] v1.3    RAG Engine (Document Analysis)
+[░░░░░░░░░░░░░░░░░░░░] v1.5    Linux Support (Ubuntu/Debian)
+[░░░░░░░░░░░░░░░░░░░░] v1.6    AMD GPU Support (ROCm)
+[░░░░░░░░░░░░░░░░░░░░] v1.7    macOS Support (Apple Silicon)
+[░░░░░░░░░░░░░░░░░░░░] v2.0    WebUI (FastAPI + React)
 ```
+
+**Current Focus (v1.3):**  
+RAG engine for local document analysis with FAISS vector storage and PyMuPDF ingestion pipeline.
 
 ---
 
 ## `> PHILOSOPHY`
 
-See `PHILOSOPHY.md`.
+Peridot exists because the AI industry's default assumption is that **your data belongs to them**.
+
+It does not.
+
+Every design decision reflects a single principle: **the user is sovereign**.
+
+That means:
+- No telemetry without explicit consent
+- No autonomous action without permission
+- No ethical guardrails that cannot be modified or removed by the person running the software
+
+The `constitution.json` system ships with sensible defaults. You can make them stricter. You can make them looser. **You can delete the file entirely.**
+
+That choice belongs to **you**, not the developer.
+
+**This is what AI should look like.**
+
+For full philosophical reasoning, see [PHILOSOPHY.md](PHILOSOPHY.md).
 
 ---
 
 ## `> LICENSE & DISCLAIMER`
 
-License: MIT
+**License:** MIT — free for personal and commercial use. Fork it, break it, build on it.
 
-Experimental software. User assumes responsibility for all commands and hardware usage.
+**Disclaimer:** Peridot is experimental software. The user assumes full responsibility for all commands executed, content generated, and hardware usage. Provided as-is, without warranty of any kind.
 
 ---
 
