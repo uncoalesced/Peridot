@@ -37,7 +37,7 @@ ASCII_LOGO = """
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 """
-VERSION_TEXT = "SOVEREIGN KERNEL v1.2.1 [BETA]\nENGINEERED BY UNCOALESCED"
+VERSION_TEXT = "SOVEREIGN KERNEL v1.2.2 [BETA]\nENGINEERED BY UNCOALESCED"
 
 
 class TechProgressBar(tk.Canvas):
