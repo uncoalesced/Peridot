@@ -1,0 +1,48 @@
+﻿# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL | .gitignore
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
+
+# Peridot Sovereign Data & RAG Memory (CRITICAL: Do not leak personal context)
+input/
+processed/
+results/
+
+# Environments & Secrets
+venv/
+env/
+benchmarking/venv/
+.env
+
+# Logs & Telemetry
+logs/
+*.log
+
+# Cache & Temporary Files
+__pycache__/
+*.py[cod]
+*$py.class
+.cache/
+backups/
+*.bak
+*.tmp
+
+# Model Files (Too large for GitHub)
+models/*.gguf
+models/*.bin
+
+# Binaries & Executables (Strictly blocked to prevent 100MB+ push errors)
+*.exe
+ffmpeg.exe
+
+# Medical Research Module (Folding@home runtime data)
+cores/
+work/
+client.db
+gpus.json
+
+# OS & IDE System Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
