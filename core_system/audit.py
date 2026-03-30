@@ -1,51 +1,49 @@
-"""
-PERIDOT SOVEREIGN KERNEL | GHOST LOGGER
-Module: core_system/audit.py
-Description: Silent, non-blocking, asynchronous audit trail for security and state changes.
-Zero console output. Zero performance impact.
-"""
+# -----------------------------------------------------------------------------
+# PERIDOT GHOST LOGGER | Silent Audit Subsystem
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
 
-import json
-import time
-import threading
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 from pathlib import Path
 
-# Adjust path dynamically to ensure it always hits the Peridot root
-BASE_DIR = Path(__file__).parent.parent
-LOG_PATH = BASE_DIR / "logs"
-LOG_PATH.mkdir(exist_ok=True)
+# Ensure the logs directory exists silently
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+GHOST_LOG_PATH = LOG_DIR / "ghost_audit.log"
 
-class GhostLogger:
-    def __init__(self):
-        self.audit_file = LOG_PATH / "ghost_audit.jsonl"
-        self.lock = threading.Lock()
+def setup_ghost_logger():
+    """Initializes a completely silent, file-only logger."""
+    ghost = logging.getLogger("GhostLogger")
+    ghost.setLevel(logging.INFO)
+    
+    # CRITICAL: Prevent logs from bubbling up to the terminal (stdout)
+    ghost.propagate = False
+    
+    # Clear any existing handlers to prevent duplicate entries
+    if ghost.hasHandlers():
+        ghost.handlers.clear()
         
-    def record(self, action: str, entity: str, meta: dict = None):
-        """
-        Silently writes an event to the audit file in the background.
-        
-        Args:
-            action: The event type (e.g., 'SECURITY_BLOCK', 'VRAM_PURGE', 'LLM_QUERY')
-            entity: What triggered it (e.g., 'User', 'WebSocket', 'System')
-            meta: Dictionary of additional context.
-        """
-        def _write_silently():
-            with self.lock:
-                payload = {
-                    "timestamp": time.time(),
-                    "action": action,
-                    "entity": entity,
-                    "meta": meta or {}
-                }
-                try:
-                    with open(self.audit_file, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(payload) + "\n")
-                except Exception:
-                    # Absolute silence. If file I/O fails, do not crash or spam the terminal.
-                    pass 
-        
-        # Spawn a daemon thread to handle the I/O so the main OS loop never pauses
-        threading.Thread(target=_write_silently, daemon=True).start()
+    # Rotating file handler: Caps at 1MB, keeps exactly 1 backup. No disk bloat.
+    file_handler = RotatingFileHandler(
+        GHOST_LOG_PATH, maxBytes=1024 * 1024, backupCount=1
+    )
+    
+    # Clean, forensic formatting
+    formatter = logging.Formatter(
+        '%(asctime)s | [%(levelname)s] | %(message)s', 
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    ghost.addHandler(file_handler)
+    return ghost
 
-# Global instance to be imported across the kernel
-ghost = GhostLogger()
+# Export the active instance
+ghost_log = setup_ghost_logger()
+
+# --- Usage Example (Do not run this block when imported) ---
+if __name__ == "__main__":
+    ghost_log.info("GhostLogger initialized. This will not appear in the terminal.")
+    ghost_log.warning("Silent warning recorded.")

@@ -9,7 +9,7 @@ import threading
 import time
 import os
 import json
-import websocket  # Requires: pip install websocket-client
+import websocket
 import pynvml
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -127,10 +127,12 @@ def boot_engine():
     try:
         llm = Llama(
             model_path=str(MODEL_PATH),
-            n_ctx=CONTEXT_LENGTH,
-            n_threads=8, # Optimized for 8-core CPUs
-            n_gpu_layers=GPU_LAYERS,
-            verbose=False,
+            n_ctx=8192,           # OPTIMIZATION: Force 8K context to prevent RAG overflows
+            n_threads=8,          # OPTIMIZATION: Ryzen 7 thread alignment
+            n_gpu_layers=100,     # HARD ENFORCED: Push everything to VRAM
+            n_batch=1024,         # OPTIMIZATION: Double ingestion speed for heavy PDF prompts
+            flash_attn=True,      # OPTIMIZATION: Halves VRAM usage for the expanded context window
+            verbose=True,         # HARD ENFORCED: Show C++ backend logs
         )
         print(f">> [SUCCESS] Peridot Brain Online. (Free VRAM: {get_vram_free()}MB)")
         threading.Thread(target=idle_monitor, daemon=True).start()
@@ -163,15 +165,17 @@ def ask():
         output = llm(
             full_prompt, 
             max_tokens=MAX_TOKENS, 
-            stop=["User:", "<|eot_id|>"], 
+            # CRITICAL FIX: Added strict Llama-3 stop tokens
+            stop=["<|eot_id|>", "<|start_header_id|>", "assistant\n", "User:"], 
             temperature=TEMPERATURE,
             top_p=TOP_P,
-            repeat_penalty=REPEAT_PENALTY
+            repeat_penalty=REPEAT_PENALTY,
+            echo=False
         )
         return jsonify({"response": output["choices"][0]["text"]})
     except Exception as e:
         print(f"LOG: Internal Inference Error - {e}")
-        return jsonify({"response": "An internal error occurred during inference. Please try again."}), 500
+        return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
 
 @app.route("/shutdown", methods=["POST"])
 @require_auth

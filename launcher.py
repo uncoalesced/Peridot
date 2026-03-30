@@ -1,3 +1,8 @@
+# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL | IGNITION LAUNCHER
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
+
 import subprocess
 import time
 import sys
@@ -24,7 +29,9 @@ def kill_proc_tree(pid, including_parent=True):
         pass
 
 def main():
-    print(">> Initializing Peridot Sovereign Kernel...")
+    print("==================================================")
+    print("  PERIDOT SOVEREIGN KERNEL | INITIATING IGNITION")
+    print("==================================================")
 
     # Pass the RAM-injected environment variables to our child processes
     custom_env = os.environ.copy()
@@ -33,19 +40,28 @@ def main():
     server_cmd = [sys.executable, "server.py"]
     
     try:
-        server_log = open(LOG_PATH / "server.log", "a")
+        server_log_path = LOG_PATH / "server.log"
+        # Overwrite ('w') instead of append ('a') to prevent the log from becoming a 5GB text file over time
+        server_log = open(server_log_path, "w") 
         server_process = subprocess.Popen(
-            server_cmd, cwd=os.getcwd(), stdout=server_log, stderr=server_log, env=custom_env
+            server_cmd, cwd=os.getcwd(), stdout=server_log, stderr=subprocess.STDOUT, env=custom_env
         )
     except Exception as e:
         print(f"FATAL: Inference server failed to start: {e}")
         sys.exit(1)
 
-    print(">> [WAIT] Verifying VRAM and API health...")
+    print(">> [WAIT] Allocating VRAM and verifying API health...")
     health_url = f"http://{SERVER_HOST}:{SERVER_PORT}/health"
     
     server_ready = False
-    for _ in range(30):
+    
+    # OPTIMIZATION: Increased timeout to 120s. Hardware allocation takes time.
+    for _ in range(120):
+        # Fail fast if the process died prematurely (e.g., CUDA OOM crash)
+        if server_process.poll() is not None:
+            print("\n[SYSTEM ERROR] Neural Engine crashed during boot.")
+            break
+
         try:
             r = requests.get(health_url, timeout=1)
             if r.status_code == 200:
@@ -53,10 +69,23 @@ def main():
                 break
         except requests.exceptions.RequestException:
             pass
+        
         time.sleep(1)
+        sys.stdout.write(".")
+        sys.stdout.flush()
+
+    print("") # Clear the dot-loading line
 
     if not server_ready:
-        print("ERROR: Server failed to start or timed out.")
+        print("ERROR: Engine failed to establish Neural Link.")
+        try:
+            with open(server_log_path, "r") as f:
+                lines = f.readlines()
+                print("\n--- CRASH LOG DUMP ---")
+                print("".join(lines[-10:])) # Print exact reason for failure
+                print("----------------------\n")
+        except:
+            pass
         kill_proc_tree(server_process.pid)
         sys.exit(1)
 
@@ -77,7 +106,7 @@ def main():
         if token_path.exists():
             try:
                 token_path.unlink()
-            except Exception as e:
+            except Exception:
                 pass
                 
         print(">> Neural Link Severed. Goodbye.")

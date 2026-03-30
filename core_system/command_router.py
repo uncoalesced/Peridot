@@ -1,5 +1,7 @@
-# core_system/command_router.py
+# -----------------------------------------------------------------------------
+# PERIDOT COMMAND ROUTER
 # Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
 
 import logging
 import requests
@@ -19,6 +21,7 @@ class CommandRouter:
             "clear": self.clear_command,
             "status": self.status_command,
             "research": self.research_command,
+            "vault": self.vault_command,
             "exit": self.exit_command,
         }
 
@@ -41,6 +44,7 @@ class CommandRouter:
             "help        - Show this menu\n"
             "clear       - Clear chat history\n"
             "status      - Show system vitals\n"
+            "vault [Q]   - Search local PDFs for query [Q]\n"
             "research    - Medical Research Controls\n"
             "  > enable  : Turn on auto-contribution (VRAM State Machine)\n"
             "  > disable : Turn off contribution\n"
@@ -57,10 +61,40 @@ class CommandRouter:
         self.core.chat_memory = []
         return "[SYSTEM] Memory & Screen Cleared."
 
+    def vault_command(self, args):
+        """Triggers the Layer 2 PDF Vault search explicitly."""
+        if not args:
+            return "[SYSTEM] Please specify what you want to research in the vault (e.g., 'vault Tell me about the Riddler')."
+
+        if self.core.ui:
+            self.core.ui.display_system_message(f">> Initiating Layer 2 Vault Extraction for: '{args}'")
+
+        vault_context = self.core.vault.search(args)
+        
+        if vault_context:
+            if self.core.ui:
+                self.core.ui.display_system_message(">> Target Acquired. Injecting context into VRAM...")
+            augmented_prompt = (
+                f"Using ONLY the following verified data from the system vault, answer the query.\n"
+                f"If the data does not contain the answer, say 'The vault does not contain information on this topic.'\n\n"
+                f"VAULT DATA:\n{vault_context}\n\n"
+                f"USER QUERY: {args}"
+            )
+            # CRITICAL FIX: Bypass chat memory to prevent context poisoning
+            return self.core._ask_ai_isolated(augmented_prompt)
+        else:
+            return "No matching records found in the Layer 2 Vault for that query."
+
     def status_command(self, args):
         ears_status = (
             "ONLINE"
             if getattr(self.core, "ears", None) and self.core.ears.is_loaded
+            else "OFFLINE"
+        )
+        
+        vault_status = (
+            f"ONLINE ({self.core.vault.index.ntotal} sectors)"
+            if getattr(self.core, "vault", None) and self.core.vault.index
             else "OFFLINE"
         )
         
@@ -82,6 +116,7 @@ class CommandRouter:
         return (
             f"SYSTEM STATUS:\n"
             f"  > Audio:    [{ears_status}]\n"
+            f"  > L2 Vault: [{vault_status}]\n"
             f"  > VRAM MGR: [{research_status}]\n"
             f"  > Brain:    [LINKED]"
         )

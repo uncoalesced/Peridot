@@ -7,10 +7,10 @@ import threading
 import logging
 import os
 
-logger = logging.getLogger("iCould-Ears")
+logger = logging.getLogger("Peridot-Ears")
 
 
-class PeridotEars:  # Renamed class to match core.py expectation if needed, or keep iCouldEars
+class PeridotEars:
     def __init__(self):
         self.model = None
         self.is_loaded = False

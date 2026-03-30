@@ -13,6 +13,8 @@ from core_system.enhancedlogger import logger
 from core_system.command_router import CommandRouter
 from core_system.research import MedicalResearchModule
 from core_system.security import sanitize_input, load_constitution
+from core_system.memory.ephemeral_cache import EphemeralCache
+from core_system.memory.vault import PeridotVault
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
 
 def safe_import(module_path, class_names):
@@ -45,12 +47,19 @@ class PeridotCore:
         self.context_history = collections.deque(maxlen=5)
         self.last_interaction_time = time.time()
         
-        # Load Security Configuration (Task 5)
+        # Load Security Configuration
         self.constitution = load_constitution()
 
         # Core Modules
         self.research = MedicalResearchModule(core=self)
         self.command_router = CommandRouter(core=self)
+        
+        # [v1.2.3] Layer 1 Ephemeral RAM Cache
+        self.l1_cache = EphemeralCache(threshold=0.90)
+        
+        # [v2.0] Layer 2 Persistent PDF Vault
+        self.vault = PeridotVault()
+        
         self.logger.info("Kernel logic initialized.", source="CORE")
 
     def start(self):
@@ -63,11 +72,13 @@ class PeridotCore:
         if self.ui:
             self.ui.display_system_message(">> Neural Link: [ESTABLISHED]")
             self.ui.display_system_message(">> VRAM State Machine: [ACTIVE]")
+            self.ui.display_system_message(">> L1 Memory Cache: [ONLINE]")
+            self.ui.display_system_message(">> L2 PDF Vault: [ONLINE]")
             self.ui.display_system_message(">> Diagnostics: [OK]")
             self.ui.display_system_message("System Online. Waiting for input.")
 
     def _mount_subsystems(self):
-        ears_class = safe_import("core_system.ears", ["PeridotEars", "iCouldEars"])
+        ears_class = safe_import("core_system.ears", ["PeridotEars"])
         if ears_class:
             try:
                 self.ears = ears_class()
@@ -89,7 +100,7 @@ class PeridotCore:
 
         self.last_interaction_time = time.time()
         
-        # Task 1: Security Gate - Sanitize Input BEFORE processing
+        # 1. Security Gate - Sanitize Input BEFORE processing
         clean_text, is_safe = sanitize_input(text)
         if not is_safe:
             self.logger.warning("Malicious input intercepted and destroyed.", source="SECURITY")
@@ -100,10 +111,28 @@ class PeridotCore:
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
 
+        # 2. System Command Routing
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        return self._ask_ai_with_memory(clean_text)
+        # 3. [v1.2.3] Layer 1 Memory Cache Intercept
+        start_time = time.time()
+        cached_response = self.l1_cache.search(clean_text)
+        
+        if cached_response:
+            latency = (time.time() - start_time) * 1000
+            if self.ui:
+                self.ui.display_system_message(f">> L1 Cache Hit: Served from RAM in {latency:.2f}ms")
+            return cached_response
+
+        # 4. Cold Query the LLM (Default conversational behavior)
+        response = self._ask_ai_with_memory(clean_text)
+        
+        # 5. Save response to Layer 1 Cache ONLY if the server didn't crash
+        if "[SYSTEM ERROR]" not in response:
+            self.l1_cache.add(query=clean_text, response=response)
+        
+        return response
 
     def _ask_ai_with_memory(self, user_text):
         self.chat_memory.append({"role": "user", "content": user_text})
@@ -123,10 +152,20 @@ class PeridotCore:
         self.chat_memory.append({"role": "assistant", "content": response})
         return response
 
+    def _ask_ai_isolated(self, prompt):
+        """Bypasses conversational memory for sterile RAG extraction."""
+        full_prompt = (
+            f"<|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_IDENTITY}<|eot_id|>"
+            f"<|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|>"
+            f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+        )
+        return self._send_to_server(full_prompt)
+
     def _send_to_server(self, prompt):
         try:
             headers = {"Authorization": f"Bearer {API_KEY}"}
-            r = requests.post(AI_SERVER_URL, json={"command": prompt}, headers=headers, timeout=120)
+            # Timeout extended to 180s to account for heavy contextual processing
+            r = requests.post(AI_SERVER_URL, json={"command": prompt}, headers=headers, timeout=180)
             r.raise_for_status()
             return r.json().get("response", "No response from brain.")
         except requests.exceptions.RequestException as e:

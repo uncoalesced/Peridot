@@ -20,10 +20,17 @@ MODEL_PATH = MODEL_DIR / "Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
 MODEL_TYPE = "llama-3"
 QUANTIZATION = "Q4_K_M"
 
-# GPU Configuration
-GPU_LAYERS = 33  # Adjust based on VRAM (6GB = ~28, 8GB = ~33)
-MAX_TOKENS = 8192
-CONTEXT_LENGTH = 8192
+# --- GPU & MEMORY SAFETY LIMITS (RTX 5050 8GB PROFILE) ---
+# Offloads 28 layers to GPU, leaves 4 on CPU. 
+# This prevents the LLM from fighting Windows for the last 1GB of VRAM.
+GPU_LAYERS = 28 
+
+# Hard cap on the generation buffer to prevent runaway memory allocation
+MAX_TOKENS = 512
+
+# Sliced from 8192 to 2048 to drastically shrink the KV Cache footprint
+CONTEXT_LENGTH = 2048
+# ---------------------------------------------------------
 
 # Inference Settings
 TEMPERATURE = 0.7
