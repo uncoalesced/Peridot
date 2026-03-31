@@ -72,26 +72,6 @@ Most AI assistants are surveillance infrastructure with a chat interface. Perido
 
 ---
 
-## `> SECURITY (v1.2.2 NEW)`
-
-Peridot v1.2.2 introduces a **hardened defense-in-depth security architecture** protecting the inference engine from malicious input and unauthorized access.
-
-### Input Sanitization
-
-All user prompts are sanitized **before** reaching the LLM. Blocked patterns include:
-
-```python
-<script>         # XSS attacks
-eval()           # Code execution
-os.system()      # Shell injection
-__import__       # Python import abuse
-subprocess.      # Subprocess exploitation
-```
-
-Malicious inputs are **immediately rejected** and logged to `logs/security.log`.
-
----
-
 ### File Access Blacklist
 
 The kernel actively blocks access to sensitive files and directories:
@@ -150,6 +130,26 @@ ALLOWED_COMMANDS = ("pause", "unpause", "finish", "shutdown")
 ```
 
 Any other command is **immediately rejected** and logged as a security violation.
+
+---
+
+## `> SECURITY (v1.2.2 NEW)`
+
+Peridot v1.2.2 introduces a **hardened defense-in-depth security architecture** protecting the inference engine from malicious input and unauthorized access.
+
+### Input Sanitization
+
+All user prompts are sanitized **before** reaching the LLM. Blocked patterns include:
+
+```python
+<script>         # XSS attacks
+eval()           # Code execution
+os.system()      # Shell injection
+__import__       # Python import abuse
+subprocess.      # Subprocess exploitation
+```
+
+Malicious inputs are **immediately rejected** and logged to `logs/security.log`.
 
 ---
 
