@@ -224,6 +224,47 @@ When a user query arrives, the system sends a WebSocket `pause` command to Foldi
 
 Peridot is built as a set of independent, composable modules. Each subsystem can be enabled, configured, or disabled without touching the core kernel.
 
+### Core Architecture & Feature Matrix
+
+**1. High-Velocity RAG Pipeline (Layer 1 RAM Cache)**
+
+The Retrieval-Augmented Generation (RAG) engine operates entirely in-memory for zero-latency context retrieval.
+
+- **Vector Search Engine:** Utilizes `faiss-cpu` for localized, high-density vector indexing and similarity search. This avoids the overhead of external vector databases, keeping the embedding search strictly within local RAM.
+- **Semantic Embeddings:** Powered by `sentence-transformers`, generating dense vector representations of textual data locally.
+- **Context Injection:** Seamlessly fetches mathematically relevant document chunks and injects them into the LLM context window prior to generation, ensuring grounded and context-aware responses without internet access.
+
+**2. Optimized Local Inference Engine**
+
+The generation layer is built for hardware efficiency and execution speed.
+
+- **GGUF/Quantized Execution:** Built on `llama-cpp-python`, allowing the kernel to run heavily quantized LLMs (e.g., 4-bit or 8-bit). This is strictly optimized to keep large models within an 8GB VRAM threshold while offloading secondary layers to the system CPU.
+- **PyTorch Backend:** Integrated `torch` support for custom tensor operations, embedding generation, and potential multimodal routing.
+
+**3. Dynamic Hardware Telemetry & Load Balancing**
+
+The kernel does not operate blindly; it maintains real-time awareness of the host hardware state to prevent thermal throttling and out-of-memory (OOM) crashes.
+
+- **GPU Monitoring:** Uses `nvidia-ml-py` to track VRAM allocation, GPU utilization, and core temperatures on Nvidia hardware (e.g., RTX 50-series) at the driver level.
+- **System Telemetry:** Employs `psutil` to monitor system RAM (optimizing for 16GB environments) and CPU thread saturation (optimized for Ryzen architectures).
+- **Adaptive Throttling:** The pipeline can dynamically adjust batch sizes or queue requests if the hardware telemetry detects resource exhaustion.
+
+**4. Asynchronous API & Gateway Services**
+
+Peridot acts as a localized server backbone, ready to interface with client applications.
+
+- **RESTful Backbone:** Built on `Flask` and `Werkzeug` to provide secure, local HTTP endpoints for client requests.
+- **Real-Time Bi-Directional Streaming:** Integrates `websocket-client` for continuous, low-latency data streams—critical for real-time transcription, screen-sharing analysis, or ongoing chat generation without HTTP overhead.
+- **Cross-Origin Support:** `flask-cors` ensures seamless integration with separate front-end interfaces or local network applications.
+
+**5. Persistent State & Thread-Safe Caching**
+
+Maintains structural integrity during continuous read/write operations.
+
+- **Asynchronous File Locking:** Uses `filelock` to prevent race conditions when multiple concurrent kernel processes attempt to read or write to the same memory banks or configuration files.
+- **High-Speed Disk Caching:** Utilizes `diskcache` backed by SQLite for lightning-fast retrieval of frequent queries or intermediate tensor states, reducing redundant computational overhead.
+- **Multimodal Readiness:** Incorporates `Pillow` for localized image processing and transformation before passing visual data into the inference or RAG pipelines.
+
 ---
 
 ### `[01] — Inference Engine`
@@ -580,7 +621,7 @@ For full philosophical reasoning, see [PHILOSOPHY.md](PHILOSOPHY.md).
 
 <div align="center">
 
-`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.2.2 BETA`
+`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.3 BETA`
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 
