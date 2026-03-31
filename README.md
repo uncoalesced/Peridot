@@ -185,8 +185,8 @@ Measured on **real hardware**. No overclocking. No cherry-picked runs.
 
 ### Inference Benchmarks
 
-> **Note:** Benchmark images will be added in the next commit.  
-> Current data is measured via `benchmark.py` in the repository.
+> **Note:** Benchmark images will be added in the upcoming commits.  
+> Current data is measured via the `\benchmarking` folder in the repository.
 
 | Task | Output Tokens | Throughput |
 |:-----|:-------------:|:----------:|
@@ -207,7 +207,7 @@ Measured on **real hardware**. No overclocking. No cherry-picked runs.
 
 Dynamic GPU resource reallocation between Folding@Home and inference.
 
-> **Note:** VRAM handoff benchmark images will be added in the next commit.
+> **Note:** VRAM handoff benchmark images will be added in the upcoming commits.
 
 **Measured Latencies:**
 - **VRAM Hot-Swap:** 6.55 ms (pause command → VRAM freed)
