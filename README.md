@@ -133,9 +133,9 @@ Any other command is **immediately rejected** and logged as a security violation
 
 ---
 
-## `> SECURITY (v1.2.2 NEW)`
+## `> SECURITY`
 
-Peridot v1.2.2 introduces a **hardened defense-in-depth security architecture** protecting the inference engine from malicious input and unauthorized access.
+Peridot v1.2.2 introduced a **hardened defense-in-depth security architecture** protecting the inference engine from malicious input and unauthorized access.
 
 ### Input Sanitization
 
