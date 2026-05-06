@@ -32,31 +32,42 @@ def run_benchmark():
     # 1. Spin up FAH
     print(">> Forcing FAH into Folding State (Allocating VRAM)...")
     send_fah_command("fold")
-    time.sleep(5)  # Give the CUDA core 5 seconds to fully saturate the GPU
+    time.sleep(5)
 
     # 2. Measure Handoff
     print(">> Firing VRAM Purge Signal...")
     latency_ms = send_fah_command("pause")
     print(f">> [RESULT] WebSocket Handoff Latency: {latency_ms:.2f} ms")
 
-    # 3. Load Model (Simulating the immediate inference demand)
+    # 3. Load Model
     print("\n>> Loading Neural Engine to claim cleared VRAM...")
     llm = Llama(
         model_path=MODEL_PATH,
         n_ctx=2048,
-        n_threads=8,  # Ryzen 7 Optimization
-        n_gpu_layers=33,  # RTX 5050 Engaged
+        n_threads=8,
+        n_gpu_layers=33,
         verbose=False,
     )
 
     # 4. Measure TPS
     print(">> Running 100-token stress test...")
     start_tps = time.perf_counter()
-    output = llm("Explain the architecture of a GPU in detail.", max_tokens=100)
+    output = llm(
+        "Explain the architecture of a GPU in detail.",
+        max_tokens=100
+    )
     duration = time.perf_counter() - start_tps
 
-    tokens = output["usage"]["completion_tokens"]
-    tps = tokens / duration
+    # Robust token extraction
+    tokens = 0
+    if isinstance(output, dict):
+        if "usage" in output and "completion_tokens" in output["usage"]:
+            tokens = output["usage"]["completion_tokens"]
+        elif "choices" in output:
+            text = output["choices"][0]["text"]
+            tokens = int(len(text.split()) * 1.3)
+
+    tps = tokens / duration if duration > 0 else 0
 
     print(f">> [RESULT] Sustained Inference Speed: {tps:.2f} t/s")
     print(f"{'='*50}\n")

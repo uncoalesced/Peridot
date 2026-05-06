@@ -17,9 +17,8 @@ from benchmark_utils import (
     BenchmarkResult, get_system_info, format_duration, logger, ProgressBar
 )
 
-
 # Configuration
-API_URL = "http://localhost:5000/chat"
+API_URL = "http://localhost:5000/ask"
 RESULTS_DIR = Path(__file__).parent.parent / "results"
 
 
@@ -30,26 +29,24 @@ def get_peridot_memory():
             cmdline = proc.info['cmdline']
             if cmdline and any('launcher.py' in str(cmd) for cmd in cmdline):
                 mem_info = proc.memory_info()
-                return mem_info.rss / (1024 * 1024)  # MB
+                return mem_info.rss / (1024 * 1024)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return None
 
 
 def count_tokens_rough(text: str) -> int:
-    """Rough token count approximation."""
     return int(len(text.split()) * 1.3)
 
 
 def run_query(prompt: str, max_tokens: int = 100):
-    """Run a single query and return metrics."""
     import os
     headers = {"Content-Type": "application/json"}
     api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     
-    payload = {"message": prompt, "max_tokens": max_tokens}
+    payload = {"command": prompt}
     
     start = time.time()
     response = requests.post(API_URL, json=payload, headers=headers, timeout=60)
@@ -70,12 +67,10 @@ def run_query(prompt: str, max_tokens: int = 100):
 
 
 def main():
-    """Run sustained load benchmark."""
     logger.info("\n" + "="*60)
     logger.info("PERIDOT SUSTAINED LOAD BENCHMARK")
     logger.info("="*60 + "\n")
     
-    # Check if Peridot is running
     try:
         response = requests.get("http://localhost:5000/health", timeout=2)
         if response.status_code != 200:
@@ -85,20 +80,17 @@ def main():
         logger.error("Peridot is not running! Please start Peridot first.")
         sys.exit(1)
     
-    # Get initial state
     initial_mem = get_peridot_memory()
     if not initial_mem:
         logger.error("Could not find Peridot process!")
         sys.exit(1)
     
-    # Gather system info
     system_info = get_system_info()
     logger.info("System Information:")
     for key, value in system_info.items():
         logger.info(f"  {key}: {value}")
     logger.info("")
     
-    # Configuration
     duration_minutes = 10
     duration_seconds = duration_minutes * 60
     
@@ -110,7 +102,6 @@ def main():
     logger.warning("⚠️  This benchmark will run for 10 minutes!")
     logger.warning("⚠️  Press Ctrl+C to stop early (results will still be saved)\n")
     
-    # Create result container
     result = BenchmarkResult(
         name="sustained_load",
         description=f"Sustained load test over {duration_minutes} minutes"
@@ -119,7 +110,6 @@ def main():
     result.add_metadata("duration_minutes", duration_minutes)
     result.add_metadata("initial_memory_mb", initial_mem)
     
-    # Test prompts (varied to simulate real usage)
     prompts = [
         "Explain machine learning briefly.",
         "What is quantum computing?",
@@ -133,7 +123,6 @@ def main():
         "Explain unsupervised learning."
     ]
     
-    # Run sustained load
     start_time = time.time()
     query_count = 0
     successful_queries = 0
@@ -154,15 +143,13 @@ def main():
             prompt = prompts[query_count % len(prompts)]
             
             try:
-                # Run query
-                metrics = run_query(prompt, max_tokens=100)
+                metrics = run_query(prompt)
                 
                 successful_queries += 1
                 throughputs.append(metrics['throughput'])
                 response_times.append(metrics['elapsed'])
                 timestamps.append(metrics['timestamp'])
                 
-                # Sample memory every 20 queries
                 if successful_queries % 20 == 0:
                     mem = get_peridot_memory()
                     if mem:
@@ -172,7 +159,6 @@ def main():
                             "elapsed_time_s": elapsed_time
                         })
                 
-                # Log progress
                 if successful_queries % 10 == 0:
                     import statistics
                     avg_throughput = statistics.mean(throughputs[-10:])
@@ -183,8 +169,6 @@ def main():
                     )
                 
                 query_count += 1
-                
-                # Small delay to prevent overwhelming
                 time.sleep(0.2)
                 
             except Exception as e:
@@ -199,15 +183,11 @@ def main():
         logger.info("Saving partial results...\n")
     
     total_time = time.time() - start_time
-    
-    # Get final memory
     final_mem = get_peridot_memory()
     
-    # Add data to result
     import statistics
     
     if throughputs:
-        # Use throughput as primary metric
         for tp in throughputs:
             result.add_measurement(tp)
         
@@ -229,10 +209,8 @@ def main():
             result.add_metadata("final_memory_mb", final_mem)
             result.add_metadata("memory_growth_mb", final_mem - initial_mem)
     
-    # Save result
     result.save(RESULTS_DIR)
     
-    # Print summary
     logger.info("\n" + "="*60)
     logger.info("SUSTAINED LOAD SUMMARY")
     logger.info("="*60 + "\n")
@@ -277,7 +255,6 @@ def main():
                 logger.warning("  ⚠️  Significant memory growth")
         logger.info("")
     
-    # Check for performance degradation
     if len(throughputs) > 20:
         first_20 = statistics.mean(throughputs[:20])
         last_20 = statistics.mean(throughputs[-20:])

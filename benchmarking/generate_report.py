@@ -14,9 +14,13 @@ OUTPUT_DIR = Path(__file__).parent.parent / "reports"
 
 
 def load_latest_result(benchmark_name: str):
-    """Load the most recent result file for a benchmark."""
-    pattern = f"{benchmark_name}_*.json"
-    files = sorted(RESULTS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    patterns = [f"{benchmark_name}_*.json", f"{benchmark_name}*.json"]
+    
+    files = []
+    for pattern in patterns:
+        files.extend(RESULTS_DIR.glob(pattern))
+    
+    files = sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
     
     if not files:
         return None
@@ -26,7 +30,6 @@ def load_latest_result(benchmark_name: str):
 
 
 def format_duration(seconds: float) -> str:
-    """Format duration in human-readable format."""
     if seconds < 1:
         return f"{seconds*1000:.2f}ms"
     elif seconds < 60:
@@ -38,19 +41,12 @@ def format_duration(seconds: float) -> str:
 
 
 def generate_readme_section():
-    """Generate the performance section for README.md."""
     output = []
     
     output.append("## `> PERFORMANCE`")
     output.append("")
     output.append("Measured on **real hardware**. No overclocking. No cherry-picked runs.")
     output.append("")
-    
-    # System info from any result
-    inference_result = load_latest_result("inference_short") or load_latest_result("inference_medium")
-    if inference_result and "metadata" in inference_result:
-        # Try to get system info from the result
-        pass
     
     output.append("**Test Hardware:**")
     output.append("- GPU: NVIDIA GeForce RTX 5050 Laptop (8GB VRAM)")
@@ -63,7 +59,6 @@ def generate_readme_section():
     output.append("---")
     output.append("")
     
-    # Inference benchmarks
     output.append("### Inference Benchmarks")
     output.append("")
     
@@ -92,7 +87,6 @@ def generate_readme_section():
                 f"{row['throughput']} | {row['stddev']} |"
             )
         
-        # Calculate sustained average
         throughputs = [float(row['throughput'].split()[0]) for row in inference_data]
         avg_min = min(throughputs)
         avg_max = max(throughputs)
@@ -103,7 +97,6 @@ def generate_readme_section():
     output.append("---")
     output.append("")
     
-    # VRAM Handoff (KILLER FEATURE)
     output.append("### VRAM Handoff Benchmarks ⚡ (Unique Feature)")
     output.append("")
     output.append("When Peridot is idle, your GPU folds proteins for medical research. When you send a query:")
@@ -129,7 +122,6 @@ def generate_readme_section():
     output.append("---")
     output.append("")
     
-    # Cold Start
     output.append("### Cold Start")
     output.append("")
     
@@ -152,7 +144,6 @@ def generate_readme_section():
     output.append("---")
     output.append("")
     
-    # Memory Stability
     output.append("### Memory Stability")
     output.append("")
     
@@ -191,7 +182,6 @@ def generate_readme_section():
 
 
 def generate_full_benchmarks_doc():
-    """Generate complete BENCHMARKS.md document."""
     output = []
     
     output.append("# Peridot Benchmark Results")
@@ -204,7 +194,6 @@ def generate_full_benchmarks_doc():
     output.append("---")
     output.append("")
     
-    # System Information
     output.append("## Test Configuration")
     output.append("")
     output.append("**Hardware:**")
@@ -222,9 +211,10 @@ def generate_full_benchmarks_doc():
     output.append("---")
     output.append("")
     
-    # Detailed results for each benchmark
     benchmarks = [
-        ("inference", "Inference Speed"),
+        ("inference_short", "Inference Speed (Short)"),
+        ("inference_medium", "Inference Speed (Medium)"),
+        ("inference_long", "Inference Speed (Long)"),
         ("vram_handoff", "VRAM Handoff Latency"),
         ("cold_start", "Cold Start Time"),
         ("memory_stability", "Memory Stability"),
@@ -247,7 +237,6 @@ def generate_full_benchmarks_doc():
         stats = result.get("statistics", {})
         metadata = result.get("metadata", {})
         
-        # Statistics table
         if stats:
             output.append("### Summary Statistics")
             output.append("")
@@ -261,15 +250,12 @@ def generate_full_benchmarks_doc():
             output.append(f"| Samples | {stats.get('count', 0)} |")
             output.append("")
         
-        # Benchmark-specific details
-        if bench_id == "inference":
-            if metadata.get('workload_type'):
-                output.append("### Test Details")
-                output.append("")
-                output.append(f"- Workload type: {metadata['workload_type']}")
-                output.append(f"- Average tokens generated: {metadata.get('avg_tokens_generated', 0):.0f}")
-                output.append(f"- Average elapsed time: {format_duration(metadata.get('avg_elapsed_time', 0))}")
-                output.append("")
+        if bench_id.startswith("inference"):
+            output.append("### Test Details")
+            output.append("")
+            output.append(f"- Average tokens generated: {metadata.get('avg_tokens_generated', 0):.0f}")
+            output.append(f"- Average elapsed time: {format_duration(metadata.get('avg_elapsed_time', 0))}")
+            output.append("")
         
         elif bench_id == "vram_handoff":
             output.append("### VRAM Handoff Metrics")
@@ -295,12 +281,12 @@ def generate_full_benchmarks_doc():
         elif bench_id == "gpu_utilization":
             if metadata.get('active_utilization'):
                 active_util = metadata['active_utilization']
+                idle_util = metadata.get('idle_utilization', {})
+                
                 output.append("### GPU Utilization Details")
                 output.append("")
                 output.append("| State | Mean | Median | Range |")
                 output.append("|-------|------|--------|-------|")
-                
-                idle_util = metadata.get('idle_utilization', {})
                 output.append(
                     f"| Idle | {idle_util.get('mean', 0):.1f}% | "
                     f"{idle_util.get('median', 0):.1f}% | "
@@ -339,13 +325,10 @@ def generate_full_benchmarks_doc():
 
 
 def main():
-    """Generate all reports."""
     print("Generating benchmark reports...")
     
-    # Create output directory
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Generate README section
     print("Generating README.md performance section...")
     readme_section = generate_readme_section()
     readme_path = OUTPUT_DIR / "README_PERFORMANCE_SECTION.md"
@@ -353,7 +336,6 @@ def main():
         f.write(readme_section)
     print(f"✅ Saved: {readme_path}")
     
-    # Generate full BENCHMARKS.md
     print("Generating BENCHMARKS.md...")
     benchmarks_doc = generate_full_benchmarks_doc()
     benchmarks_path = OUTPUT_DIR / "BENCHMARKS.md"

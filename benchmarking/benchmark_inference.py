@@ -16,9 +16,8 @@ from benchmark_utils import (
     format_duration, format_throughput, logger
 )
 
-
 # Configuration
-API_URL = "http://localhost:5000/chat"
+API_URL = "http://localhost:5000/ask"
 RESULTS_DIR = Path(__file__).parent.parent / "results"
 
 # Test prompts with expected token ranges
@@ -48,29 +47,20 @@ TEST_WORKLOADS = [
 
 
 def count_tokens_rough(text: str) -> int:
-    """Rough token count (word-based approximation)."""
-    # More accurate: split by whitespace and punctuation
     words = text.split()
-    # Approximate: 1 word ≈ 1.3 tokens for English
     return int(len(words) * 1.3)
 
 
 def measure_inference_speed(prompt: str, max_tokens: int) -> dict:
-    """
-    Measure inference speed for a single prompt.
-    Returns dict with tokens generated, time elapsed, and throughput.
-    """
     headers = {"Content-Type": "application/json"}
     
-    # Try to get API key from environment
     import os
     api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     
     payload = {
-        "message": prompt,
-        "max_tokens": max_tokens
+        "command": prompt
     }
     
     start_time = time.time()
@@ -84,10 +74,7 @@ def measure_inference_speed(prompt: str, max_tokens: int) -> dict:
         data = response.json()
         response_text = data.get("response", "")
         
-        # Count tokens in response
         tokens = count_tokens_rough(response_text)
-        
-        # Calculate throughput
         throughput = tokens / elapsed if elapsed > 0 else 0
         
         return {
@@ -106,7 +93,6 @@ def measure_inference_speed(prompt: str, max_tokens: int) -> dict:
 
 
 def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
-    """Run benchmark for a specific workload type."""
     logger.info(f"\n{'='*60}")
     logger.info(f"Benchmarking: {workload['name']} ({workload['description']})")
     logger.info(f"Prompt: {workload['prompt'][:50]}...")
@@ -118,13 +104,11 @@ def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
         description=f"Inference speed for {workload['description']}"
     )
     
-    # Add workload metadata
     result.add_metadata("workload_type", workload['name'])
     result.add_metadata("prompt", workload['prompt'])
     result.add_metadata("max_tokens", workload['max_tokens'])
     result.add_metadata("expected_tokens", workload['expected_tokens'])
     
-    # Warmup run
     logger.info("Warmup run...")
     try:
         measure_inference_speed(workload['prompt'], workload['max_tokens'])
@@ -132,7 +116,6 @@ def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
     except Exception as e:
         logger.warning(f"Warmup failed: {e}")
     
-    # Collect measurements
     throughputs = []
     tokens_generated = []
     elapsed_times = []
@@ -151,18 +134,15 @@ def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
             logger.info(f"  Time: {format_duration(measurement['elapsed'])}")
             logger.info(f"  Throughput: {format_throughput(measurement['tokens'], measurement['elapsed'])}")
             
-            # Small delay between runs
             time.sleep(0.5)
             
         except Exception as e:
             logger.error(f"Run {i+1} failed: {e}")
             continue
     
-    # Store throughput measurements
     for tp in throughputs:
         result.add_measurement(tp)
     
-    # Add detailed metadata
     if throughputs:
         import statistics
         result.add_metadata("avg_tokens_generated", statistics.mean(tokens_generated))
@@ -175,12 +155,10 @@ def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
 
 
 def main():
-    """Run all inference benchmarks."""
     logger.info("\n" + "="*60)
     logger.info("PERIDOT INFERENCE SPEED BENCHMARK")
     logger.info("="*60 + "\n")
     
-    # Check if Peridot is running
     try:
         response = requests.get("http://localhost:5000/health", timeout=2)
         if response.status_code != 200:
@@ -191,24 +169,20 @@ def main():
         logger.error("Run: python launcher.py")
         sys.exit(1)
     
-    # Gather system info
     system_info = get_system_info()
     logger.info("System Information:")
     for key, value in system_info.items():
         logger.info(f"  {key}: {value}")
     logger.info("")
     
-    # Run benchmarks for each workload
     all_results = []
     
     for workload in TEST_WORKLOADS:
         result = run_workload_benchmark(workload, runs=10)
         all_results.append(result)
         
-        # Save individual result
         result.save(RESULTS_DIR)
         
-        # Print summary
         stats = result.get_statistics()
         logger.info(f"\n{workload['name'].upper()} Summary:")
         logger.info(f"  Mean throughput: {stats['mean']:.2f} t/s")
@@ -217,7 +191,6 @@ def main():
         logger.info(f"  Range: {stats['min']:.2f} - {stats['max']:.2f} t/s")
         logger.info("")
     
-    # Create combined summary
     logger.info("\n" + "="*60)
     logger.info("OVERALL SUMMARY")
     logger.info("="*60 + "\n")
@@ -235,16 +208,13 @@ def main():
             "Std Dev": f"±{stats['stdev']:.2f}"
         })
     
-    # Print table
     headers = list(summary_table[0].keys())
     col_widths = {h: max(len(h), max(len(str(row[h])) for row in summary_table)) for h in headers}
     
-    # Header
     header_row = " | ".join(h.ljust(col_widths[h]) for h in headers)
     logger.info(header_row)
     logger.info("-" * len(header_row))
     
-    # Rows
     for row in summary_table:
         logger.info(" | ".join(str(row[h]).ljust(col_widths[h]) for h in headers))
     

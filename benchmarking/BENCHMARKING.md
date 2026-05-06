@@ -21,7 +21,7 @@ Start the server directly while injecting a benchmark key.
 ### Windows (PowerShell)
 
 ```powershell
-$env:PERIDOT_AUTH_TOKEN="BENCHMARK_KEY"
+$env:PERIDOT_AUTH_TOKEN="08101954"
 python server.py
 ```
 

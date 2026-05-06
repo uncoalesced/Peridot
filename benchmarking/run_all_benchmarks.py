@@ -1,260 +1,151 @@
 """
-Master Benchmark Runner
-Runs all benchmarks in sequence and generates comprehensive report.
-# Engineered by uncoalesced
+Master Benchmark Runner (Unified + Auto Report)
+Runs all benchmarks, ensures correct execution order, and generates final report.
+Engineered by uncoalesced
 """
 
 import sys
 import subprocess
 import time
-import json
 from pathlib import Path
 from datetime import datetime
 
-# Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
+# Paths
+BASE_DIR = Path(r"E:\Peridot\benchmarking")
+RESULTS_DIR = BASE_DIR.parent / "results"
+REPORT_SCRIPT = BASE_DIR / "generate_report.py"
+
+# Add utils
+sys.path.insert(0, str(BASE_DIR))
 from benchmark_utils import logger, get_system_info
 
-
-SCRIPTS_DIR = Path(__file__).parent
-RESULTS_DIR = Path(__file__).parent.parent / "results"
-
-
-# Define all available benchmarks
+# Ordered benchmarks (IMPORTANT: dependency-safe order)
 BENCHMARKS = [
-    {
-        "name": "inference",
-        "script": "benchmark_inference.py",
-        "description": "Inference speed across workload sizes",
-        "priority": "critical",
-        "estimated_time": "2-3 minutes"
-    },
-    {
-        "name": "vram_handoff",
-        "script": "benchmark_vram_handoff.py",
-        "description": "VRAM handoff latency (UNIQUE FEATURE)",
-        "priority": "critical",
-        "estimated_time": "3-4 minutes"
-    },
-    {
-        "name": "cold_start",
-        "script": "benchmark_cold_start.py",
-        "description": "Cold start time from stopped to ready",
-        "priority": "critical",
-        "estimated_time": "5-7 minutes",
-        "warning": "Will stop and restart Peridot"
-    },
-    {
-        "name": "memory_stability",
-        "script": "benchmark_memory_stability.py",
-        "description": "Memory usage over consecutive queries",
-        "priority": "important",
-        "estimated_time": "2-3 minutes"
-    },
-    {
-        "name": "gpu_utilization",
-        "script": "benchmark_gpu_utilization.py",
-        "description": "GPU usage during inference",
-        "priority": "important",
-        "estimated_time": "1-2 minutes"
-    },
-    {
-        "name": "context_scaling",
-        "script": "benchmark_context_scaling.py",
-        "description": "Performance vs context window size",
-        "priority": "important",
-        "estimated_time": "3-5 minutes"
-    },
-    {
-        "name": "sustained_load",
-        "script": "benchmark_sustained_load.py",
-        "description": "Extended continuous use test",
-        "priority": "optional",
-        "estimated_time": "10+ minutes",
-        "warning": "Long-running benchmark"
-    }
+    ("inference", "benchmark_inference.py"),
+    ("vram_handoff", "benchmark_vram_handoff.py"),
+    ("cold_start", "benchmark_cold_start.py"),
+    ("memory_stability", "benchmark_memory_stability.py"),
+    ("gpu_utilization", "benchmark_gpu_utilization.py"),
+    ("context_scaling", "benchmark_context_scaling.py"),
+    ("sustained_load", "benchmark_sustained_load.py"),
 ]
 
 
-def run_benchmark(benchmark: dict) -> bool:
-    """Run a single benchmark script."""
-    script_path = SCRIPTS_DIR / benchmark["script"]
-    
+def run_script(script_name: str) -> bool:
+    script_path = BASE_DIR / script_name
+
     if not script_path.exists():
-        logger.error(f"Script not found: {script_path}")
+        logger.error(f"[MISSING] {script_name}")
         return False
-    
-    logger.info("\n" + "="*60)
-    logger.info(f"RUNNING: {benchmark['name']}")
-    logger.info(f"Description: {benchmark['description']}")
-    logger.info(f"Estimated time: {benchmark['estimated_time']}")
-    if "warning" in benchmark:
-        logger.warning(f"⚠️  {benchmark['warning']}")
-    logger.info("="*60 + "\n")
-    
+
+    logger.info("\n" + "=" * 70)
+    logger.info(f"RUNNING: {script_name}")
+    logger.info("=" * 70 + "\n")
+
     try:
         result = subprocess.run(
             [sys.executable, str(script_path)],
-            cwd=script_path.parent,
-            timeout=900  # 15 minute timeout
+            cwd=str(BASE_DIR),
+            timeout=1800  # 30 min max per benchmark
         )
-        
+
         if result.returncode == 0:
-            logger.info(f"\n✅ {benchmark['name']} completed successfully")
+            logger.info(f"[SUCCESS] {script_name}")
             return True
         else:
-            logger.error(f"\n❌ {benchmark['name']} failed with code {result.returncode}")
+            logger.error(f"[FAILED] {script_name} (code {result.returncode})")
             return False
-            
+
     except subprocess.TimeoutExpired:
-        logger.error(f"\n❌ {benchmark['name']} timed out after 15 minutes")
+        logger.error(f"[TIMEOUT] {script_name}")
         return False
     except Exception as e:
-        logger.error(f"\n❌ {benchmark['name']} failed: {e}")
+        logger.error(f"[ERROR] {script_name}: {e}")
         return False
+
+
+def generate_report():
+    if not REPORT_SCRIPT.exists():
+        logger.warning("Report generator not found, skipping...")
+        return
+
+    logger.info("\n" + "=" * 70)
+    logger.info("GENERATING UNIFIED REPORT")
+    logger.info("=" * 70 + "\n")
+
+    try:
+        subprocess.run(
+            [sys.executable, str(REPORT_SCRIPT)],
+            cwd=str(BASE_DIR),
+            timeout=120
+        )
+        logger.info("[SUCCESS] Report generated")
+    except Exception as e:
+        logger.error(f"[ERROR] Report generation failed: {e}")
 
 
 def main():
-    """Run benchmark suite."""
-    logger.info("\n" + "="*80)
-    logger.info("PERIDOT COMPREHENSIVE BENCHMARK SUITE")
-    logger.info("="*80 + "\n")
-    
-    # Show system info
-    system_info = get_system_info()
-    logger.info("System Information:")
-    for key, value in system_info.items():
-        logger.info(f"  {key}: {value}")
+    logger.info("\n" + "=" * 80)
+    logger.info("PERIDOT FULL BENCHMARK SUITE (AUTO)")
+    logger.info("=" * 80 + "\n")
+
+    # System Info
+    sys_info = get_system_info()
+    logger.info("System Info:")
+    for k, v in sys_info.items():
+        logger.info(f"  {k}: {v}")
     logger.info("")
-    
-    # Show available benchmarks
-    logger.info("Available benchmarks:\n")
-    
-    critical = [b for b in BENCHMARKS if b['priority'] == 'critical']
-    important = [b for b in BENCHMARKS if b['priority'] == 'important']
-    optional = [b for b in BENCHMARKS if b['priority'] == 'optional']
-    
-    logger.info("CRITICAL (Always run):")
-    for b in critical:
-        logger.info(f"  - {b['name']}: {b['description']} ({b['estimated_time']})")
-    
-    logger.info("\nIMPORTANT (Recommended):")
-    for b in important:
-        logger.info(f"  - {b['name']}: {b['description']} ({b['estimated_time']})")
-    
-    logger.info("\nOPTIONAL (Extended tests):")
-    for b in optional:
-        logger.info(f"  - {b['name']}: {b['description']} ({b['estimated_time']})")
-    
-    logger.info("")
-    
-    # Ask what to run
-    print("\nSelect benchmark suite to run:")
-    print("  1. Critical only (fastest, ~10-15 minutes)")
-    print("  2. Critical + Important (recommended, ~15-25 minutes)")
-    print("  3. All benchmarks (comprehensive, ~25-40 minutes)")
-    print("  4. Custom selection")
-    print("  q. Quit")
-    
-    choice = input("\nYour choice [1-4, q]: ").strip().lower()
-    
-    if choice == 'q':
-        logger.info("Exiting...")
-        return
-    
-    # Determine which benchmarks to run
-    to_run = []
-    
-    if choice == '1':
-        to_run = critical
-    elif choice == '2':
-        to_run = critical + important
-    elif choice == '3':
-        to_run = BENCHMARKS
-    elif choice == '4':
-        logger.info("\nSelect benchmarks to run (space-separated numbers):")
-        for i, b in enumerate(BENCHMARKS, 1):
-            logger.info(f"  {i}. {b['name']}")
-        
-        selection = input("\nBenchmarks to run (e.g., '1 2 5'): ").strip()
-        try:
-            indices = [int(x) - 1 for x in selection.split()]
-            to_run = [BENCHMARKS[i] for i in indices if 0 <= i < len(BENCHMARKS)]
-        except:
-            logger.error("Invalid selection!")
-            return
-    else:
-        logger.error("Invalid choice!")
-        return
-    
-    if not to_run:
-        logger.error("No benchmarks selected!")
-        return
-    
-    # Estimate total time
-    logger.info(f"\n{len(to_run)} benchmarks selected")
-    logger.info("\nBenchmarks to run:")
-    for b in to_run:
-        logger.info(f"  - {b['name']} ({b['estimated_time']})")
-    
-    logger.info("\n⚠️  This will take approximately 15-40 minutes depending on selection")
-    confirm = input("\nContinue? [y/N]: ").strip().lower()
-    
-    if confirm != 'y':
-        logger.info("Cancelled by user")
-        return
-    
-    # Create results directory
+
+    # Ensure results directory
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Run benchmarks
+
+    logger.info(f"Running {len(BENCHMARKS)} benchmarks...\n")
+
     start_time = time.time()
     results = []
-    
-    for i, benchmark in enumerate(to_run, 1):
-        logger.info(f"\n\n{'='*80}")
-        logger.info(f"BENCHMARK {i}/{len(to_run)}")
-        logger.info(f"{'='*80}")
+
+    for i, (name, script) in enumerate(BENCHMARKS, 1):
+        logger.info(f"\n[{i}/{len(BENCHMARKS)}] {name.upper()}")
         
-        success = run_benchmark(benchmark)
+        success = run_script(script)
+
         results.append({
-            "name": benchmark['name'],
+            "name": name,
             "success": success,
-            "timestamp": datetime.now().isoformat()
+            "time": datetime.now().isoformat()
         })
-        
-        # Small delay between benchmarks
-        if i < len(to_run):
-            logger.info("\nWaiting 3 seconds before next benchmark...")
+
+        # Small cooldown (important for GPU stabilization)
+        if i < len(BENCHMARKS):
             time.sleep(3)
-    
+
     total_time = time.time() - start_time
-    
-    # Print final summary
-    logger.info("\n\n" + "="*80)
-    logger.info("BENCHMARK SUITE COMPLETE")
-    logger.info("="*80 + "\n")
-    
-    logger.info(f"Total time: {total_time/60:.1f} minutes")
-    logger.info(f"Results saved to: {RESULTS_DIR.absolute()}\n")
-    
-    successful = sum(1 for r in results if r['success'])
-    failed = len(results) - successful
-    
-    logger.info(f"Summary:")
-    logger.info(f"  Successful: {successful}/{len(results)}")
-    logger.info(f"  Failed: {failed}/{len(results)}")
-    logger.info("")
-    
-    for result in results:
-        status = "✅" if result['success'] else "❌"
-        logger.info(f"  {status} {result['name']}")
-    
-    logger.info("\n" + "="*80)
-    logger.info("Next steps:")
-    logger.info("  1. Review results in: " + str(RESULTS_DIR))
-    logger.info("  2. Generate report: python generate_report.py")
-    logger.info("="*80 + "\n")
+
+    # Generate report AFTER all benchmarks
+    generate_report()
+
+    # Final Summary
+    logger.info("\n" + "=" * 80)
+    logger.info("FINAL SUMMARY")
+    logger.info("=" * 80 + "\n")
+
+    success_count = sum(1 for r in results if r["success"])
+    fail_count = len(results) - success_count
+
+    logger.info(f"Total Time: {total_time/60:.2f} minutes")
+    logger.info(f"Success: {success_count}/{len(results)}")
+    logger.info(f"Failed: {fail_count}/{len(results)}\n")
+
+    for r in results:
+        status = "[OK]" if r["success"] else "[FAIL]"
+        logger.info(f"{status} {r['name']}")
+
+    logger.info("\nResults Directory:")
+    logger.info(f"  {RESULTS_DIR}")
+    logger.info("\nReports:")
+    logger.info(f"  {BASE_DIR / 'reports'}")
+
+    logger.info("\nDone.\n")
 
 
 if __name__ == "__main__":

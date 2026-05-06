@@ -31,15 +31,12 @@ class BenchmarkResult:
         self.timestamp = datetime.now().isoformat()
         
     def add_measurement(self, value: float):
-        """Add a measurement to the dataset."""
         self.measurements.append(value)
         
     def add_metadata(self, key: str, value: Any):
-        """Add metadata about the benchmark run."""
         self.metadata[key] = value
         
     def get_statistics(self) -> Dict[str, float]:
-        """Calculate statistics from measurements."""
         if not self.measurements:
             return {}
             
@@ -53,7 +50,6 @@ class BenchmarkResult:
         }
         
     def to_dict(self) -> Dict[str, Any]:
-        """Convert result to dictionary for JSON serialization."""
         return {
             "name": self.name,
             "description": self.description,
@@ -64,7 +60,6 @@ class BenchmarkResult:
         }
         
     def save(self, output_dir: Path):
-        """Save result to JSON file."""
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{self.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = output_dir / filename
@@ -77,7 +72,6 @@ class BenchmarkResult:
 
 
 def timer(func):
-    """Decorator to time function execution."""
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
@@ -87,20 +81,8 @@ def timer(func):
 
 
 def repeat_measurement(func, runs: int = 10, warmup: int = 2) -> List[float]:
-    """
-    Run a measurement function multiple times and return results.
-    
-    Args:
-        func: Function to measure (should return a numeric value)
-        runs: Number of measurement runs
-        warmup: Number of warmup runs to discard
-        
-    Returns:
-        List of measurement values
-    """
     measurements = []
     
-    # Warmup runs
     logger.info(f"Running {warmup} warmup iterations...")
     for i in range(warmup):
         try:
@@ -108,7 +90,6 @@ def repeat_measurement(func, runs: int = 10, warmup: int = 2) -> List[float]:
         except Exception as e:
             logger.warning(f"Warmup run {i+1} failed: {e}")
     
-    # Actual measurements
     logger.info(f"Running {runs} measurement iterations...")
     for i in range(runs):
         try:
@@ -122,7 +103,6 @@ def repeat_measurement(func, runs: int = 10, warmup: int = 2) -> List[float]:
 
 
 def get_system_info() -> Dict[str, Any]:
-    """Gather system information for benchmark context."""
     import platform
     import psutil
     
@@ -138,7 +118,6 @@ def get_system_info() -> Dict[str, Any]:
         "python_version": sys.version.split()[0]
     }
     
-    # Try to get GPU info
     try:
         import pynvml
         pynvml.nvmlInit()
@@ -158,7 +137,6 @@ def get_system_info() -> Dict[str, Any]:
 
 
 def format_duration(seconds: float) -> str:
-    """Format duration in human-readable format."""
     if seconds < 0.001:
         return f"{seconds*1000000:.2f}µs"
     elif seconds < 1:
@@ -172,7 +150,6 @@ def format_duration(seconds: float) -> str:
 
 
 def format_throughput(tokens: int, seconds: float) -> str:
-    """Format throughput in tokens per second."""
     if seconds == 0:
         return "∞ t/s"
     tps = tokens / seconds
@@ -180,7 +157,6 @@ def format_throughput(tokens: int, seconds: float) -> str:
 
 
 def format_bytes(bytes_value: int) -> str:
-    """Format bytes in human-readable format."""
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if bytes_value < 1024.0:
             return f"{bytes_value:.2f}{unit}"
@@ -189,7 +165,6 @@ def format_bytes(bytes_value: int) -> str:
 
 
 def check_peridot_running(base_url: str = "http://localhost:5000") -> bool:
-    """Check if Peridot is running and responding."""
     import requests
     
     try:
@@ -200,7 +175,6 @@ def check_peridot_running(base_url: str = "http://localhost:5000") -> bool:
 
 
 def wait_for_peridot(base_url: str = "http://localhost:5000", timeout: int = 30) -> bool:
-    """Wait for Peridot to become ready."""
     import requests
     
     logger.info(f"Waiting for Peridot at {base_url}...")
@@ -225,16 +199,14 @@ class ProgressBar:
         self.prefix = prefix
         
     def update(self, n: int = 1):
-        """Update progress by n steps."""
         self.current += n
         self._print()
         
     def _print(self):
-        """Print current progress."""
         percent = (self.current / self.total) * 100
         filled = int(50 * self.current // self.total)
         bar = '█' * filled + '-' * (50 - filled)
         print(f'\r{self.prefix}: |{bar}| {percent:.1f}% ({self.current}/{self.total})', end='', flush=True)
         
         if self.current >= self.total:
-            print()  # New line when complete
+            print()

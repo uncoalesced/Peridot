@@ -1,6 +1,6 @@
+# Engineered by uncoalesced
 # -----------------------------------------------------------------------------
 # PERIDOT SERVER | Sovereign AI Kernel
-# Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
 import sys
@@ -14,6 +14,11 @@ import pynvml
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from llama_cpp import Llama
+from dotenv import load_dotenv
+
+# CRITICAL FIX: Load the .env file BEFORE importing config
+# so that config.py can actually read the variables during a cold boot.
+load_dotenv()
 
 # --- PERIDOT CONFIGURATION ---
 from config import (

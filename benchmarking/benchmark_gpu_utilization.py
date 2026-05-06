@@ -16,9 +16,8 @@ from benchmark_utils import (
     BenchmarkResult, get_system_info, logger
 )
 
-
 # Configuration
-API_URL = "http://localhost:5000/chat"
+API_URL = "http://localhost:5000/ask"
 RESULTS_DIR = Path(__file__).parent.parent / "results"
 
 
@@ -42,42 +41,36 @@ class GPUMonitor:
             raise
     
     def _monitor_loop(self):
-        """Background monitoring loop."""
         while self.running:
             try:
-                # Get utilization
                 util = self.pynvml.nvmlDeviceGetUtilizationRates(self.handle)
                 self.utilizations.append(util.gpu)
                 
-                # Get temperature
                 temp = self.pynvml.nvmlDeviceGetTemperature(
                     self.handle,
                     self.pynvml.NVML_TEMPERATURE_GPU
                 )
                 self.temperatures.append(temp)
                 
-                # Get power usage
                 try:
                     power = self.pynvml.nvmlDeviceGetPowerUsage(self.handle)
-                    self.power_usage.append(power / 1000.0)  # Convert mW to W
+                    self.power_usage.append(power / 1000.0)
                 except:
-                    pass  # Power monitoring not always available
+                    pass
                 
-                time.sleep(0.5)  # Sample every 500ms
+                time.sleep(0.5)
                 
             except Exception as e:
                 logger.error(f"GPU monitoring error: {e}")
                 break
     
     def start(self):
-        """Start monitoring in background."""
         self.running = True
         self.thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.thread.start()
         logger.info("GPU monitoring started")
     
     def stop(self):
-        """Stop monitoring and return results."""
         self.running = False
         if self.thread:
             self.thread.join(timeout=2)
@@ -114,7 +107,6 @@ class GPUMonitor:
         return result
     
     def cleanup(self):
-        """Cleanup GPU monitoring."""
         try:
             self.pynvml.nvmlShutdown()
         except:
@@ -122,7 +114,6 @@ class GPUMonitor:
 
 
 def run_inference_with_monitoring(duration_s: int = 30):
-    """Run continuous inference while monitoring GPU."""
     import os
     headers = {"Content-Type": "application/json"}
     api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
@@ -146,7 +137,7 @@ def run_inference_with_monitoring(duration_s: int = 30):
         prompt = prompts[query_count % len(prompts)]
         
         try:
-            payload = {"message": prompt, "max_tokens": 150}
+            payload = {"command": prompt}
             response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             query_count += 1
@@ -161,12 +152,10 @@ def run_inference_with_monitoring(duration_s: int = 30):
 
 
 def main():
-    """Run GPU utilization benchmark."""
     logger.info("\n" + "="*60)
     logger.info("PERIDOT GPU UTILIZATION BENCHMARK")
     logger.info("="*60 + "\n")
     
-    # Check if Peridot is running
     try:
         response = requests.get("http://localhost:5000/health", timeout=2)
         if response.status_code != 200:
@@ -176,20 +165,17 @@ def main():
         logger.error("Peridot is not running! Please start Peridot first.")
         sys.exit(1)
     
-    # Gather system info
     system_info = get_system_info()
     logger.info("System Information:")
     for key, value in system_info.items():
         logger.info(f"  {key}: {value}")
     logger.info("")
     
-    # Create result container
     result = BenchmarkResult(
         name="gpu_utilization",
         description="GPU utilization during inference"
     )
     
-    # Test 1: Idle GPU (no queries)
     logger.info("="*60)
     logger.info("Test 1: Idle GPU Utilization (10 seconds)")
     logger.info("="*60 + "\n")
@@ -207,7 +193,6 @@ def main():
     result.add_metadata("idle_utilization", idle_stats['utilization'])
     result.add_metadata("idle_temperature", idle_stats['temperature'])
     
-    # Test 2: Active inference
     logger.info("="*60)
     logger.info("Test 2: GPU Utilization During Inference (30 seconds)")
     logger.info("="*60 + "\n")
@@ -235,13 +220,10 @@ def main():
     if 'power' in active_stats:
         result.add_metadata("active_power", active_stats['power'])
     
-    # Use average active utilization as primary metric
     result.add_measurement(active_stats['utilization']['mean'])
     
-    # Save result
     result.save(RESULTS_DIR)
     
-    # Print summary
     logger.info("\n" + "="*60)
     logger.info("GPU UTILIZATION SUMMARY")
     logger.info("="*60 + "\n")
@@ -258,7 +240,6 @@ def main():
     logger.info(f"  Std Dev: {active_stats['utilization']['stdev']:.1f}%")
     logger.info("")
     
-    # Check efficiency
     if active_stats['utilization']['mean'] > 70:
         logger.info("✅ Excellent GPU utilization (>70%)")
     elif active_stats['utilization']['mean'] > 50:
