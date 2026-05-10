@@ -9,7 +9,7 @@
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 ```
 
-### `SOVEREIGN AI KERNEL — v1.3 BETA`
+### `SOVEREIGN AI KERNEL — v1.3.1 BETA`
 
 [![STATUS](https://img.shields.io/badge/STATUS-OPERATIONAL-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS_GPU-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
@@ -575,7 +575,7 @@ Edit `constitution.json` to modify Peridot's permissions and behavior:
 [████████████████████] v1.2    Stability + VRAM Handoff + Medical Research
 [████████████████████] v1.2.2  Security Hardening + Benchmarking
 [████████████████████] v1.3    RAG Engine (Document Analysis)
-[██░░░░░░░░░░░░░░░░░░] v1.4    Performance Optimisation (RAM, CPU & VRAM usage)
+[█████████████████░░░] v1.4    Performance Optimisation (RAM, CPU & VRAM usage)
 [░░░░░░░░░░░░░░░░░░░░] v1.4.3  TurboQuant Implementation.
 [░░░░░░░░░░░░░░░░░░░░] v1.5    Linux Support (Ubuntu/Debian)
 [░░░░░░░░░░░░░░░░░░░░] v1.6    AMD GPU Support (ROCm)

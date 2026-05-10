@@ -1,6 +1,7 @@
 """
 PERIDOT KERNEL | EPHEMERAL RAM CACHE (Layer 1)
 Module: core_system/memory/ephemeral_cache.py
+# Engineered by uncoalesced
 """
 
 import faiss
@@ -49,7 +50,7 @@ class EphemeralCache:
         self.index.add(emb)
         self.queries.append(query)
         self.responses.append(response)
-        ghost.record("CACHE_WRITE", "L1_Ephemeral", {"query": query})
+        ghost.info(f"CACHE_WRITE | L1_Ephemeral | Query: {query}")
 
     def search(self, query: str) -> str | None:
         """
@@ -69,8 +70,9 @@ class EphemeralCache:
 
         if best_score >= self.threshold:
             self.logger.info(f"CACHE HIT (Score: {best_score:.3f}) - Bypassing LLM.")
-            ghost.record("CACHE_HIT", "L1_Ephemeral", {"score": best_score, "query": query})
+            ghost.info(f"CACHE_HIT | L1_Ephemeral | Score: {best_score} | Query: {query}")
             return self.responses[best_idx]
 
-        ghost.record("CACHE_MISS", "L1_Ephemeral", {"score": best_score, "query": query})
+        # FIX: Converted from ghost.record to standard ghost.info string formatting
+        ghost.info(f"CACHE_MISS | L1_Ephemeral | Score: {best_score} | Query: {query}")
         return None

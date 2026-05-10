@@ -1,44 +1,32 @@
+# Engineered by uncoalesced
 # -----------------------------------------------------------------------------
 # PERIDOT CLIENT | Main Entry Point
-# Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
 import sys
 import os
+import time
+import requests
+from pathlib import Path
 
 # CRITICAL FIX: Force Python to recognize the current directory as the root path.
 # This completely eliminates "No module named X" errors during subprocess launches.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import logging
-import time
-import requests
-
 # --- INTERNAL MODULES ---
 try:
+    from core_system.audit import ghost
     from core import PeridotCore
     from ui import PeridotUI
-    from config import SERVER_HOST, SERVER_PORT, LOG_PATH
+    from config import SERVER_HOST, SERVER_PORT
 except ImportError as e:
     print(f"\n[FATAL] System Integrity Failure: Could not import core modules.")
     print(f"Error Details: {e}")
-    print("Ensure 'research.py', 'core.py', and 'ui.py' are in the root directory.")
+    print("Ensure 'core.py' and 'ui.py' are correctly updated.")
     sys.exit(1)
 
 # --- CONFIGURATION ---
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
-LOG_FILE = LOG_PATH / "peridot.log"
-
-# --- LOGGING SETUP ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - [%(name)s] - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
-)
-logger = logging.getLogger("Peridot.Client")
 
 def check_server_status():
     """Checks if the Neural Engine (server.py) is online using the health endpoint."""
@@ -49,13 +37,13 @@ def check_server_status():
         return False
 
 def main():
-    logger.info("Initializing Peridot Sovereign Kernel Client...")
+    ghost.info("CLIENT | Initializing Peridot Sovereign Kernel Client...")
 
     # 1. Server Handshake
     if check_server_status():
-        logger.info("Neural Link Established [OK]")
+        ghost.info("CLIENT | Neural Link Established [OK]")
     else:
-        logger.info("Neural Link Status: [WAITING] (Engine may still be loading)")
+        ghost.info("CLIENT | Neural Link Status: [WAITING] (Engine may still be loading)")
 
     try:
         # 2. Initialize Core Logic
@@ -68,20 +56,20 @@ def main():
         core.ui = app
 
         # 5. Launch
-        logger.info("Handing control to User Interface...")
+        ghost.info("CLIENT | Handing control to User Interface...")
         app.run()
 
     except KeyboardInterrupt:
-        logger.info("Manual Interrupt Detected.")
+        ghost.info("CLIENT | Manual Interrupt Detected.")
         
     except Exception as e:
-        logger.critical(f"CRITICAL FAILURE: {e}", exc_info=True)
+        ghost.error(f"CLIENT | CRITICAL FAILURE: {e}")
         time.sleep(3)
         sys.exit(1)
         
     finally:
         # 6. Cleanup on Exit
-        logger.info("System Shutdown.")
+        ghost.info("CLIENT | System Shutdown.")
         sys.exit(0)
 
 if __name__ == "__main__":

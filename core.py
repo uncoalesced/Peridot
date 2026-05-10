@@ -1,5 +1,5 @@
 # PERIDOT SOVEREIGN KERNEL | CORE LOGIC
-# Engineered by uncoalesced.
+# Engineered by uncoalesced
 
 import collections
 import requests
@@ -13,8 +13,7 @@ from core_system.enhancedlogger import logger
 from core_system.command_router import CommandRouter
 from core_system.research import MedicalResearchModule
 from core_system.security import sanitize_input, load_constitution
-from core_system.memory.ephemeral_cache import EphemeralCache
-from core_system.memory.vault import PeridotVault
+from core_system.memory.vault import PersistentVault
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
 
 def safe_import(module_path, class_names):
@@ -54,11 +53,8 @@ class PeridotCore:
         self.research = MedicalResearchModule(core=self)
         self.command_router = CommandRouter(core=self)
         
-        # [v1.2.3] Layer 1 Ephemeral RAM Cache
-        self.l1_cache = EphemeralCache(threshold=0.90)
-        
         # [v2.0] Layer 2 Persistent PDF Vault
-        self.vault = PeridotVault()
+        self.vault = PersistentVault()
         
         self.logger.info("Kernel logic initialized.", source="CORE")
 
@@ -72,8 +68,7 @@ class PeridotCore:
         if self.ui:
             self.ui.display_system_message(">> Neural Link: [ESTABLISHED]")
             self.ui.display_system_message(">> VRAM State Machine: [ACTIVE]")
-            self.ui.display_system_message(">> L1 Memory Cache: [ONLINE]")
-            self.ui.display_system_message(">> L2 PDF Vault: [ONLINE]")
+            self.ui.display_system_message(">> Server-Side Routing: [ONLINE]")
             self.ui.display_system_message(">> Diagnostics: [OK]")
             self.ui.display_system_message("System Online. Waiting for input.")
 
@@ -115,22 +110,8 @@ class PeridotCore:
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        # 3. [v1.2.3] Layer 1 Memory Cache Intercept
-        start_time = time.time()
-        cached_response = self.l1_cache.search(clean_text)
-        
-        if cached_response:
-            latency = (time.time() - start_time) * 1000
-            if self.ui:
-                self.ui.display_system_message(f">> L1 Cache Hit: Served from RAM in {latency:.2f}ms")
-            return cached_response
-
-        # 4. Cold Query the LLM (Default conversational behavior)
+        # 3. Cold Query the LLM (Caching is now strictly handled server-side)
         response = self._ask_ai_with_memory(clean_text)
-        
-        # 5. Save response to Layer 1 Cache ONLY if the server didn't crash
-        if "[SYSTEM ERROR]" not in response:
-            self.l1_cache.add(query=clean_text, response=response)
         
         return response
 
@@ -148,7 +129,7 @@ class PeridotCore:
         prompt_segments.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
         full_prompt = "".join(prompt_segments)
 
-        response = self._send_to_server(full_prompt)
+        response = self._send_to_server(query=user_text, prompt=full_prompt)
         self.chat_memory.append({"role": "assistant", "content": response})
         return response
 
@@ -159,13 +140,14 @@ class PeridotCore:
             f"<|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|>"
             f"<|start_header_id|>assistant<|end_header_id|>\n\n"
         )
-        return self._send_to_server(full_prompt)
+        return self._send_to_server(query=prompt, prompt=full_prompt)
 
-    def _send_to_server(self, prompt):
+    def _send_to_server(self, query, prompt):
         try:
             headers = {"Authorization": f"Bearer {API_KEY}"}
             # Timeout extended to 180s to account for heavy contextual processing
-            r = requests.post(AI_SERVER_URL, json={"command": prompt}, headers=headers, timeout=180)
+            payload = {"query": query, "prompt": prompt}
+            r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=180)
             r.raise_for_status()
             return r.json().get("response", "No response from brain.")
         except requests.exceptions.RequestException as e:

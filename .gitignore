@@ -4,7 +4,6 @@
 # -----------------------------------------------------------------------------
 
 # Peridot Sovereign Data & RAG Memory (CRITICAL: Do not leak personal context)
-input/
 processed/
 results/
 

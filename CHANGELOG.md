@@ -1,4 +1,33 @@
-# Changelog
+# Peridot — Changelog
+> Engineered by uncoalesced
+
+---
+
+## [v1.3.1-beta] - 2026-05-11
+**Name:** Peridot v1.3.1 - Aether-Route Architecture & RAG Synchronization
+
+### Added
+- **Aether-Route (CPU Semantic Router):** Engineered a high-efficiency routing layer that offloads vectorization and intent classification to the Ryzen 7 CPU. This preserves VRAM on 4GB/6GB hardware by keeping the embedding matrix strictly in system RAM.
+- **Split-Payload Architecture:** Implemented a decoupled communication protocol between `core.py` and `server.py`. The system now transmits an isolated query for semantic mapping and a full prompt for LLM ingestion, preventing chat history from corrupting vector search accuracy.
+- **Unified Aether-Audit:** Integrated all RAG subsystems into the ghost auditing module, providing real-time telemetry on VRAM states, routing latency, and inference speeds.
+
+### Changed
+- **Server-Side Cache Centralization:** Stripped the duplicate L1 memory cache from `core.py` and centralized all caching logic within `server.py` to eliminate client-server race conditions and redundant CPU cycles.
+- **Contextual Injection Logic:** Updated the RAG pipeline to prepend L2 Vault findings into the system instruction block rather than the user prompt, improving the LLM's adherence to retrieved document data.
+- **CLI Ingestion Interface:** Overhauled `vault.py` with a standalone CLI entry point, enabling batch ingestion of the `input/` directory via `python core_system/memory/vault.py ingest`.
+
+### Fixed
+- **L1 Cache Signature Collision:** Resolved fatal `TypeError` crashes where the Router was passing incorrect argument counts to `EphemeralCache.add()` and `EphemeralCache.search()`.
+- **GhostLogger Formatting Bug:** Fixed a system-wide crash caused by improper string formatting (`TypeError: not all arguments converted`) inside the ghost auditing calls.
+- **The "Thermodynamics Loop":** Corrected a logic flaw where the router was embedding the entire conversational buffer, leading to 95%+ semantic overlap and causing the system to get stuck repeating previous cached answers.
+- **Pathing Import Failures:** Injected absolute root discovery (`sys.path.insert`) into `vault.py` and `main.py` to resolve `ModuleNotFoundError` when running scripts from different terminal directories.
+- **Windows File-Locking:** Implemented robust garbage collection and context management in the ingestion pipeline to ensure PDF file pointers are released immediately after vectorization.
+
+### Optimized
+- **Ryzen 7 250 AI Alignment:** Optimized the `all-MiniLM-L6-v2` embedding engine to utilize Ryzen multi-core efficiency, reducing query vectorization latency to <30ms.
+- **Inference Telemetry:** Refined the benchmarking output to provide real-time tokens-per-second (tps) metrics and precise VRAM delta tracking during Aether-Route execution.
+
+---
 
 ## [v1.3.0-beta] - 2026-03-30
 **Name:** Peridot v1.3.0 - Dual-Tier Memory Engine & Sterile RAG Architecture
@@ -55,7 +84,7 @@
 ---
 
 ## [v1.2.1-beta] - 2026-03-10
-**Name:** Peridot v1.2.1 Beta - Security changes, Patched memory leaks, and secured command routing
+**Name:** Peridot v1.2.1 - Security Changes, Patched Memory Leaks & Secured Command Routing
 
 ### Security
 - **Localhost API Authentication:** Implemented dynamic API key generation (`auth.token`) and strict Bearer token authentication across all Flask endpoints to prevent unauthorized local processes from hijacking GPU resources.
@@ -66,7 +95,7 @@
 - **Server Health Polling:** Added a `/health` endpoint to `server.py` to allow client processes to safely verify engine readiness before mounting the interface.
 
 ### Changed
-- **WebSocket VRAM Hot-Swaps:** Completely removed legacy CLI subprocess polling for Folding@home. The VRAM State Machine now communicates directly with the FAH v8 client via local WebSockets (port 7396), achieving true zero-latency (21ms) hardware handoffs.
+- **WebSocket VRAM Hot-Swaps:** Completely removed legacy CLI subprocess polling for Folding@Home. The VRAM State Machine now communicates directly with the FAH v8 client via local WebSockets (port 7396), achieving true zero-latency (21ms) hardware handoffs.
 - **State Machine Localization:** Moved the medical research state manager entirely into `server.py`, directly coupling it to the LLM lifecycle.
 - **Command Routing:** Overhauled `command_router.py` to execute hardware requests via secure HTTP API calls rather than direct object manipulation.
 

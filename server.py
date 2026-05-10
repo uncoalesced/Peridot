@@ -17,8 +17,21 @@ from llama_cpp import Llama
 from dotenv import load_dotenv
 
 # CRITICAL FIX: Load the .env file BEFORE importing config
-# so that config.py can actually read the variables during a cold boot.
 load_dotenv()
+
+# --- RAG SUBSYSTEM IMPORTS ---
+try:
+    from core_system.audit import ghost
+    from core_system.memory.embedder import embedder
+    from core_system.memory.ephemeral_cache import EphemeralCache
+    from core_system.memory.vault import PersistentVault 
+    
+    l1_cache = EphemeralCache()
+    l2_vault = PersistentVault()
+except ImportError as e:
+    print(f"[WARN] RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
+    l1_cache = None
+    l2_vault = None
 
 # --- PERIDOT CONFIGURATION ---
 from config import (
@@ -72,7 +85,6 @@ def get_vram_free() -> int:
 def send_fah_command(cmd_state: str) -> bool:
     """Fires WebSocket JSON commands directly into the FAH v8 backend."""
     try:
-        # FAH v8 uses port 7396 with WebSockets
         ws = websocket.create_connection(
             "ws://127.0.0.1:7396/api/websocket", timeout=2.0
         )
@@ -105,6 +117,11 @@ def kill_research():
             research_active = False
             elapsed_ms = (time.time() - start_time) * 1000
             print(f"[Peridot-Research] - SUCCESS - VRAM Cleared in {elapsed_ms:.2f}ms. (Free: {get_vram_free()}MB)")
+            
+            try:
+                ghost.info(f"VRAM_STATE | Action: PURGE | Free: {get_vram_free()}MB | Latency: {elapsed_ms:.2f}ms")
+            except Exception:
+                pass
 
 def idle_monitor():
     """Watches the clock in the background."""
@@ -126,18 +143,17 @@ def boot_engine():
         print(f"[FATAL] Model not found at {MODEL_PATH}")
         sys.exit(1)
 
-    # Initialize state by pausing FAH in case it's currently running
     send_fah_command("pause")
 
     try:
         llm = Llama(
             model_path=str(MODEL_PATH),
-            n_ctx=8192,           # OPTIMIZATION: Force 8K context to prevent RAG overflows
-            n_threads=8,          # OPTIMIZATION: Ryzen 7 thread alignment
-            n_gpu_layers=100,     # HARD ENFORCED: Push everything to VRAM
-            n_batch=1024,         # OPTIMIZATION: Double ingestion speed for heavy PDF prompts
-            flash_attn=True,      # OPTIMIZATION: Halves VRAM usage for the expanded context window
-            verbose=True,         # HARD ENFORCED: Show C++ backend logs
+            n_ctx=8192,           
+            n_threads=8,          
+            n_gpu_layers=100,     
+            n_batch=1024,         
+            flash_attn=True,      
+            verbose=True,         
         )
         print(f">> [SUCCESS] Peridot Brain Online. (Free VRAM: {get_vram_free()}MB)")
         threading.Thread(target=idle_monitor, daemon=True).start()
@@ -165,21 +181,97 @@ def ask():
 
     try:
         data = request.json
-        full_prompt = data.get("command", "")
+        user_query = data.get("query", "")
+        full_prompt = data.get("prompt", "")
         
+        # Fallback for legacy commands if missing split payload
+        if not user_query or not full_prompt:
+            user_query = data.get("command", "")
+            full_prompt = user_query
+            
+        if not user_query:
+            return jsonify({"response": "Empty prompt received."}), 400
+
+        # --- ROUTING LOGIC (OPTION C: BRUTE FORCE CPU SEARCH) ---
+        if l1_cache is not None and l2_vault is not None:
+            
+            try:
+                ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB | Latency: 0.00ms")
+            except Exception:
+                pass
+                
+            query_vector = embedder.embed_query(user_query)
+            
+            # STEP 2: Check L1 RAM Cache using only the isolated question
+            cached_response = l1_cache.search(user_query)
+            if cached_response:
+                try:
+                    ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
+                except Exception:
+                    pass
+                return jsonify({"response": cached_response})
+
+            # STEP 3: Check L2 Persistent Vault
+            try:
+                ghost.info("ROUTER | L1 MISS. Searching L2 Vault...")
+            except Exception:
+                pass
+            
+            vault_chunks = l2_vault.search(query_vector, top_k=3)
+            
+            if vault_chunks:
+                context_str = "\n".join(vault_chunks)
+                final_prompt = f"<|start_header_id|>system<|end_header_id|>\n\nContext Information:\n{context_str}<|eot_id|>\n" + full_prompt
+                try:
+                    ghost.info("ROUTER | L2 HIT. Context injected into final prompt.")
+                except Exception:
+                    pass
+            else:
+                final_prompt = full_prompt
+                try:
+                    ghost.info("ROUTER | L2 MISS. No relevant documents found. Proceeding raw.")
+                except Exception:
+                    pass
+        else:
+            final_prompt = full_prompt
+
+        # STEP 4: Final LLM Generation (Wakes up the GPU)
+        start_time = time.time()
         output = llm(
-            full_prompt, 
+            final_prompt, 
             max_tokens=MAX_TOKENS, 
-            # CRITICAL FIX: Added strict Llama-3 stop tokens
             stop=["<|eot_id|>", "<|start_header_id|>", "assistant\n", "User:"], 
             temperature=TEMPERATURE,
             top_p=TOP_P,
             repeat_penalty=REPEAT_PENALTY,
             echo=False
         )
-        return jsonify({"response": output["choices"][0]["text"]})
+        elapsed_s = time.time() - start_time
+        
+        final_response = output["choices"][0]["text"].strip()
+        
+        # Extract metrics for the GhostLogger
+        tokens_generated = output.get("usage", {}).get("completion_tokens", len(final_response.split()) * 1.3)
+        tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
+        
+        try:
+            ghost.info(f"INFERENCE  | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
+        except Exception:
+            pass
+        
+        # STEP 5: Store new result in L1 Cache
+        if l1_cache is not None:
+            l1_cache.add(user_query, final_response)
+            
+        return jsonify({"response": final_response})
+        
     except Exception as e:
-        print(f"LOG: Internal Inference Error - {e}")
+        error_msg = str(e)
+        print(f"LOG: Internal Inference Error - {error_msg}")
+        try:
+            ghost.error(f"CRITICAL   | Component: server_ask_route | Error: {error_msg}")
+        except Exception:
+            pass
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
 
 @app.route("/shutdown", methods=["POST"])
