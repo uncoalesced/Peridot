@@ -1,7 +1,7 @@
 """
 Master Benchmark Runner (Unified + Auto Report)
 Runs all benchmarks, ensures correct execution order, and generates final report.
-Engineered by uncoalesced
+# Engineered by uncoalesced
 """
 
 import sys
@@ -10,16 +10,20 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-# Paths
-BASE_DIR = Path(r"E:\Peridot\benchmarking")
-RESULTS_DIR = BASE_DIR.parent / "results"
+# Path Bootstrapping
+BASE_DIR = Path(__file__).parent.absolute()
+RESULTS_DIR = BASE_DIR / "results"
 REPORT_SCRIPT = BASE_DIR / "generate_report.py"
 
 # Add utils
-sys.path.insert(0, str(BASE_DIR))
-from benchmark_utils import logger, get_system_info
+sys.path.insert(0, str(BASE_DIR / "utils"))
+try:
+    from benchmark_utils import logger, get_system_info
+except ImportError:
+    print("[ERROR] benchmark_utils.py not found in /utils/")
+    sys.exit(1)
 
-# Ordered benchmarks (IMPORTANT: dependency-safe order)
+# Ordered benchmarks (dependency-safe order)
 BENCHMARKS = [
     ("inference", "benchmark_inference.py"),
     ("vram_handoff", "benchmark_vram_handoff.py"),

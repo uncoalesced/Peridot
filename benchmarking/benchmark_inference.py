@@ -1,24 +1,31 @@
 """
-Benchmark 1: Inference Speed
+Inference Speed
 Measures token generation throughput across different workload sizes.
 # Engineered by uncoalesced
 """
 
 import sys
 import time
-import requests
 from pathlib import Path
 
-# Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
+# -----------------------------------------------------------------------------
+# PATH BOOTSTRAPPING FIX
+# -----------------------------------------------------------------------------
+benchmarking_dir = Path(__file__).parent.absolute()
+peridot_root = benchmarking_dir.parent
+utils_path = benchmarking_dir / "utils"
+
+for path in [str(peridot_root), str(utils_path)]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
 from benchmark_utils import (
     BenchmarkResult, repeat_measurement, get_system_info,
-    format_duration, format_throughput, logger
+    format_duration, format_throughput, logger, AetherClient, check_peridot_running
 )
 
-# Configuration
-API_URL = "http://localhost:5000/ask"
-RESULTS_DIR = Path(__file__).parent.parent / "results"
+# DIRECTORY FIX: Stay inside benchmarking
+RESULTS_DIR = benchmarking_dir / "results"
 
 # Test prompts with expected token ranges
 TEST_WORKLOADS = [
@@ -51,27 +58,14 @@ def count_tokens_rough(text: str) -> int:
     return int(len(words) * 1.3)
 
 
-def measure_inference_speed(prompt: str, max_tokens: int) -> dict:
-    headers = {"Content-Type": "application/json"}
-    
-    import os
-    api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    
-    payload = {
-        "command": prompt
-    }
-    
+def measure_inference_speed(client: AetherClient, prompt: str, max_tokens: int) -> dict:
     start_time = time.time()
     
     try:
-        response = requests.post(API_URL, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
+        # AetherClient natively handles the payload split, headers, and RAM key extraction
+        data = client.send_query(query=prompt, timeout=60)
         
         elapsed = time.time() - start_time
-        
-        data = response.json()
         response_text = data.get("response", "")
         
         tokens = count_tokens_rough(response_text)
@@ -84,15 +78,12 @@ def measure_inference_speed(prompt: str, max_tokens: int) -> dict:
             "response_length": len(response_text)
         }
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API request failed: {e}")
-        raise
     except Exception as e:
         logger.error(f"Measurement failed: {e}")
         raise
 
 
-def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
+def run_workload_benchmark(client: AetherClient, workload: dict, runs: int = 10) -> BenchmarkResult:
     logger.info(f"\n{'='*60}")
     logger.info(f"Benchmarking: {workload['name']} ({workload['description']})")
     logger.info(f"Prompt: {workload['prompt'][:50]}...")
@@ -111,7 +102,7 @@ def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
     
     logger.info("Warmup run...")
     try:
-        measure_inference_speed(workload['prompt'], workload['max_tokens'])
+        measure_inference_speed(client, workload['prompt'], workload['max_tokens'])
         time.sleep(1)
     except Exception as e:
         logger.warning(f"Warmup failed: {e}")
@@ -124,7 +115,7 @@ def run_workload_benchmark(workload: dict, runs: int = 10) -> BenchmarkResult:
         logger.info(f"Run {i+1}/{runs}...")
         
         try:
-            measurement = measure_inference_speed(workload['prompt'], workload['max_tokens'])
+            measurement = measure_inference_speed(client, workload['prompt'], workload['max_tokens'])
             
             throughputs.append(measurement['throughput'])
             tokens_generated.append(measurement['tokens'])
@@ -159,37 +150,37 @@ def main():
     logger.info("PERIDOT INFERENCE SPEED BENCHMARK")
     logger.info("="*60 + "\n")
     
-    try:
-        response = requests.get("http://localhost:5000/health", timeout=2)
-        if response.status_code != 200:
-            logger.error("Peridot is not responding correctly!")
-            sys.exit(1)
-    except:
-        logger.error("Peridot is not running! Please start Peridot first.")
+    # Use the robust check from benchmark_utils
+    if not check_peridot_running():
+        logger.error("Peridot is not running or health check failed! Please start Peridot first.")
         logger.error("Run: python launcher.py")
         sys.exit(1)
-    
+        
     system_info = get_system_info()
     logger.info("System Information:")
     for key, value in system_info.items():
         logger.info(f"  {key}: {value}")
     logger.info("")
     
+    # Instantiate the master client once to reuse the connection session
+    client = AetherClient()
     all_results = []
     
     for workload in TEST_WORKLOADS:
-        result = run_workload_benchmark(workload, runs=10)
+        result = run_workload_benchmark(client, workload, runs=10)
         all_results.append(result)
         
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         result.save(RESULTS_DIR)
         
         stats = result.get_statistics()
-        logger.info(f"\n{workload['name'].upper()} Summary:")
-        logger.info(f"  Mean throughput: {stats['mean']:.2f} t/s")
-        logger.info(f"  Median throughput: {stats['median']:.2f} t/s")
-        logger.info(f"  Std deviation: {stats['stdev']:.2f} t/s")
-        logger.info(f"  Range: {stats['min']:.2f} - {stats['max']:.2f} t/s")
-        logger.info("")
+        if stats:
+            logger.info(f"\n{workload['name'].upper()} Summary:")
+            logger.info(f"  Mean throughput: {stats['mean']:.2f} t/s")
+            logger.info(f"  Median throughput: {stats['median']:.2f} t/s")
+            logger.info(f"  Std deviation: {stats['stdev']:.2f} t/s")
+            logger.info(f"  Range: {stats['min']:.2f} - {stats['max']:.2f} t/s")
+            logger.info("")
     
     logger.info("\n" + "="*60)
     logger.info("OVERALL SUMMARY")
@@ -198,6 +189,9 @@ def main():
     summary_table = []
     for i, result in enumerate(all_results):
         stats = result.get_statistics()
+        if not stats:
+            continue
+            
         workload = TEST_WORKLOADS[i]
         
         summary_table.append({
@@ -205,18 +199,19 @@ def main():
             "Avg Tokens": f"{result.metadata['avg_tokens_generated']:.0f}",
             "Avg Time": format_duration(result.metadata['avg_elapsed_time']),
             "Throughput": f"{stats['median']:.2f} t/s",
-            "Std Dev": f"±{stats['stdev']:.2f}"
+            "Std Dev": f"+/- {stats['stdev']:.2f}"
         })
     
-    headers = list(summary_table[0].keys())
-    col_widths = {h: max(len(h), max(len(str(row[h])) for row in summary_table)) for h in headers}
-    
-    header_row = " | ".join(h.ljust(col_widths[h]) for h in headers)
-    logger.info(header_row)
-    logger.info("-" * len(header_row))
-    
-    for row in summary_table:
-        logger.info(" | ".join(str(row[h]).ljust(col_widths[h]) for h in headers))
+    if summary_table:
+        headers = list(summary_table[0].keys())
+        col_widths = {h: max(len(h), max(len(str(row[h])) for row in summary_table)) for h in headers}
+        
+        header_row = " | ".join(h.ljust(col_widths[h]) for h in headers)
+        logger.info(header_row)
+        logger.info("-" * len(header_row))
+        
+        for row in summary_table:
+            logger.info(" | ".join(str(row[h]).ljust(col_widths[h]) for h in headers))
     
     logger.info("\n" + "="*60)
     logger.info("Benchmark complete! Results saved to:")

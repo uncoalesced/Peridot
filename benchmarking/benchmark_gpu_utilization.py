@@ -1,5 +1,5 @@
 """
-Benchmark 5: GPU Utilization
+GPU Utilization Telemetry
 Monitors GPU usage during inference to verify efficient GPU utilization.
 # Engineered by uncoalesced
 """
@@ -8,17 +8,42 @@ import sys
 import time
 import requests
 import threading
+import psutil
 from pathlib import Path
 
-# Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
-from benchmark_utils import (
-    BenchmarkResult, get_system_info, logger
-)
+# Force Python to recognize both the Peridot root AND the utils folder
+peridot_root = str(Path(__file__).parent.parent.absolute())
+# FIX: Correctly path to E:\Peridot\benchmarking\utils
+utils_path = str(Path(__file__).parent.absolute() / "utils")
 
-# Configuration
-API_URL = "http://localhost:5000/ask"
-RESULTS_DIR = Path(__file__).parent.parent / "results"
+if peridot_root not in sys.path:
+    sys.path.insert(0, peridot_root)
+if utils_path not in sys.path:
+    sys.path.insert(0, utils_path)
+
+from config import AI_SERVER_URL
+from benchmark_utils import BenchmarkResult, get_system_info, logger
+
+# DIRECTORY FIX: Removed one .parent to stay inside the benchmarking directory
+RESULTS_DIR = Path(__file__).parent / "results"
+
+def get_ephemeral_key():
+    """Forensically extracts the RAM-only API key from the running server process."""
+    try:
+        for proc in psutil.process_iter(['name', 'cmdline']):
+            cmdline = proc.info.get('cmdline') or []
+            cmd_str = ' '.join(cmdline).lower()
+            if 'server.py' in cmd_str or 'launcher.py' in cmd_str:
+                env = proc.environ()
+                key = env.get('API_KEY') or env.get('PERIDOT_AUTH_TOKEN')
+                if key:
+                    return key
+    except Exception as e:
+        logger.debug(f"Process memory inspection failed: {e}")
+    
+    # Fallback if extraction fails
+    from config import API_KEY
+    return API_KEY
 
 
 class GPUMonitor:
@@ -114,11 +139,12 @@ class GPUMonitor:
 
 
 def run_inference_with_monitoring(duration_s: int = 30):
-    import os
-    headers = {"Content-Type": "application/json"}
-    api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    active_key = get_ephemeral_key()
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {active_key}"
+    }
     
     prompts = [
         "Explain machine learning in detail.",
@@ -128,17 +154,20 @@ def run_inference_with_monitoring(duration_s: int = 30):
         "What are the applications of computer vision?"
     ]
     
-    logger.info(f"Running inference for {duration_s} seconds...")
+    logger.info(f"Running inference for {duration_s} seconds. Target: {AI_SERVER_URL}")
     
     start_time = time.time()
     query_count = 0
     
     while time.time() - start_time < duration_s:
-        prompt = prompts[query_count % len(prompts)]
+        raw_query = prompts[query_count % len(prompts)]
+        
+        # Format for Aether-Route split payload
+        full_prompt = f"<|start_header_id|>user<|end_header_id|>\n\n{raw_query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
         
         try:
-            payload = {"command": prompt}
-            response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
+            payload = {"query": raw_query, "prompt": full_prompt}
+            response = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             query_count += 1
             
@@ -156,13 +185,15 @@ def main():
     logger.info("PERIDOT GPU UTILIZATION BENCHMARK")
     logger.info("="*60 + "\n")
     
+    # Dynamically strip /ask to hit the /health endpoint safely
+    health_url = AI_SERVER_URL.replace("/ask", "") + "/health"
     try:
-        response = requests.get("http://localhost:5000/health", timeout=2)
+        response = requests.get(health_url, timeout=2)
         if response.status_code != 200:
-            logger.error("Peridot is not responding correctly!")
+            logger.error(f"Peridot returned abnormal status: {response.status_code}")
             sys.exit(1)
-    except:
-        logger.error("Peridot is not running! Please start Peridot first.")
+    except requests.exceptions.RequestException:
+        logger.error("Peridot is not running! Please start Peridot Neural Engine first.")
         sys.exit(1)
     
     system_info = get_system_info()
@@ -173,11 +204,11 @@ def main():
     
     result = BenchmarkResult(
         name="gpu_utilization",
-        description="GPU utilization during inference"
+        description="GPU utilization during Aether-Route inference"
     )
     
     logger.info("="*60)
-    logger.info("Test 1: Idle GPU Utilization (10 seconds)")
+    logger.info("Test: Idle GPU Utilization (10 seconds)")
     logger.info("="*60 + "\n")
     
     monitor_idle = GPUMonitor()
@@ -194,7 +225,7 @@ def main():
     result.add_metadata("idle_temperature", idle_stats['temperature'])
     
     logger.info("="*60)
-    logger.info("Test 2: GPU Utilization During Inference (30 seconds)")
+    logger.info("Test: GPU Utilization During Inference (30 seconds)")
     logger.info("="*60 + "\n")
     
     monitor_active = GPUMonitor()
@@ -222,6 +253,7 @@ def main():
     
     result.add_measurement(active_stats['utilization']['mean'])
     
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     result.save(RESULTS_DIR)
     
     logger.info("\n" + "="*60)

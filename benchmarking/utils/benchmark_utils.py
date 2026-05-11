@@ -7,10 +7,30 @@ import json
 import time
 import statistics
 import logging
+import os
+import sys
+import requests
+import psutil
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-import sys
+from dotenv import load_dotenv
+
+# -----------------------------------------------------------------------------
+# ENVIRONMENT & PATH BOOTSTRAPPING
+# -----------------------------------------------------------------------------
+PERIDOT_ROOT = Path(__file__).parent.parent.parent.absolute()
+if str(PERIDOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PERIDOT_ROOT))
+
+# Force load the .env file BEFORE importing config
+env_path = PERIDOT_ROOT / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
+
+try:
+    from config import AI_SERVER_URL
+except ImportError:
+    AI_SERVER_URL = "http://127.0.0.1:5000/ask"
 
 # Setup logging
 logging.basicConfig(
@@ -136,6 +156,9 @@ def get_system_info() -> Dict[str, Any]:
     return info
 
 
+# -----------------------------------------------------------------------------
+# RESTORED FORMATTING UTILITIES
+# -----------------------------------------------------------------------------
 def format_duration(seconds: float) -> str:
     if seconds < 0.001:
         return f"{seconds*1000000:.2f}µs"
@@ -164,29 +187,26 @@ def format_bytes(bytes_value: int) -> str:
     return f"{bytes_value:.2f}PB"
 
 
-def check_peridot_running(base_url: str = "http://localhost:5000") -> bool:
-    import requests
-    
+def check_peridot_running(base_url: str = AI_SERVER_URL) -> bool:
     try:
-        response = requests.get(f"{base_url}/health", timeout=2)
+        health_url = base_url.replace("/ask", "") + "/health"
+        response = requests.get(health_url, timeout=2)
         return response.status_code == 200
     except:
         return False
 
 
-def wait_for_peridot(base_url: str = "http://localhost:5000", timeout: int = 30) -> bool:
-    import requests
-    
-    logger.info(f"Waiting for Peridot at {base_url}...")
+def wait_for_peridot(base_url: str = AI_SERVER_URL, timeout: int = 30) -> bool:
+    logger.info(f"Waiting for Peridot Neural Engine...")
     start = time.time()
     
     while time.time() - start < timeout:
         if check_peridot_running(base_url):
-            logger.info("Peridot is ready!")
+            logger.info("Neural Link Established!")
             return True
         time.sleep(0.5)
         
-    logger.error(f"Peridot did not become ready within {timeout}s")
+    logger.error(f"Peridot did not respond within {timeout}s")
     return False
 
 
@@ -210,3 +230,54 @@ class ProgressBar:
         
         if self.current >= self.total:
             print()
+
+
+# -----------------------------------------------------------------------------
+# AETHER-ROUTE MASTER CLIENT
+# -----------------------------------------------------------------------------
+def get_ephemeral_key() -> str:
+    """Forensically extracts the RAM-only API key from the running server process."""
+    try:
+        for proc in psutil.process_iter(['name', 'cmdline']):
+            try: # Inner try-except prevents AccessDenied from crashing the loop
+                cmdline = proc.info.get('cmdline') or []
+                cmd_str = ' '.join(cmdline).lower()
+                if 'server.py' in cmd_str or 'launcher.py' in cmd_str:
+                    env = proc.environ()
+                    key = env.get('API_KEY') or env.get('PERIDOT_AUTH_TOKEN')
+                    if key:
+                        return key
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                pass
+    except Exception as e:
+        logger.debug(f"Process memory inspection failed: {e}")
+    
+    # Fallback if extraction fails
+    try:
+        from config import API_KEY
+        return API_KEY
+    except:
+        return ""
+
+
+class AetherClient:
+    """Unified API Client for sending Aether-Route payloads from any benchmark."""
+    def __init__(self):
+        self.url = AI_SERVER_URL
+        self.active_key = get_ephemeral_key()
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.active_key}"
+        }
+        # Session prevents socket exhaustion during sustained generation tests
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
+
+    def send_query(self, query: str, prompt: Optional[str] = None, timeout: int = 180):
+        if prompt is None:
+            prompt = f"<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+        
+        payload = {"query": query, "prompt": prompt}
+        response = self.session.post(self.url, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response.json()

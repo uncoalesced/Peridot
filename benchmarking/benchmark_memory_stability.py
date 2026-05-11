@@ -1,32 +1,39 @@
 """
-Benchmark 4: Memory Stability
+Memory Stability
 Tests for memory leaks by running many consecutive queries.
 # Engineered by uncoalesced
 """
 
 import sys
 import time
-import requests
 import psutil
 from pathlib import Path
 
-# Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
+# -----------------------------------------------------------------------------
+# PATH BOOTSTRAPPING FIX
+# -----------------------------------------------------------------------------
+benchmarking_dir = Path(__file__).parent.absolute()
+peridot_root = benchmarking_dir.parent
+utils_path = benchmarking_dir / "utils"
+
+for path in [str(peridot_root), str(utils_path)]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
 from benchmark_utils import (
-    BenchmarkResult, get_system_info, format_bytes, logger, ProgressBar
+    BenchmarkResult, get_system_info, format_bytes, logger, ProgressBar,
+    AetherClient, check_peridot_running
 )
 
-# Configuration
-API_URL = "http://localhost:5000/ask"
-RESULTS_DIR = Path(__file__).parent.parent / "results"
-
+# DIRECTORY FIX: Stay inside benchmarking
+RESULTS_DIR = benchmarking_dir / "results"
 
 def get_peridot_memory():
     """Get memory usage of Peridot process."""
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_info']):
         try:
-            cmdline = proc.info['cmdline']
-            if cmdline and any('launcher.py' in str(cmd) for cmd in cmdline):
+            cmdline = proc.info.get('cmdline') or []
+            if cmdline and any('launcher.py' in str(cmd).lower() or 'server.py' in str(cmd).lower() for cmd in cmdline):
                 mem_info = proc.memory_info()
                 return {
                     "rss_mb": mem_info.rss / (1024 * 1024),
@@ -38,14 +45,8 @@ def get_peridot_memory():
     return None
 
 
-def run_query(query_num: int):
+def run_query(client: AetherClient, query_num: int):
     """Run a single query and return response time."""
-    import os
-    headers = {"Content-Type": "application/json"}
-    api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    
     prompts = [
         "What is machine learning?",
         "Explain quantum computing.",
@@ -59,17 +60,14 @@ def run_query(query_num: int):
         "What is reinforcement learning?"
     ]
     
-    prompt = prompts[query_num % len(prompts)]
-    
-    payload = {
-        "command": prompt
-    }
+    raw_query = prompts[query_num % len(prompts)]
     
     start = time.time()
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
-    elapsed = time.time() - start
     
-    response.raise_for_status()
+    # AetherClient natively handles payload formatting, headers, and the persistent session
+    client.send_query(query=raw_query, timeout=30)
+    
+    elapsed = time.time() - start
     return elapsed
 
 
@@ -78,13 +76,8 @@ def main():
     logger.info("PERIDOT MEMORY STABILITY BENCHMARK")
     logger.info("="*60 + "\n")
     
-    try:
-        response = requests.get("http://localhost:5000/health", timeout=2)
-        if response.status_code != 200:
-            logger.error("Peridot is not responding correctly!")
-            sys.exit(1)
-    except:
-        logger.error("Peridot is not running! Please start Peridot first.")
+    if not check_peridot_running():
+        logger.error("Peridot is not running or health check failed! Please start Peridot Neural Engine first.")
         sys.exit(1)
     
     initial_mem = get_peridot_memory()
@@ -120,9 +113,12 @@ def main():
     
     progress = ProgressBar(num_queries, prefix="Progress")
     
+    # Instantiate client once to reuse session connections
+    client = AetherClient()
+    
     for i in range(num_queries):
         try:
-            query_time = run_query(i)
+            query_time = run_query(client, i)
             query_times.append(query_time)
             
             if i % sample_interval == 0:
@@ -156,6 +152,7 @@ def main():
         result.add_metadata("avg_query_time_s", statistics.mean(query_times))
         result.add_metadata("median_query_time_s", statistics.median(query_times))
     
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     result.save(RESULTS_DIR)
     
     logger.info("\n" + "="*60)

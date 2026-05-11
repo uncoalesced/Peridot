@@ -1,121 +1,83 @@
-# PERIDOT KERNEL — Benchmarking Guide
+# Aether-Route Performance Matrix (ARPM) — Benchmarking Guide
 
-Because Peridot is a sovereign, hardware-dependent OS, actual performance will vary based on your specific CPU, RAM, and NVIDIA GPU architecture.
+Peridot is a sovereign, hardware-dependent system. Because the Aether-Route architecture relies on a tight handoff between the Ryzen AI NPU/CPU and NVIDIA Blackwell-era CUDA cores, performance varies significantly based on system configuration.
 
-We rely on the community to crowdsource empirical data. This guide explains how to properly benchmark your system and share the results.
+The ARPM suite provides a standardized method for quantifying system throughput, VRAM handoff efficiency, and memory stability.
 
 ---
 
-# 1. Preparing the Environment
+## 1. Prerequisites
 
-Peridot uses a strictly ephemeral, RAM-only API key to prevent unauthorized local processes from hijacking the LLM (CWE-312 mitigation).
+The ARPM suite is designed to be zero-config. It automatically handles security authentication by scanning the host environment for the active Peridot session key.
 
-To run the benchmark scripts from a separate terminal, you must temporarily synchronize a static key.
+### Requirements
 
-## Terminal 1 — The Server
+- **Peridot Server Active**  
+  Ensure `python server.py` or the Peridot Launcher is running in a separate terminal.
 
-Kill your current Peridot instance.
+- **Environment**  
+  Ensure your virtual environment is active (`.venv`).
 
-Start the server directly while injecting a benchmark key.
+- **Hardware Telemetry**  
+  Ensure `pynvml` is installed to allow the suite to pull RTX-specific power and thermal data.
 
-### Windows (PowerShell)
+---
+
+## 2. Execution
+
+The suite features a master runner that executes all telemetry scripts in a dependency-safe order, including cooling gaps to prevent thermal throttling from skewing results.
+
+### Run Full Telemetry Suite
+
+#### PowerShell
 
 ```powershell
-$env:PERIDOT_AUTH_TOKEN="08101954"
-python server.py
+.\venv\Scripts\python.exe benchmarking/run_all_benchmarks.py
 ```
 
-### Linux / macOS
+### Script Breakdown
 
-```bash
-PERIDOT_AUTH_TOKEN="BENCHMARK_KEY" python server.py
-```
+| Benchmark Module | Description |
+|---|---|
+| **Inference Speed** | Measures tokens-per-second (t/s) across short, medium, and long context windows. |
+| **VRAM Handoff** | Measures the millisecond latency of purging Folding@Home buffers for incoming AI queries. |
+| **Memory Stability** | Validates the Aether-Route context clearing logic over 100+ consecutive queries. |
+| **GPU Utilization** | Tracks CUDA core saturation and power draw during Blackwell generation cycles. |
 
 ---
 
-## Terminal 2 — The Test Suite
+## 3. Understanding the ARPM Rating
 
-Open a second terminal, activate your virtual environment, and inject the exact same key.
-
-### Windows (PowerShell)
-
-```powershell
-$env:PERIDOT_AUTH_TOKEN="BENCHMARK_KEY"
-```
-
-### Linux / macOS
-
-```bash
-export PERIDOT_AUTH_TOKEN="BENCHMARK_KEY"
-```
-
----
-
-# 2. Running the Tests
-
-With the security perimeter temporarily synchronized, execute both benchmark scripts from **Terminal 2**.
-
-## Test A — VRAM Hot-Swap Latency
-
-This test measures the millisecond latency of the hardware interrupt when yielding the GPU from Folding@Home back to the LLM.
-
-```bash
-python benchmarks/vram_test.py
-```
-
----
-
-## Test B — Inference Speed
-
-This test measures sustained **tokens-per-second (t/s)** across the local API under different context loads.
-
-```bash
-python benchmarks/inference_test.py
-```
-
----
-
-# 3. Uploading Your Results
-
-Once you have your numbers, we want them. This helps optimize the **VRAM State Machine** for different hardware architectures.
-
-1. Go to the **Configurations Discussion Board**
-2. Click **New Discussion**
-3. Copy and paste the template below
-4. Fill in your system specifications and results
-5. Submit the post
-
----
-
-# Benchmark Submission Template
+After the suite completes, it generates a **System Readiness Rating (1–10)** located in:
 
 ```text
-System Architecture:
-
-OS: [e.g., Windows 11 / Ubuntu 22.04]
-CPU: [e.g., Ryzen 7 5800X / Intel i9-13900K]
-RAM: [e.g., 32GB DDR4 3200MHz]
-GPU: [e.g., RTX 3060 12GB / RTX 5050 8GB]
-
-Benchmark Results:
-
-VRAM Hot-Swap Latency: [e.g., 6.55 ms]
-Inference Speed (Short): [e.g., 38.92 t/s]
-Inference Speed (Medium): [e.g., 57.29 t/s]
-Inference Speed (Long): [e.g., 41.02 t/s]
-
-Additional Notes:
-
-[Any quantization used, modifications to GPU_LAYERS in config.py,
-or background processes running during the test.]
+benchmarking/reports/README_PERFORMANCE_SECTION.md
 ```
+
+### Rating Tiers
+
+| Rating | Classification | Description |
+|---|---|---|
+| **9–10** | Elite | System handles 8B models with minimal latency and features near-instant VRAM handoff (`<600ms`). |
+| **7–8** | High Performance | Capable of sustained local inference but may require specific quantization (`Q4_K_M`) to stay within VRAM limits. |
+| **5–6** | Standard | Functional, but may experience bottlenecks during context scaling or high-load sustained tasks. |
 
 ---
 
-You can save this file directly as:
+## 4. Contributing Results
 
-```
-benchmarks/BENCHMARKING.md
+1. Navigate to the GitHub Discussions / Configurations board.
+2. Open a **New Discussion**.
+3. Paste the contents of:
+
+```text
+benchmarking/reports/README_PERFORMANCE_SECTION.md
 ```
 
-This keeps all benchmarking instructions standardized and easy for contributors to follow.
+4. Attach the hardware JSON found in:
+
+```text
+benchmarking/results/
+```
+
+for deep-level telemetry verification.

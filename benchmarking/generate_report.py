@@ -6,11 +6,20 @@ Analyzes results from all benchmarks and creates formatted output.
 
 import json
 import statistics
+import sys
 from pathlib import Path
 from datetime import datetime
 
-RESULTS_DIR = Path(__file__).parent.parent / "results"
-OUTPUT_DIR = Path(__file__).parent.parent / "reports"
+# Path Bootstrapping
+BASE_DIR = Path(__file__).parent.absolute()
+RESULTS_DIR = BASE_DIR / "results"
+OUTPUT_DIR = BASE_DIR / "reports"
+
+sys.path.insert(0, str(BASE_DIR))
+try:
+    import hardware_info
+except ImportError:
+    hardware_info = None
 
 
 def load_latest_result(benchmark_name: str):
@@ -40,11 +49,90 @@ def format_duration(seconds: float) -> str:
         return f"{minutes}m {secs:.2f}s"
 
 
+def calculate_peridot_rating():
+    """Calculates a 1-10 readiness rating based on hardware and telemetry."""
+    score = 0
+    reasons = []
+
+    # 1. Hardware Base (Max 2 points)
+    if hardware_info:
+        specs = hardware_info.get_specs()
+        vram = specs.get('gpu_memory_total_gb', 0)
+        ram = specs.get('ram_total_gb', 0)
+        
+        if vram >= 8:
+            score += 1
+            reasons.append(f"[PASS] {vram}GB VRAM detected (Optimal for 8B models).")
+        else:
+            reasons.append(f"[WARN] {vram}GB VRAM detected (Suboptimal, heavy quantization required).")
+            
+        if ram >= 15:
+            score += 1
+            reasons.append(f"[PASS] {ram}GB System RAM detected.")
+    else:
+        reasons.append("[WARN] Hardware telemetry unavailable.")
+
+    # 2. VRAM Handoff Latency (Max 3 points)
+    vram_result = load_latest_result("vram_handoff")
+    if vram_result:
+        stats = vram_result.get("statistics", {})
+        median_handoff = stats.get('median', 9999)
+        if median_handoff < 600:
+            score += 3
+            reasons.append(f"[PASS] Handoff latency is elite ({median_handoff:.2f}ms).")
+        elif median_handoff < 1500:
+            score += 2
+            reasons.append(f"[PASS] Handoff latency is acceptable ({median_handoff:.2f}ms).")
+        else:
+            reasons.append(f"[WARN] Handoff latency is slow ({median_handoff:.2f}ms).")
+    else:
+        reasons.append("[FAIL] VRAM Handoff benchmark missing.")
+
+    # 3. Aether-Route Caching Throughput (Max 3 points)
+    med_result = load_latest_result("inference_medium")
+    if med_result:
+        stats = med_result.get("statistics", {})
+        tps = stats.get('median', 0)
+        if tps > 5000:
+            score += 3
+            reasons.append(f"[PASS] Aether-Route semantic cache is highly active ({tps:.2f} t/s).")
+        elif tps > 30:
+            score += 2
+            reasons.append(f"[PASS] Standard GPU generation is stable ({tps:.2f} t/s).")
+        else:
+            reasons.append(f"[WARN] Inference throughput bottlenecked ({tps:.2f} t/s).")
+    else:
+        reasons.append("[FAIL] Inference benchmark missing.")
+
+    # 4. Memory Stability (Max 2 points)
+    mem_result = load_latest_result("memory_stability")
+    if mem_result:
+        metadata = mem_result.get("metadata", {})
+        growth = metadata.get('memory_growth_mb', 999)
+        if abs(growth) < 50:
+            score += 2
+            reasons.append(f"[PASS] Zero memory leaks detected (Growth: {growth:+.2f}MB).")
+        else:
+            reasons.append(f"[FAIL] Memory leak detected (Growth: {growth:+.2f}MB).")
+    else:
+        reasons.append("[FAIL] Memory stability benchmark missing.")
+
+    return min(score, 10), reasons
+
+
 def generate_readme_section():
     output = []
     
-    output.append("## `> PERFORMANCE`")
+    output.append("## `> PERFORMANCE & READINESS`")
     output.append("")
+    
+    # Inject Rating System
+    score, reasons = calculate_peridot_rating()
+    output.append(f"### Peridot Readiness Rating: {score}/10")
+    for reason in reasons:
+        output.append(f"- {reason}")
+    output.append("")
+    
     output.append("Measured on **real hardware**. No overclocking. No cherry-picked runs.")
     output.append("")
     
@@ -97,7 +185,7 @@ def generate_readme_section():
     output.append("---")
     output.append("")
     
-    output.append("### VRAM Handoff Benchmarks ⚡ (Unique Feature)")
+    output.append("### VRAM Handoff Benchmarks (Unique Feature)")
     output.append("")
     output.append("When Peridot is idle, your GPU folds proteins for medical research. When you send a query:")
     output.append("")
@@ -111,11 +199,11 @@ def generate_readme_section():
         output.append("|-------|---------|")
         output.append("| User sends query | 0ms |")
         output.append(f"| FAH pause command | {metadata.get('avg_pause_latency_ms', 0):.2f}ms |")
-        output.append(f"| **VRAM freed** | **{stats.get('median', 0):.2f}ms** ✅ |")
+        output.append(f"| **VRAM freed** | **{stats.get('median', 0):.2f}ms** [PASS] |")
         output.append(f"| Inference begins | ~{stats.get('median', 0) + 1:.0f}ms |")
         output.append("")
-        output.append(f"**Total overhead: {stats.get('median', 0):.2f}ms**  ")
-        output.append(f"**VRAM freed: ~{metadata.get('avg_vram_freed_mb', 0):.0f}MB**  ")
+        output.append(f"**Total overhead: {stats.get('median', 0):.2f}ms** ")
+        output.append(f"**VRAM freed: ~{metadata.get('avg_vram_freed_mb', 0):.0f}MB** ")
         output.append(f"**Inference performance: {metadata.get('avg_inference_throughput', 0):.2f} t/s** (unchanged)")
     
     output.append("")
@@ -159,7 +247,7 @@ def generate_readme_section():
         output.append(f"Tested over {queries} consecutive queries:")
         output.append(f"- Initial: {initial:.0f}MB")
         output.append(f"- After {queries} queries: {final:.0f}MB")
-        output.append(f"- **Memory growth: {abs(growth):.0f}MB** (bounded memory ✅)")
+        output.append(f"- **Memory growth: {abs(growth):.0f}MB** (bounded memory [PASS])")
     
     output.append("")
     output.append("---")
@@ -188,8 +276,11 @@ def generate_full_benchmarks_doc():
     output.append("")
     output.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     output.append("")
-    output.append("This document contains comprehensive benchmark results for Peridot.")
-    output.append("For a summary of key metrics, see the Performance section in README.md.")
+    
+    score, reasons = calculate_peridot_rating()
+    output.append(f"## System Readiness Rating: {score}/10")
+    for reason in reasons:
+        output.append(f"- {reason}")
     output.append("")
     output.append("---")
     output.append("")
@@ -334,14 +425,14 @@ def main():
     readme_path = OUTPUT_DIR / "README_PERFORMANCE_SECTION.md"
     with open(readme_path, 'w') as f:
         f.write(readme_section)
-    print(f"✅ Saved: {readme_path}")
+    print(f"[SUCCESS] Saved: {readme_path}")
     
     print("Generating BENCHMARKS.md...")
     benchmarks_doc = generate_full_benchmarks_doc()
     benchmarks_path = OUTPUT_DIR / "BENCHMARKS.md"
     with open(benchmarks_path, 'w') as f:
         f.write(benchmarks_doc)
-    print(f"✅ Saved: {benchmarks_path}")
+    print(f"[SUCCESS] Saved: {benchmarks_path}")
     
     print("\n" + "="*60)
     print("Report generation complete!")

@@ -1,5 +1,5 @@
 """
-Benchmark 2: VRAM Handoff Latency
+VRAM Handoff Latency
 Measures the time it takes to switch from Folding@Home to inference.
 This is Peridot's UNIQUE FEATURE - no other local LLM does medical research integration.
 # Engineered by uncoalesced
@@ -7,18 +7,26 @@ This is Peridot's UNIQUE FEATURE - no other local LLM does medical research inte
 
 import sys
 import time
-import requests
 from pathlib import Path
 
-# Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
+# -----------------------------------------------------------------------------
+# PATH BOOTSTRAPPING FIX
+# -----------------------------------------------------------------------------
+benchmarking_dir = Path(__file__).parent.absolute()
+peridot_root = benchmarking_dir.parent
+utils_path = benchmarking_dir / "utils"
+
+for path in [str(peridot_root), str(utils_path)]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
 from benchmark_utils import (
-    BenchmarkResult, get_system_info, format_duration, logger
+    BenchmarkResult, get_system_info, format_duration, logger,
+    AetherClient, check_peridot_running
 )
 
-# Configuration
-API_URL = "http://localhost:5000"
-RESULTS_DIR = Path(__file__).parent.parent / "results"
+# DIRECTORY FIX: Stay inside benchmarking
+RESULTS_DIR = benchmarking_dir / "results"
 
 
 def get_vram_info():
@@ -44,108 +52,89 @@ def get_vram_info():
         return None
 
 
-def get_api_headers():
-    import os
-    headers = {"Content-Type": "application/json"}
-    api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    return headers
+def get_base_url(client: AetherClient) -> str:
+    return client.url.replace("/ask", "")
 
 
-def pause_research() -> float:
-    url = f"{API_URL}/research/disable"
-    headers = get_api_headers()
-    
+def pause_research(client: AetherClient) -> float:
+    url = f"{get_base_url(client)}/research/disable"
     start = time.time()
-    response = requests.post(url, headers=headers, timeout=10)
+    response = client.session.post(url, timeout=10)
     elapsed = time.time() - start
-    
     response.raise_for_status()
     return elapsed
 
 
-def unpause_research() -> float:
-    url = f"{API_URL}/research/enable"
-    headers = get_api_headers()
-    
+def unpause_research(client: AetherClient) -> float:
+    url = f"{get_base_url(client)}/research/enable"
     start = time.time()
-    response = requests.post(url, headers=headers, timeout=10)
+    response = client.session.post(url, timeout=10)
     elapsed = time.time() - start
-    
     response.raise_for_status()
     return elapsed
 
 
-def get_research_status():
-    url = f"{API_URL}/research/status"
-    headers = get_api_headers()
-    
-    response = requests.get(url, headers=headers, timeout=5)
+def get_research_status(client: AetherClient):
+    url = f"{get_base_url(client)}/research/status"
+    response = client.session.get(url, timeout=5)
     response.raise_for_status()
-    
     return response.json()
 
 
-def measure_vram_handoff_cycle() -> dict:
+def measure_vram_handoff_cycle(client: AetherClient) -> dict:
     logger.info("Starting VRAM handoff measurement cycle...")
     
-    status = get_research_status()
+    status = get_research_status(client)
     if not status.get("active", False):
         logger.info("  Research is paused, enabling first...")
-        unpause_research()
+        unpause_research(client)
         time.sleep(3)
     
     vram_before = get_vram_info()
-    logger.info(f"  VRAM before pause: {vram_before['free_mb']}MB free")
+    if vram_before:
+        logger.info(f"  VRAM before pause: {vram_before['free_mb']}MB free")
     
     logger.info("  Sending pause command...")
     pause_cmd_start = time.time()
-    pause_latency = pause_research()
+    pause_latency = pause_research(client)
     
     time.sleep(0.5)
     
     vram_freed_time = time.time() - pause_cmd_start
     
     vram_after = get_vram_info()
-    vram_freed_mb = vram_after['free_mb'] - vram_before['free_mb']
+    vram_freed_mb = vram_after['free_mb'] - vram_before['free_mb'] if vram_after and vram_before else 0
     
-    logger.info(f"  VRAM after pause: {vram_after['free_mb']}MB free")
-    logger.info(f"  VRAM freed: {vram_freed_mb}MB")
+    if vram_after:
+        logger.info(f"  VRAM after pause: {vram_after['free_mb']}MB free")
+        logger.info(f"  VRAM freed: {vram_freed_mb}MB")
     logger.info(f"  VRAM release time: {format_duration(vram_freed_time)}")
     
     logger.info("  Running inference test...")
     inference_start = time.time()
     
     test_prompt = "What is artificial intelligence?"
-    payload = {"command": test_prompt}
-    
-    response = requests.post(
-        f"{API_URL}/ask",
-        json=payload,
-        headers=get_api_headers(),
-        timeout=30
-    )
+    data = client.send_query(query=test_prompt, timeout=30)
     
     inference_elapsed = time.time() - inference_start
     
-    response_text = response.json().get("response", "")
+    response_text = data.get("response", "")
     tokens = len(response_text.split()) * 1.3
-    throughput = tokens / inference_elapsed
+    throughput = tokens / inference_elapsed if inference_elapsed > 0 else 0
     
     logger.info(f"  Inference completed in {format_duration(inference_elapsed)}")
     logger.info(f"  Throughput: {throughput:.2f} t/s")
     
     logger.info("  Re-enabling research...")
-    unpause_latency = unpause_research()
+    unpause_latency = unpause_research(client)
     time.sleep(1)
     
     return {
         "pause_command_latency_ms": pause_latency * 1000,
         "vram_release_time_ms": vram_freed_time * 1000,
         "vram_freed_mb": vram_freed_mb,
-        "vram_before_mb": vram_before['free_mb'],
-        "vram_after_mb": vram_after['free_mb'],
+        "vram_before_mb": vram_before['free_mb'] if vram_before else 0,
+        "vram_after_mb": vram_after['free_mb'] if vram_after else 0,
         "inference_time_s": inference_elapsed,
         "inference_throughput_tps": throughput,
         "unpause_latency_ms": unpause_latency * 1000
@@ -157,17 +146,14 @@ def main():
     logger.info("PERIDOT VRAM HANDOFF BENCHMARK")
     logger.info("="*60 + "\n")
     
-    try:
-        response = requests.get(f"{API_URL}/health", timeout=2)
-        if response.status_code != 200:
-            logger.error("Peridot is not responding correctly!")
-            sys.exit(1)
-    except:
-        logger.error("Peridot is not running! Please start Peridot first.")
+    if not check_peridot_running():
+        logger.error("Peridot is not running or health check failed! Please start Peridot Neural Engine first.")
         sys.exit(1)
+        
+    client = AetherClient()
     
     try:
-        status = get_research_status()
+        status = get_research_status(client)
         logger.info(f"Research module status: {status}")
         logger.info("")
     except Exception as e:
@@ -199,7 +185,7 @@ def main():
         logger.info(f"{'='*60}")
         
         try:
-            cycle_data = measure_vram_handoff_cycle()
+            cycle_data = measure_vram_handoff_cycle(client)
             
             pause_latencies.append(cycle_data['pause_command_latency_ms'])
             vram_release_times.append(cycle_data['vram_release_time_ms'])
@@ -227,40 +213,42 @@ def main():
         result.add_metadata("avg_vram_freed_mb", statistics.mean(vram_freed_amounts))
         result.add_metadata("avg_inference_throughput", statistics.mean(inference_throughputs))
     
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     result.save(RESULTS_DIR)
     
     stats = result.get_statistics()
-    logger.info("\n" + "="*60)
-    logger.info("VRAM HANDOFF SUMMARY")
-    logger.info("="*60 + "\n")
-    
-    logger.info(f"Pause command latency:")
-    logger.info(f"  Mean: {statistics.mean(pause_latencies):.2f}ms")
-    logger.info(f"  Median: {statistics.median(pause_latencies):.2f}ms")
-    logger.info("")
-    
-    logger.info(f"VRAM release time (KEY METRIC):")
-    logger.info(f"  Mean: {stats['mean']:.2f}ms")
-    logger.info(f"  Median: {stats['median']:.2f}ms")
-    logger.info(f"  Std Dev: {stats['stdev']:.2f}ms")
-    logger.info(f"  Range: {stats['min']:.2f} - {stats['max']:.2f}ms")
-    logger.info("")
-    
-    logger.info(f"VRAM freed:")
-    logger.info(f"  Mean: {statistics.mean(vram_freed_amounts):.0f}MB")
-    logger.info(f"  Median: {statistics.median(vram_freed_amounts):.0f}MB")
-    logger.info("")
-    
-    logger.info(f"Inference performance after handoff:")
-    logger.info(f"  Mean: {statistics.mean(inference_throughputs):.2f} t/s")
-    logger.info(f"  Median: {statistics.median(inference_throughputs):.2f} t/s")
-    logger.info(f"  (No performance degradation)")
-    logger.info("")
-    
-    logger.info("="*60)
-    logger.info("Benchmark complete! Results saved to:")
-    logger.info(f"  {RESULTS_DIR.absolute()}")
-    logger.info("="*60 + "\n")
+    if stats:
+        logger.info("\n" + "="*60)
+        logger.info("VRAM HANDOFF SUMMARY")
+        logger.info("="*60 + "\n")
+        
+        logger.info(f"Pause command latency:")
+        logger.info(f"  Mean: {statistics.mean(pause_latencies):.2f}ms")
+        logger.info(f"  Median: {statistics.median(pause_latencies):.2f}ms")
+        logger.info("")
+        
+        logger.info(f"VRAM release time (KEY METRIC):")
+        logger.info(f"  Mean: {stats['mean']:.2f}ms")
+        logger.info(f"  Median: {stats['median']:.2f}ms")
+        logger.info(f"  Std Dev: {stats['stdev']:.2f}ms")
+        logger.info(f"  Range: {stats['min']:.2f} - {stats['max']:.2f}ms")
+        logger.info("")
+        
+        logger.info(f"VRAM freed:")
+        logger.info(f"  Mean: {statistics.mean(vram_freed_amounts):.0f}MB")
+        logger.info(f"  Median: {statistics.median(vram_freed_amounts):.0f}MB")
+        logger.info("")
+        
+        logger.info(f"Inference performance after handoff:")
+        logger.info(f"  Mean: {statistics.mean(inference_throughputs):.2f} t/s")
+        logger.info(f"  Median: {statistics.median(inference_throughputs):.2f} t/s")
+        logger.info(f"  (No performance degradation)")
+        logger.info("")
+        
+        logger.info("="*60)
+        logger.info("Benchmark complete! Results saved to:")
+        logger.info(f"  {RESULTS_DIR.absolute()}")
+        logger.info("="*60 + "\n")
 
 
 if __name__ == "__main__":

@@ -1,33 +1,41 @@
 """
-Benchmark 7: Sustained Load
+Sustained Load
 Tests performance and stability under extended continuous use.
 # Engineered by uncoalesced
 """
 
 import sys
 import time
-import requests
 import psutil
 from pathlib import Path
 from datetime import datetime
 
-# Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
+# -----------------------------------------------------------------------------
+# PATH BOOTSTRAPPING FIX
+# -----------------------------------------------------------------------------
+benchmarking_dir = Path(__file__).parent.absolute()
+peridot_root = benchmarking_dir.parent
+utils_path = benchmarking_dir / "utils"
+
+for path in [str(peridot_root), str(utils_path)]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
 from benchmark_utils import (
-    BenchmarkResult, get_system_info, format_duration, logger, ProgressBar
+    BenchmarkResult, get_system_info, format_duration, logger, ProgressBar,
+    AetherClient, check_peridot_running
 )
 
-# Configuration
-API_URL = "http://localhost:5000/ask"
-RESULTS_DIR = Path(__file__).parent.parent / "results"
+# DIRECTORY FIX: Stay inside benchmarking
+RESULTS_DIR = benchmarking_dir / "results"
 
 
 def get_peridot_memory():
     """Get memory usage of Peridot process."""
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_info']):
         try:
-            cmdline = proc.info['cmdline']
-            if cmdline and any('launcher.py' in str(cmd) for cmd in cmdline):
+            cmdline = proc.info.get('cmdline') or []
+            if cmdline and any('launcher.py' in str(cmd).lower() or 'server.py' in str(cmd).lower() for cmd in cmdline):
                 mem_info = proc.memory_info()
                 return mem_info.rss / (1024 * 1024)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -39,22 +47,15 @@ def count_tokens_rough(text: str) -> int:
     return int(len(text.split()) * 1.3)
 
 
-def run_query(prompt: str, max_tokens: int = 100):
-    import os
-    headers = {"Content-Type": "application/json"}
-    api_key = os.environ.get("PERIDOT_AUTH_TOKEN")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    
-    payload = {"command": prompt}
-    
+def run_query(client: AetherClient, prompt: str, max_tokens: int = 100):
     start = time.time()
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=60)
+    
+    # AetherClient natively handles payload formatting, headers, and the persistent session
+    data = client.send_query(query=prompt, timeout=60)
+    
     elapsed = time.time() - start
     
-    response.raise_for_status()
-    
-    response_text = response.json().get("response", "")
+    response_text = data.get("response", "")
     tokens = count_tokens_rough(response_text)
     throughput = tokens / elapsed if elapsed > 0 else 0
     
@@ -71,13 +72,8 @@ def main():
     logger.info("PERIDOT SUSTAINED LOAD BENCHMARK")
     logger.info("="*60 + "\n")
     
-    try:
-        response = requests.get("http://localhost:5000/health", timeout=2)
-        if response.status_code != 200:
-            logger.error("Peridot is not responding correctly!")
-            sys.exit(1)
-    except:
-        logger.error("Peridot is not running! Please start Peridot first.")
+    if not check_peridot_running():
+        logger.error("Peridot is not running or health check failed! Please start Peridot Neural Engine first.")
         sys.exit(1)
     
     initial_mem = get_peridot_memory()
@@ -123,6 +119,9 @@ def main():
         "Explain unsupervised learning."
     ]
     
+    # Instantiate client once to reuse session connections for the full 10 minutes
+    client = AetherClient()
+    
     start_time = time.time()
     query_count = 0
     successful_queries = 0
@@ -143,7 +142,7 @@ def main():
             prompt = prompts[query_count % len(prompts)]
             
             try:
-                metrics = run_query(prompt)
+                metrics = run_query(client, prompt)
                 
                 successful_queries += 1
                 throughputs.append(metrics['throughput'])
@@ -209,6 +208,7 @@ def main():
             result.add_metadata("final_memory_mb", final_mem)
             result.add_metadata("memory_growth_mb", final_mem - initial_mem)
     
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     result.save(RESULTS_DIR)
     
     logger.info("\n" + "="*60)
@@ -224,7 +224,8 @@ def main():
     logger.info(f"  Total attempted: {query_count}")
     logger.info(f"  Successful: {successful_queries}")
     logger.info(f"  Failed: {failed_queries}")
-    logger.info(f"  Success rate: {(successful_queries/query_count)*100:.1f}%")
+    if query_count > 0:
+        logger.info(f"  Success rate: {(successful_queries/query_count)*100:.1f}%")
     logger.info(f"  Queries per minute: {result.metadata.get('queries_per_minute', 0):.1f}")
     logger.info("")
     
@@ -241,7 +242,7 @@ def main():
         logger.info(f"  Median: {format_duration(statistics.median(response_times))}")
         logger.info("")
     
-    if memory_samples:
+    if memory_samples or final_mem:
         logger.info(f"Memory:")
         logger.info(f"  Initial: {initial_mem:.2f} MB")
         if final_mem:
@@ -258,7 +259,7 @@ def main():
     if len(throughputs) > 20:
         first_20 = statistics.mean(throughputs[:20])
         last_20 = statistics.mean(throughputs[-20:])
-        degradation = ((first_20 - last_20) / first_20) * 100
+        degradation = ((first_20 - last_20) / first_20) * 100 if first_20 > 0 else 0
         
         logger.info(f"Performance over time:")
         logger.info(f"  First 20 queries: {first_20:.2f} t/s")
