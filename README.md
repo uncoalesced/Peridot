@@ -231,7 +231,7 @@ without introducing disk-based synchronization or plaintext token storage.
 
 ## Constitution Validation
 
-Peridot's permission architecture is governed through [`constitution.json`](constitution.json).
+Peridot's permission architecture is governed through [`config/constitution.json`](config/constitution.json).
 
 If the configuration becomes corrupted, unavailable, or malformed, the kernel automatically falls back to a locked-down safe mode.
 
@@ -606,7 +606,7 @@ Permissions are user-controlled through:
 
 ### Restricted Mode
 
-Delete [`constitution.json`](constitution.json) and Peridot regenerates the file in safe mode with all permissions disabled.
+Delete [`config/constitution.json`](config/constitution.json) and Peridot regenerates the file in safe mode with all permissions disabled.
 
 ### Unrestricted Mode
 
@@ -939,7 +939,7 @@ All remaining input is treated as natural language and processed through the inf
 
 ## Configuration
 
-Edit [`constitution.json`](constitution.json) to modify runtime permissions and execution policy.
+Edit [`config/constitution.json`](config/constitution.json) to modify runtime permissions and execution policy.
 
 ```json
 {
@@ -955,7 +955,7 @@ Edit [`constitution.json`](constitution.json) to modify runtime permissions and 
 
 ### Reset To Defaults
 
-Delete [`constitution.json`](constitution.json) and restart the runtime.
+Delete [`config/constitution.json`](config/constitution.json) and restart the runtime.
 
 Peridot regenerates the configuration automatically.
 
@@ -1002,7 +1002,7 @@ That means:
 - no unremovable execution boundaries
 - no ethical guardrails that cannot be modified by the operator
 
-The `constitution.json` system ships with sensible defaults.
+The `config/constitution.json` system ships with sensible defaults.
 
 You can:
 - make them stricter
