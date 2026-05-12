@@ -1,58 +1,38 @@
 ---
-
-name: Bug Report
-
-about: Report a software error or hardware crash.
-
-title: "\[BUG] "
-
-labels: bug
-
+name: Bug report
+about: Create a report to help us improve
+title: ''
+labels: ''
 assignees: ''
-
-
 
 ---
 
-
-
-\*\*Describe the bug\*\*
-
+**Describe the bug**
 A clear and concise description of what the bug is.
 
-
-
-\*\*Hardware Environment\*\*
-
-\- \*\*GPU:\*\* (e.g., NVIDIA RTX 5050 Laptop)
-
-\- \*\*VRAM:\*\* (e.g., 8GB)
-
-\- \*\*CUDA Version:\*\* (e.g., 12.1)
-
-\- \*\*OS:\*\* (e.g., Windows 11 / Ubuntu 22.04)
-
-
-
-\*\*To Reproduce\*\*
-
+**To Reproduce**
 Steps to reproduce the behavior:
+1. Go to '...'
+2. Click on '....'
+3. Scroll down to '....'
+4. See error
 
-1\. Start Peridot with command '...'
-
-2\. Trigger action '...'
-
-3\. See error
-
-
-
-\*\*Expected Behavior\*\*
-
+**Expected behavior**
 A clear and concise description of what you expected to happen.
 
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
 
+**Desktop (please complete the following information):**
+ - OS: [e.g. iOS]
+ - Browser [e.g. chrome, safari]
+ - Version [e.g. 22]
 
-\*\*Screenshots/Logs\*\*
+**Smartphone (please complete the following information):**
+ - Device: [e.g. iPhone6]
+ - OS: [e.g. iOS8.1]
+ - Browser [e.g. stock browser, safari]
+ - Version [e.g. 22]
 
-If applicable, add screenshots or terminal logs to help explain your problem.
-
+**Additional context**
+Add any other context about the problem here.
