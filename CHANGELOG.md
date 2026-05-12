@@ -3,6 +3,29 @@
 
 ---
 
+## [v1.3.2-beta] - 2026-05-13
+**Name:** Peridot v1.3.2 - Memory Deduplication, Meta-Citations & Sovereign Telemetry
+
+### Security
+- **Environment-Level Cryptography:** Migrated the `API_KEY` completely out of Python source code and into a localized `.env` file. Established `.env.example` and locked `.gitignore` to prevent automated scraping of the host's cryptographic handshake.
+- **Client-Server Handshake Hardening:** Patched `core.py` to securely transmit explicit `Authorization: Bearer` headers during both standard inference and system shutdown operations.
+
+### Added
+- **Hash-Based Memory Deduplication:** Upgraded `vector_store.py` with a persistent `registry.json` tracking system. It now calculates SHA-256 hashes of all ingested files to prevent redundant vector embeddings and save CPU cycles.
+- **Explicit Source Citations:** Engineered the RAG Context-Injection loop in `server.py` to dynamically tag semantic blocks with `[SOURCE: filename]`. The LLM is now structurally instructed to cite its specific documentary sources during generation.
+- **Automated Ingestion Runner:** Shipped `index_all.py`, a dedicated ingestion script that automatically scans the `input/` zone, extracts text, checks the deduplication registry, and commits new data to the FAISS index.
+
+### Changed
+- **Sovereign Telemetry Override:** Forced the `sentence-transformers` and `huggingface_hub` libraries into strict offline mode via global environment variables (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`). This permanently silences network-check warnings and maintains a true air-gapped architecture.
+- **Context Search Depth:** Increased the `vector_store` retrieval depth (`top_k=3`) to feed the LLM denser contextual clusters for more accurate multi-source answers.
+- **Configuration Bootstrap:** Rewrote `config.py` to prioritize `load_dotenv()` before any secondary module imports, ensuring environment variables govern the entire kernel boot sequence.
+
+### Fixed
+- **403 Forbidden Handshake Failure:** Resolved a critical client-server desynchronization bug where `config.py` was generating conflicting `secrets.token_hex(16)` keys for independent processes. The key is now statically anchored to the `.env` file.
+- **Flask Payload Rejection:** Fixed silent failures in the Neural Link by explicitly forcing the `"Content-Type": "application/json"` header in `requests.post()` calls originating from `core.py`.
+
+---
+
 ## [v1.3.1-beta] - 2026-05-11
 **Name:** Peridot v1.3.1 - Aether-Route Architecture & RAG Synchronization
 
