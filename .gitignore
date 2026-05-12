@@ -45,3 +45,8 @@ gpus.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Local Data & Artifacts
+input/*
+!input/.gitkeep
+storage/
