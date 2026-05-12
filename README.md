@@ -1,26 +1,29 @@
 <div align="center">
 
-```text
+<pre>
 ██████╗ ███████╗██████╗ ██╗██████╗  ██████╗ ████████╗
 ██╔══██╗██╔════╝██╔══██╗██║██╔══██╗██╔═══██╗╚══██╔══╝
 ██████╔╝█████╗  ██████╔╝██║██║  ██║██║   ██║   ██║
 ██╔═══╝ ██╔══╝  ██╔══██╗██║██║  ██║██║   ██║   ██║
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝
-```
+</pre>
 
 ### `SOVEREIGN AI KERNEL — v1.3.1 BETA`
 
 [![STATUS](https://img.shields.io/badge/STATUS-OPERATIONAL-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS_GPU-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
 [![PRIVACY](https://img.shields.io/badge/PRIVACY-AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
+
+<br>
+
 [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-f9e642?style=for-the-badge&labelColor=0a0a0a)](LICENSE)
 [![Python](https://img.shields.io/badge/PYTHON-3.11-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://python.org)
 
 <br>
 
 > **⚠️ BETA RELEASE**  
-> Medical research orchestration and ARPM validation framework under active testing. [Report issues →](https://github.com/uncoalesced/Peridot/issues)
+> Medical research orchestration and runtime validation infrastructure under active testing. [Report issues →](https://github.com/uncoalesced/Peridot/issues)
 
 <br>
 
@@ -28,8 +31,6 @@
 
 *GPU-accelerated, air-gapped sovereign AI runtime with defense-in-depth security and hardware-aware orchestration.*  
 *Zero telemetry. Zero cloud dependency. Absolute user sovereignty.*
-
-<br>
 
 </div>
 
@@ -69,7 +70,7 @@ Every subsystem is locally inspectable, locally auditable, and locally controlla
 > **Development Note**  
 > Peridot's core runtime architecture, telemetry systems, security infrastructure, inference pipeline, orchestration layers, and kernel logic are 100% human engineered.
 >
-> AI-generated code is used exclusively inside the `\benchmarking` suite for telemetry automation and validation tooling.
+> AI-generated code is used exclusively inside the `benchmarking/` suite for telemetry automation and validation tooling.
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
@@ -97,8 +98,8 @@ Every subsystem is locally inspectable, locally auditable, and locally controlla
 │  INFERENCE ENGINE                                       │
 │  • Llama-3-8B-Instruct (Q4_K_M)                         │
 │  • llama-cpp-python + cuBLAS                            │
-│  • localhost:5000 (air-gapped)                          │
-│  • 43–55 tokens/sec sustained                           │
+│  • localhost:5000 (local-only)                          │
+│  • 43–55 tokens/sec sustained inference                 │
 │     │                                                   │
 │     ▼                                                   │
 │  GHOSTLOGGER                                            │
@@ -116,110 +117,12 @@ Every subsystem is locally inspectable, locally auditable, and locally controlla
 
 ---
 
-### File Access Blacklist
-
-The kernel actively blocks access to sensitive files and restricted directories before the inference layer is permitted to interact with the host filesystem.
-
-**Blocked Files**
-- `.env`
-- `.ssh/id_rsa`
-- `passwords.txt`
-- `auth.token`
-
-**Blocked Directories**
-- `C:\Windows\`
-- `/etc/`
-- `/root/`
-- `/boot/`
-
-Path traversal attacks such as:
-
-```text
-../../../etc/passwd
-```
-
-are automatically neutralized through path normalization and permission validation before file execution paths are resolved.
-
----
-
-### Ephemeral API Authentication
-
-Peridot uses a RAM-resident ephemeral authentication architecture designed to eliminate persistent credential exposure.
-
-API keys are:
-- generated cryptographically at runtime
-- stored exclusively in process memory
-- destroyed automatically during shutdown
-- never serialized to disk
-
-**Security Features**
-- Zero disk footprint (`CWE-312` mitigation)
-- `secrets.compare_digest()` timing-attack protection
-- Environment-isolated token storage
-- Automatic teardown and cleanup routines
-
-No API key files are ever written to disk.
-
----
-
-### Intra-Process Authentication Pipeline
-
-Internal subsystem authentication is orchestrated through a secure intra-process environment pipeline.
-
-Benchmarking utilities and auxiliary kernel modules dynamically retrieve:
-
-```text
-PERIDOT_AUTH_TOKEN
-```
-
-directly from the active runtime environment using controlled `psutil` process inspection.
-
-This architecture exists specifically to preserve:
-- air-gapped execution
-- ephemeral credential handling
-- zero-config subsystem communication
-- non-persistent authentication boundaries
-
-without introducing disk-based synchronization or plaintext token storage.
-
----
-
-### Rate Limiting
-
-The local inference API enforces strict request throttling:
-
-```text
-60 requests per minute per client IP
-```
-
-This prevents:
-- local denial-of-service conditions
-- runaway automation loops
-- abusive subprocess flooding
-- inference starvation under sustained misuse
-
----
-
-### Subprocess Command Whitelisting
-
-Medical research integration (`Folding@home`) operates under a hardcoded execution whitelist.
-
-```python
-ALLOWED_COMMANDS = ("pause", "unpause", "finish", "shutdown")
-```
-
-Any command outside the approved execution boundary is:
-- rejected immediately
-- isolated from execution
-- logged by GhostLogger as a security violation
-
----
-
 # `> SECURITY`
 
 Peridot implements a hardened defense-in-depth architecture engineered to protect the inference runtime from malicious prompts, unauthorized file access, unsafe subprocess execution, and privilege escalation attempts.
 
 The kernel assumes:
+
 ```text
 all input is potentially hostile until validated otherwise
 ```
@@ -252,18 +155,83 @@ Malicious prompts are rejected before execution and logged asynchronously throug
 Security violations are isolated to:
 
 ```text
-logs/security.log
+logs/ghost_audit.log
 ```
+
+---
+
+## File Access Blacklist
+
+The kernel actively blocks access to sensitive files and restricted directories before the inference layer is permitted to interact with the host filesystem.
+
+### Blocked Files
+- `.env`
+- `.ssh/id_rsa`
+- `passwords.txt`
+- `auth.token`
+
+### Blocked Directories
+- `C:\Windows\`
+- `/etc/`
+- `/root/`
+- `/boot/`
+
+Path traversal attacks such as:
+
+```text
+../../../etc/passwd
+```
+
+are automatically neutralized through path normalization and permission validation before file execution paths are resolved.
+
+---
+
+## Ephemeral API Authentication
+
+Peridot uses a RAM-resident ephemeral authentication architecture designed to eliminate persistent credential exposure.
+
+API keys are:
+- generated cryptographically at runtime
+- stored exclusively in process memory
+- destroyed automatically during shutdown
+- never serialized to disk
+
+### Security Features
+
+- Zero disk footprint (`CWE-312` mitigation)
+- `secrets.compare_digest()` timing-attack protection
+- Environment-isolated token storage
+- Automatic teardown and cleanup routines
+
+No API key files are ever written to disk.
+
+---
+
+## Intra-Process Authentication Pipeline
+
+Internal subsystem authentication is orchestrated through a secure intra-process environment pipeline.
+
+Benchmarking utilities and auxiliary kernel modules dynamically retrieve:
+
+```text
+PERIDOT_AUTH_TOKEN
+```
+
+directly from the active runtime environment using controlled `psutil` process inspection.
+
+This architecture exists specifically to preserve:
+- air-gapped execution
+- ephemeral credential handling
+- zero-config subsystem communication
+- non-persistent authentication boundaries
+
+without introducing disk-based synchronization or plaintext token storage.
 
 ---
 
 ## Constitution Validation
 
-Peridot's permission architecture is governed through:
-
-```text
-constitution.json
-```
+Peridot's permission architecture is governed through [`constitution.json`](constitution.json).
 
 If the configuration becomes corrupted, unavailable, or malformed, the kernel automatically falls back to a locked-down safe mode.
 
@@ -342,10 +310,7 @@ Forensic Integrity
 
 Even if the UI or inference engine experiences sustained load, GhostLogger continues operating independently to preserve a persistent forensic trail for auditing and security analysis.
 
-For full threat model documentation and disclosure policy, see:
-```text
-SECURITY.md
-```
+For full threat model documentation and disclosure policy, see [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -353,7 +318,8 @@ SECURITY.md
 
 Measured on real hardware. No overclocking. No cherry-picked runs.
 
-**Test Hardware**
+### Test Hardware
+
 - **GPU:** NVIDIA GeForce RTX 5050 Laptop (8GB VRAM)
 - **CPU:** AMD Ryzen 7 250 AI
 - **Model:** Llama-3-8B-Instruct (Q4_K_M quantization)
@@ -362,11 +328,7 @@ Measured on real hardware. No overclocking. No cherry-picked runs.
 
 ## Inference Benchmarks
 
-> Benchmarking methodology and tooling documentation are available in:
->
-> ```text
-> benchmarking/BENCHMARKING.md
-> ```
+Benchmarking methodology and tooling documentation are available in [`benchmarking/BENCHMARKING.md`](benchmarking/BENCHMARKING.md).
 
 | Task | Output Tokens | Throughput |
 |:-----|:-------------:|:----------:|
@@ -380,17 +342,19 @@ Measured on real hardware. No overclocking. No cherry-picked runs.
 
 ---
 
-## VRAM Handoff Benchmarks
+## Dynamic VRAM Arbitration
 
 Dynamic GPU resource arbitration between Folding@home and active inference execution.
 
-**Measured Latencies**
-- **VRAM Hot-Swap:** 6.55 ms (pause command → VRAM freed)
+### Measured Latencies
+
+- **VRAM Arbitration:** 6.55 ms (pause command → VRAM freed)
 - **Post-Handoff Inference:** ~50 t/s sustained (no degradation)
 
 ### Technical Implementation
 
 When a user query enters the inference queue:
+
 1. Peridot dispatches a WebSocket pause signal
 2. Folding@home releases active VRAM allocation
 3. The inference engine immediately reclaims tensor memory
@@ -416,6 +380,7 @@ Each module can:
 - communicate through controlled execution boundaries
 
 The architecture intentionally prioritizes:
+
 ```text
 Transparency
 Security
@@ -426,35 +391,26 @@ over abstraction-heavy orchestration.
 
 ---
 
-## Core Architecture & Feature Matrix
+# `> CORE ARCHITECTURE & FEATURE MATRIX`
 
-### **1. High-Velocity RAG Pipeline (Layer 1 RAM Cache)**
+## **1. High-Velocity RAG Pipeline (Layer 1 RAM Cache)**
 
 Peridot's Retrieval-Augmented Generation pipeline operates entirely within localized memory space for deterministic, zero-cloud context retrieval.
 
-#### Vector Search Layer
-Uses:
-```text
-faiss-cpu
-```
+### Vector Search Layer
 
-for:
+Uses `faiss-cpu` for:
 - high-density vector indexing
 - semantic similarity retrieval
 - RAM-resident search acceleration
 
 without requiring external vector databases.
 
-#### Semantic Embedding Layer
+### Semantic Embedding Layer
 
-Powered by:
-```text
-sentence-transformers
-```
+Powered by `sentence-transformers` to generate localized semantic embeddings directly on-device.
 
-to generate localized semantic embeddings directly on-device.
-
-#### Context Injection Pipeline
+### Context Injection Pipeline
 
 Relevant document chunks are dynamically injected into the active inference context window before generation begins.
 
@@ -468,7 +424,7 @@ without external API routing.
 
 ---
 
-### **2. Optimized Local Inference Engine**
+## **2. Optimized Local Inference Engine**
 
 The inference layer is engineered specifically for:
 - 8GB VRAM environments
@@ -476,21 +432,11 @@ The inference layer is engineered specifically for:
 - Ryzen/NVIDIA hybrid systems
 - low-overhead local execution
 
-#### GGUF Runtime
+### GGUF Runtime
 
-Built on:
-```text
-llama-cpp-python
-```
+Built on `llama-cpp-python` with `cuBLAS` GPU acceleration, allowing heavily quantized models to remain performant within constrained VRAM budgets.
 
-with:
-```text
-cuBLAS GPU acceleration
-```
-
-allowing heavily quantized models to remain performant within constrained VRAM budgets.
-
-#### Tensor Infrastructure
+### Tensor Infrastructure
 
 Integrated `torch` support is used for:
 - embedding generation
@@ -502,7 +448,7 @@ while keeping primary generation workloads isolated to the optimized GGUF runtim
 
 ---
 
-### **3. Dynamic Hardware Telemetry & Runtime Awareness**
+## **3. Dynamic Hardware Telemetry & Runtime Awareness**
 
 Peridot continuously monitors the host system to prevent:
 - VRAM exhaustion
@@ -511,14 +457,9 @@ Peridot continuously monitors the host system to prevent:
 - CUDA starvation
 - runaway memory conditions
 
-#### GPU Telemetry
+### GPU Telemetry
 
-Uses direct:
-```text
-pynvml
-```
-
-polling for:
+Uses direct `pynvml` polling for:
 - VRAM allocation
 - GPU utilization
 - thermal metrics
@@ -526,7 +467,7 @@ polling for:
 
 without spawning unnecessary CUDA contexts.
 
-#### CPU Telemetry
+### CPU Telemetry
 
 Implements:
 - `wmic` fallbacks
@@ -535,7 +476,7 @@ Implements:
 
 to bypass inconsistent processor reporting behavior under Windows 11.
 
-#### Adaptive Runtime Scaling
+### Adaptive Runtime Scaling
 
 Telemetry-aware execution logic can dynamically:
 - adjust queue pressure
@@ -547,27 +488,17 @@ during prolonged execution.
 
 ---
 
-### **4. Asynchronous API & Gateway Services**
+## **4. Asynchronous API & Gateway Services**
 
 Peridot operates as a localized inference backbone capable of interfacing with external client applications while remaining air-gapped.
 
-#### REST Layer
+### REST Layer
 
-Built on:
-```text
-Flask + Werkzeug
-```
+Built on `Flask + Werkzeug` to expose secure local inference endpoints.
 
-to expose secure local inference endpoints.
+### Real-Time Streaming
 
-#### Real-Time Streaming
-
-Uses:
-```text
-websocket-client
-```
-
-for:
+Uses `websocket-client` for:
 - bidirectional streaming
 - low-latency inference updates
 - realtime subsystem communication
@@ -575,7 +506,7 @@ for:
 
 without HTTP polling overhead.
 
-#### Cross-Origin Integration
+### Cross-Origin Integration
 
 `flask-cors` enables controlled local interface interoperability between:
 - UI layers
@@ -586,46 +517,31 @@ while remaining fully local.
 
 ---
 
-### **5. Persistent State & Thread-Safe Caching**
+## **5. Persistent State & Thread-Safe Caching**
 
 Peridot maintains structural integrity during sustained read/write operations and concurrent kernel activity.
 
-#### File Locking
+### File Locking
 
-Uses:
-```text
-filelock
-```
-
-to prevent:
-- race conditions
-- concurrent write corruption
-- state desynchronization
+Uses `filelock` to prevent:
+- concurrent write conflicts
+- corrupted state writes
+- process desynchronization
 
 between active kernel processes.
 
-#### Disk Cache Layer
+### Disk Cache Layer
 
-Uses:
-```text
-diskcache + SQLite
-```
-
-for:
+Uses `diskcache + SQLite` for:
 - high-speed query retrieval
 - persistent intermediate caching
 - reduced redundant tensor computation
 
 during repetitive workloads.
 
-#### Multimodal Readiness
+### Multimodal Readiness
 
-Localized image preprocessing support is handled through:
-```text
-Pillow
-```
-
-for future visual pipeline integration.
+Localized image preprocessing support is handled through `Pillow` for future visual pipeline integration.
 
 ---
 
@@ -636,7 +552,7 @@ Core inference runtime:
 ```text
 Model:     Llama-3-8B-Instruct (GGUF · Q4_K_M)
 Backend:   llama-cpp-python + cuBLAS
-Endpoint:  localhost:5000 (no external routing)
+Endpoint:  localhost:5000 (local-only)
 Context:   8192 tokens (sliding window)
 Precision: 4-bit quantization
 ```
@@ -690,12 +606,7 @@ Permissions are user-controlled through:
 
 ### Restricted Mode
 
-Delete:
-```text
-constitution.json
-```
-
-and Peridot regenerates the file in safe mode with all permissions disabled.
+Delete [`constitution.json`](constitution.json) and Peridot regenerates the file in safe mode with all permissions disabled.
 
 ### Unrestricted Mode
 
@@ -722,8 +633,9 @@ Every query, action, permission decision, and security event is tracked through 
 ### GhostLogger Security Layer
 
 Security-critical events are isolated into:
+
 ```text
-logs/security.log
+logs/ghost_audit.log
 ```
 
 GhostLogger operates independently from:
@@ -750,7 +662,6 @@ When idle, Peridot can allocate unused GPU resources toward distributed medical 
 GPU Utilization:  <5%
 Action:           Folding@home activated
 Research:         Cancer, Alzheimer's, COVID-19 variants
-Contribution:     ~400,000 points/day (varies by GPU)
 ```
 
 ### Active State
@@ -767,7 +678,7 @@ GPU Utilization:  85%+ (inference)
 - Opt-in only
 - Fully auditable
 - Zero restart overhead
-- Dynamic VRAM reclamation
+- Dynamic VRAM arbitration
 - Inference-priority execution
 - Transparent runtime state tracking
 
@@ -786,6 +697,7 @@ research status
 Custom `tkinter` interface engineered for technical users rather than consumer abstraction.
 
 ### Features
+
 - Real-time CPU/RAM/GPU telemetry
 - Persistent conversation history
 - Drag-and-drop visual input support
@@ -793,6 +705,7 @@ Custom `tkinter` interface engineered for technical users rather than consumer a
 - Command palette integration
 
 The interface prioritizes:
+
 ```text
 Visibility
 Control
@@ -834,7 +747,7 @@ GhostLogger tracks:
 All security activity is written to:
 
 ```text
-logs/security.log
+logs/ghost_audit.log
 ```
 
 without interrupting inference performance.
@@ -874,11 +787,7 @@ ARPM is Peridot's dedicated benchmarking and validation framework designed to te
 - sustained runtime integrity
 - telemetry reliability
 
-Benchmarking methodology and execution walkthroughs are documented in:
-
-```text
-benchmarking/BENCHMARKING.md
-```
+Benchmarking methodology and execution walkthroughs are documented in [`benchmarking/BENCHMARKING.md`](benchmarking/BENCHMARKING.md).
 
 ### ARPM Validation Pipeline
 
@@ -896,12 +805,7 @@ Validation Review
 
 ## Threat Model Documentation
 
-See:
-```text
-SECURITY.md
-```
-
-for:
+See [`SECURITY.md`](SECURITY.md) for:
 - formal threat modeling
 - security assumptions
 - defense boundaries
@@ -924,10 +828,7 @@ for:
 
 **Lite Mode:** Automatically selects Phi-3 Mini and reduces context to 2048 tokens.
 
-**Community Builds:** Maintained by contributors. See:
-```text
-COMMUNITY_INSTALL.md
-```
+**Community Builds:** Maintained by contributors. See [`COMMUNITY_INSTALL.md`](COMMUNITY_INSTALL.md).
 
 ---
 
@@ -1038,13 +939,7 @@ All remaining input is treated as natural language and processed through the inf
 
 ## Configuration
 
-Edit:
-
-```text
-constitution.json
-```
-
-to modify runtime permissions and execution policy.
+Edit [`constitution.json`](constitution.json) to modify runtime permissions and execution policy.
 
 ```json
 {
@@ -1060,12 +955,7 @@ to modify runtime permissions and execution policy.
 
 ### Reset To Defaults
 
-Delete:
-```text
-constitution.json
-```
-
-and restart the runtime.
+Delete [`constitution.json`](constitution.json) and restart the runtime.
 
 Peridot regenerates the configuration automatically.
 
@@ -1123,11 +1013,7 @@ That decision belongs to the user, not the developer.
 
 **This is what AI should look like.**
 
-For full philosophical reasoning, see:
-
-```text
-PHILOSOPHY.md
-```
+For full philosophical reasoning, see [`PHILOSOPHY.md`](PHILOSOPHY.md).
 
 ---
 
