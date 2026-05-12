@@ -1,146 +1,341 @@
-Contributor Covenant Code of Conduct
+<div align="center">
 
-Our Pledge
+# PERIDOT COMMUNITY PROTOCOL  
+### Sovereign Development Conduct — v1.3
 
-We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
+*Engineered for contributors, researchers, auditors, and operators participating in the Peridot ecosystem.*
 
+</div>
 
+---
 
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
+# `> PURPOSE`
 
+Peridot is not a conventional consumer AI product.
 
+It is a sovereign local AI kernel engineered around:
+- operator control
+- transparent execution
+- local inference
+- hardware ownership
+- auditable behavior
+- deterministic system design
 
-Our Standards
+This repository exists for builders, researchers, security analysts, contributors, and operators who believe intelligence should remain under direct user control.
 
-Examples of behavior that contributes to a positive environment for our community include:
+Participation in this project requires professionalism, technical honesty, and respect for the sovereignty of other contributors and operators.
 
+---
 
+# `> CORE PRINCIPLE`
 
-Demonstrating empathy and kindness toward other people
+```text
+The user owns the machine.
+Therefore the user controls the intelligence running on it.
+```
 
+All community standards originate from this principle.
 
+---
 
-Being respectful of differing opinions, viewpoints, and experiences
+# `> EXPECTED CONDUCT`
 
+Contributors are expected to operate in good faith and maintain a technically serious environment.
 
+Positive contribution includes:
 
-Giving and gracefully accepting constructive feedback
+- honest technical discussion
+- transparent benchmarking
+- reproducible research
+- respectful disagreement
+- responsible security disclosure
+- constructive code review
+- accurate documentation
+- verifiable performance claims
+- attribution of external work and dependencies
+- maintaining auditability and transparency
 
+Peridot encourages:
+- experimentation
+- optimization
+- architectural disagreement
+- performance competition
+- independent forks
+- subsystem replacement
 
+provided those activities remain technically honest and professionally conducted.
 
-Accepting responsibility and apologizing to those affected by our mistakes, and learning from the experience
+---
 
+# `> UNACCEPTABLE CONDUCT`
 
+The following behavior is considered incompatible with the Peridot project and community.
 
-Focusing on what is best not just for us as individuals, but for the overall community
+---
 
+## Security Violations
 
+- malicious code injection
+- credential harvesting
+- intentional backdoors
+- exploit deployment against contributors
+- unauthorized access attempts
+- tampering with audit infrastructure
+- bypassing permission systems without disclosure
 
-Examples of unacceptable behavior include:
+---
 
+## Technical Dishonesty
 
+- fabricated benchmarks
+- manipulated telemetry
+- falsified performance claims
+- misleading hardware disclosures
+- plagiarism without attribution
+- intentionally deceptive documentation
+- presenting AI-generated code as human-authored core runtime logic
 
-The use of sexualized language or imagery, and sexual attention or advances of any kind
+Peridot's architecture is built around verifiability.
 
+False claims damage the integrity of the entire ecosystem.
 
+---
 
-Trolling, insulting or derogatory comments, and personal or political attacks
+## Community Abuse
 
+- harassment
+- intimidation
+- personal attacks
+- hate speech
+- discriminatory behavior
+- doxxing
+- sustained hostile conduct
+- malicious trolling intended to derail technical discussion
 
+Disagreement is acceptable.
 
-Public or private harassment
+Hostility is not.
 
+---
 
+## Sovereignty Violations
 
-Publishing others' private information, such as a physical or email address, without their explicit permission
+Peridot explicitly rejects:
+- hidden telemetry
+- undisclosed cloud routing
+- deceptive data collection
+- covert analytics
+- intentionally obscured execution behavior
 
+Contributors attempting to introduce such mechanisms without explicit disclosure may be permanently removed from the project.
 
+---
 
-Other conduct which could reasonably be considered inappropriate in a professional setting
+# `> CONTRIBUTOR EXPECTATIONS`
 
+Contributors modifying core systems are expected to maintain:
+- code readability
+- auditability
+- deterministic behavior where practical
+- transparent dependency usage
+- security awareness
+- reproducible implementation logic
 
+Changes affecting:
+- inference behavior
+- telemetry systems
+- permission handling
+- authentication
+- logging
+- benchmarking
+- orchestration
 
-Enforcement Responsibilities
+should include clear documentation explaining:
+- what changed
+- why it changed
+- operational impact
+- security implications
+- hardware implications
 
-Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive, or harmful.
+---
 
+# `> BENCHMARKING INTEGRITY`
 
+Peridot benchmarks must reflect real-world execution.
 
-Community leaders have the right and responsibility to remove, edit, or reject comments, commits, code, wiki edits, issues, and other contributions that are not aligned to this Code of Conduct, and will communicate reasons for moderation decisions when appropriate.
+The project does not permit:
+- synthetic cherry-picking
+- hidden overclock profiles
+- misleading token throughput reporting
+- falsified latency measurements
+- undisclosed hardware acceleration
+- manipulated VRAM reporting
 
+When publishing benchmark results, contributors should disclose:
+- hardware configuration
+- quantization level
+- runtime backend
+- operating system
+- relevant optimization flags
+- thermal or power constraints if applicable
 
+ARPM exists to standardize reproducible validation.
 
-Scope
+---
 
-This Code of Conduct applies within all community spaces, and also applies when an individual is officially representing the community in public spaces. Examples of representing our community include using an official e-mail address, posting via an official social media account, or acting as an appointed representative at an online or offline event.
+# `> SECURITY DISCLOSURE`
 
+Security research is welcome.
 
+Responsible disclosure is expected.
 
-Enforcement
+If you discover:
+- privilege escalation paths
+- authentication weaknesses
+- remote execution vectors
+- sandbox escapes
+- audit bypasses
+- permission layer flaws
+- inference isolation failures
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at uncoalesced@gmail.com. All complaints will be reviewed and investigated promptly and fairly.
+report them privately before public disclosure.
 
+Contact:
 
+```text
+uncoalesced@gmail.com
+```
 
-All community leaders are obligated to respect the privacy and security of the reporter of any incident.
+Do not publish active exploits targeting users before remediation is available.
 
+---
 
+# `> ENFORCEMENT`
 
-Enforcement Guidelines
+Project maintainers reserve the right to:
+- reject contributions
+- remove discussions
+- revoke collaboration access
+- block malicious actors
+- remove deceptive benchmark submissions
+- permanently ban hostile participants
 
-Community leaders will follow these Community Impact Guidelines in determining the consequences for any action they deem in violation of this Code of Conduct:
+when behavior is determined to be:
+- malicious
+- deceptive
+- destructive
+- abusive
+- intentionally destabilizing
 
+Enforcement decisions prioritize:
+- ecosystem integrity
+- contributor safety
+- technical trustworthiness
+- operational security
 
+over public visibility or contributor status.
 
-1\. Correction
+---
 
-Community Impact: Use of inappropriate language or other behavior deemed unprofessional or unwelcome in the community.
+# `> MODERATION PHILOSOPHY`
 
+Peridot is not engineered to be a sanitized corporate discussion space.
 
+Strong technical disagreement is expected.
 
-Consequence: A private, written warning from community leaders, providing clarity around the nature of the violation and an explanation of why the behavior was inappropriate. A public apology may be requested.
+Direct criticism is acceptable.
 
+Architectural disputes are acceptable.
 
+Evidence-driven argument is encouraged.
 
-2\. Warning
+However:
+- bad-faith hostility
+- deception
+- harassment
+- ideological spam
+- performative outrage
+- malicious disruption
 
-Community Impact: A violation through a single incident or series of actions.
+are not protected forms of participation.
 
+---
 
+# `> OPEN ARCHITECTURE`
 
-Consequence: A warning with consequences for continued behavior. No interaction with the people involved, including unsolicited interaction with those enforcing the Code of Conduct, for a specified period of time. This includes avoiding interactions in community spaces as well as external channels like social media. Violating these terms may lead to a temporary or permanent ban.
+Peridot supports:
+- independent forks
+- subsystem replacement
+- custom constitutions
+- modified safety boundaries
+- alternative inference backends
+- experimental orchestration layers
 
+The project intentionally preserves operator freedom.
 
+Contributors may disagree with implementation decisions without being treated as adversaries.
 
-3\. Temporary Ban
+---
 
-Community Impact: A serious violation of community standards, including sustained inappropriate behavior.
+# `> AI USAGE POLICY`
 
+AI-assisted tooling is permitted.
 
+However:
 
-Consequence: A temporary ban from any sort of interaction or public communication with the community for a specified period of time. No public or private interaction with the people involved, including unsolicited interaction with those enforcing the Code of Conduct, is allowed during this period. Violating these terms may lead to a permanent ban.
+Core runtime architecture, security systems, orchestration logic, and benchmark claims must remain understandable, auditable, and reviewable by humans.
 
+Contributors should clearly disclose when AI-generated code materially contributes to:
+- infrastructure
+- benchmarking
+- orchestration
+- automation systems
+- security-sensitive functionality
 
+Opaque code generation without understanding the resulting implementation is discouraged.
 
-4\. Permanent Ban
+---
 
-Community Impact: Demonstrating a pattern of violation of community standards, including sustained inappropriate behavior, harassment of an individual, or aggression toward or disparagement of classes of individuals.
+# `> LICENSE COMPATIBILITY`
 
+Participation in this repository constitutes acknowledgment that:
+- the project is MIT licensed
+- forks are permitted
+- derivative work is permitted
+- commercial usage is permitted
 
+unless otherwise specified within individual components.
 
-Consequence: A permanent ban from any sort of public interaction within the community.
+---
 
+# `> FINAL PRINCIPLE`
 
+Peridot exists because modern AI systems increasingly normalize:
+- surveillance
+- dependency
+- opacity
+- centralized control
 
-Attribution
+This project rejects that model.
 
-This Code of Conduct is adapted from the Contributor Covenant, version 2.1, available at \[https://www.contributor-covenant.org/version/2/1/code\_of\_conduct.html]v2.1.
+```text
+Your hardware.
+Your intelligence.
+Your authority.
+```
 
+Act accordingly.
 
+---
 
-Community Impact Guidelines were inspired by Mozilla's code of conduct enforcement ladder.
+<div align="center">
 
+`PERIDOT COMMUNITY PROTOCOL` · `v1.3`
 
+**Engineered by uncoalesced**
 
-For answers to common questions about this code of conduct, see the FAQ at \[https://www.contributor-covenant.org/faq]FAQ. Translations are available at \[https://www.contributor-covenant.org/translations]translations.
+*Transparency over opacity.*  
+*Control over dependency.*  
+*Sovereignty over surveillance.*
 
+</div>
