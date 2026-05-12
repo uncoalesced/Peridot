@@ -162,4 +162,4 @@ def main():
         print(f"{RED}[FATAL] Telemetry collection failed. Cannot compile threshold matrix.{RESET}")
 
 if __name__ == "__main__":
-    main()
+    main() 
