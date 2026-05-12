@@ -16,6 +16,8 @@ from core_system.security import sanitize_input, load_constitution
 from core_system.memory.vault import PersistentVault
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
 
+ACTIVE_API_KEY = API_KEY
+
 def safe_import(module_path, class_names):
     try:
         module = importlib.import_module(module_path)
@@ -144,12 +146,20 @@ class PeridotCore:
 
     def _send_to_server(self, query, prompt):
         try:
-            headers = {"Authorization": f"Bearer {API_KEY}"}
+            # CRITICAL FIX: Explicit Content-Type and Authorization Headers
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {ACTIVE_API_KEY}"
+            }
             # Timeout extended to 180s to account for heavy contextual processing
             payload = {"query": query, "prompt": prompt}
             r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=180)
             r.raise_for_status()
             return r.json().get("response", "No response from brain.")
+        except requests.exceptions.HTTPError as e:
+            if r.status_code == 403:
+                return "[SECURITY BLOCK] API Key rejected. Handshake failed. Ensure ACTIVE_API_KEY matches server."
+            return f"[HTTP ERROR] {e}"
         except requests.exceptions.RequestException as e:
             return f"[SYSTEM ERROR] Link to Neural Engine severed: {e}"
 
@@ -162,7 +172,11 @@ class PeridotCore:
             self.research.disable()
 
         try:
-            headers = {"Authorization": f"Bearer {API_KEY}"}
+            # CRITICAL FIX: Explicit Content-Type and Authorization Headers for shutdown
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {ACTIVE_API_KEY}"
+            }
             requests.post(SHUTDOWN_URL, headers=headers, timeout=2)
         except:
             pass

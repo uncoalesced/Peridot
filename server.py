@@ -23,7 +23,7 @@ load_dotenv()
 try:
     from core_system.audit import ghost
     from core_system.memory.ephemeral_cache import EphemeralCache
-    from core_system.ingestion.vector_store import vector_store  # New Aether-Route CPU Memory
+    from core_system.ingestion.vector_store import vector_store  # v1.3.2 Aether-Route CPU Memory
     
     l1_cache = EphemeralCache()
 except ImportError as e:
@@ -213,20 +213,28 @@ def ask():
             except Exception:
                 pass
             
-            relevant_context = vector_store.search(user_query, top_k=2)
+            # v1.3.2 Enhancement: Increase depth to 3 blocks for citation precision
+            relevant_context = vector_store.search(user_query, top_k=3)
             
             if relevant_context:
-                context_str = "\n".join([res['content'] for res in relevant_context])
+                context_segments = []
+                for res in relevant_context:
+                    # v1.3.2 Enhancement: Inject source tags for citation accuracy
+                    context_segments.append(f"[SOURCE: {res.get('source', 'Unknown')}]: {res['content']}")
+                
+                context_str = "\n---\n".join(context_segments)
+                
                 system_instruction = (
                     "<|start_header_id|>system<|end_header_id|>\n\n"
-                    "You are the Peridot Sovereign Kernel. Use the following retrieved context "
-                    "to answer the user query. If the context is irrelevant to the query, ignore it.\n\n"
+                    "You are the Peridot Sovereign Kernel. You have access to the user's private documents. "
+                    "Use the provided context to answer the query. ALWAYS cite the specific source filename "
+                    "in your response if you use information from it. If the context is irrelevant, answer normally.\n\n"
                     f"RETRIEVED CONTEXT:\n{context_str}<|eot_id|>\n"
                 )
                 final_prompt = system_instruction + full_prompt
                 
                 try:
-                    ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks into final prompt.")
+                    ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks with citations.")
                 except Exception:
                     pass
             else:
