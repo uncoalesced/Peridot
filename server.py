@@ -22,16 +22,14 @@ load_dotenv()
 # --- RAG SUBSYSTEM IMPORTS ---
 try:
     from core_system.audit import ghost
-    from core_system.memory.embedder import embedder
     from core_system.memory.ephemeral_cache import EphemeralCache
-    from core_system.memory.vault import PersistentVault 
+    from core_system.ingestion.vector_store import vector_store  # New Aether-Route CPU Memory
     
     l1_cache = EphemeralCache()
-    l2_vault = PersistentVault()
 except ImportError as e:
     print(f"[WARN] RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
     l1_cache = None
-    l2_vault = None
+    vector_store = None
 
 # --- PERIDOT CONFIGURATION ---
 from config import (
@@ -148,10 +146,10 @@ def boot_engine():
     try:
         llm = Llama(
             model_path=str(MODEL_PATH),
-            n_ctx=8192,           
+            n_ctx=8192,            
             n_threads=8,          
-            n_gpu_layers=100,     
-            n_batch=1024,         
+            n_gpu_layers=100,      
+            n_batch=1024,          
             flash_attn=True,      
             verbose=True,         
         )
@@ -192,17 +190,14 @@ def ask():
         if not user_query:
             return jsonify({"response": "Empty prompt received."}), 400
 
-        # --- ROUTING LOGIC (OPTION C: BRUTE FORCE CPU SEARCH) ---
-        if l1_cache is not None and l2_vault is not None:
-            
+        # --- ROUTING LOGIC ---
+        if l1_cache is not None:
             try:
                 ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB | Latency: 0.00ms")
             except Exception:
                 pass
                 
-            query_vector = embedder.embed_query(user_query)
-            
-            # STEP 2: Check L1 RAM Cache using only the isolated question
+            # STEP 1: Check L1 RAM Cache
             cached_response = l1_cache.search(user_query)
             if cached_response:
                 try:
@@ -211,31 +206,39 @@ def ask():
                     pass
                 return jsonify({"response": cached_response})
 
-            # STEP 3: Check L2 Persistent Vault
+        # STEP 2: Check Semantic Memory (Vector Store)
+        if vector_store is not None:
             try:
-                ghost.info("ROUTER | L1 MISS. Searching L2 Vault...")
+                ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
             except Exception:
                 pass
             
-            vault_chunks = l2_vault.search(query_vector, top_k=3)
+            relevant_context = vector_store.search(user_query, top_k=2)
             
-            if vault_chunks:
-                context_str = "\n".join(vault_chunks)
-                final_prompt = f"<|start_header_id|>system<|end_header_id|>\n\nContext Information:\n{context_str}<|eot_id|>\n" + full_prompt
+            if relevant_context:
+                context_str = "\n".join([res['content'] for res in relevant_context])
+                system_instruction = (
+                    "<|start_header_id|>system<|end_header_id|>\n\n"
+                    "You are the Peridot Sovereign Kernel. Use the following retrieved context "
+                    "to answer the user query. If the context is irrelevant to the query, ignore it.\n\n"
+                    f"RETRIEVED CONTEXT:\n{context_str}<|eot_id|>\n"
+                )
+                final_prompt = system_instruction + full_prompt
+                
                 try:
-                    ghost.info("ROUTER | L2 HIT. Context injected into final prompt.")
+                    ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks into final prompt.")
                 except Exception:
                     pass
             else:
                 final_prompt = full_prompt
                 try:
-                    ghost.info("ROUTER | L2 MISS. No relevant documents found. Proceeding raw.")
+                    ghost.info("ROUTER | MEMORY MISS. No relevant documents found. Proceeding raw.")
                 except Exception:
                     pass
         else:
             final_prompt = full_prompt
 
-        # STEP 4: Final LLM Generation (Wakes up the GPU)
+        # STEP 3: Final LLM Generation (Wakes up the GPU)
         start_time = time.time()
         output = llm(
             final_prompt, 
@@ -259,7 +262,7 @@ def ask():
         except Exception:
             pass
         
-        # STEP 5: Store new result in L1 Cache
+        # STEP 4: Store new result in L1 Cache
         if l1_cache is not None:
             l1_cache.add(user_query, final_response)
             
