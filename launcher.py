@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL | IGNITION LAUNCHER
-# Engineered by uncoalesced.
+# Engineered by uncoalesced
 # -----------------------------------------------------------------------------
 
 import subprocess
@@ -9,11 +9,13 @@ import sys
 import os
 import psutil
 import requests
-import secrets
+from dotenv import load_dotenv
 
-# SECURITY: Generate ephemeral API key in RAM before anything else loads.
-# This prevents CWE-312 Clear-Text Storage vulnerabilities on the disk.
-os.environ["PERIDOT_AUTH_TOKEN"] = secrets.token_hex(16)
+# 1. ENVIRONMENT BOOTSTRAP
+# Load the .env file FIRST. This ensures API_KEY, HF_HUB_OFFLINE, and 
+# TRANSFORMERS_OFFLINE are injected into the OS environment before any 
+# subprocesses are spawned.
+load_dotenv()
 
 from config import SERVER_HOST, SERVER_PORT, LOG_PATH
 
@@ -33,7 +35,7 @@ def main():
     print("  PERIDOT SOVEREIGN KERNEL | INITIATING IGNITION")
     print("==================================================")
 
-    # Pass the RAM-injected environment variables to our child processes
+    # Pass the fully locked-down, air-gapped environment variables to child processes
     custom_env = os.environ.copy()
 
     print(">> [1/2] Igniting Neural Engine (server.py)...")
@@ -91,7 +93,7 @@ def main():
 
     print(">> [2/2] Launching Interface (main.py)...")
     try:
-        # Launch UI with the secure RAM token
+        # Launch UI with the secure environmental token
         subprocess.run([sys.executable, "main.py"], check=True, env=custom_env)
     except KeyboardInterrupt:
         pass
@@ -101,7 +103,7 @@ def main():
         print(">> Shutting down Systems...")
         kill_proc_tree(server_process.pid)
         
-        # Clean up any leftover token files from the old architecture
+        # Clean up any leftover token files from the old v1.2.1 architecture
         token_path = LOG_PATH / "auth.token"
         if token_path.exists():
             try:
