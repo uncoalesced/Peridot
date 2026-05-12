@@ -9,7 +9,7 @@
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 ```
 
-### `SOVEREIGN AI KERNEL — v1.3.1 BETA`
+### `SOVEREIGN AI KERNEL — v1.3.2 BETA`
 
 [![STATUS](https://img.shields.io/badge/STATUS-OPERATIONAL-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS_GPU-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
@@ -1027,7 +1027,7 @@ For full philosophical reasoning, see [`PHILOSOPHY.md`](PHILOSOPHY.md).
 
 <div align="center">
 
-`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.3.1 BETA`
+`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.3.2 BETA`
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 

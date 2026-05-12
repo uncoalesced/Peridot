@@ -1,6 +1,6 @@
 {
     "meta": {
-        "version": "1.3.1-beta",
+        "version": "1.3.2-beta",
         "description": "Peridot Sovereign Constitution. User Editable. Controls core safety protocols."
     },
     "hard_rules": [
