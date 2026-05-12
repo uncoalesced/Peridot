@@ -159,7 +159,7 @@ def main():
     if all([vram_bw, pcie_bw, nvme_bw]):
         generate_threshold_profile(pcie_bw, vram_bw, nvme_bw)
     else:
-        print(f"{RED}[FATAL] Telemetry collection failed. Cannot compile threshold matrix.{RESET}")
+        print(f"{RED}[FATAL] Telemetry collection failed. Could not compile threshold matrix.{RESET}")
 
 if __name__ == "__main__":
-    main() 
+    main()
