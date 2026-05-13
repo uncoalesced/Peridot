@@ -273,7 +273,7 @@ def install_dependencies(profile_id: str) -> bool:
     return True
 
 def create_environment(install_dir: Path) -> bool:
-    """Generates the .env file for the cryptographic handshake."""
+    """Generates the .env file with strict OS-level owner-only permissions (0o600)."""
     env_path = install_dir / '.env'
     if env_path.exists():
         print(f"{Colors.GREEN}[✓] Security perimeter (.env) already exists.{Colors.ENDC}")
@@ -285,9 +285,15 @@ HF_HUB_OFFLINE=1
 API_KEY={api_key}
 """
     try:
-        with open(env_path, 'w') as f:
+        # Security Upgrade: Lock file permissions to Owner Read/Write only (600)
+        # This prevents other users or local processes from reading the loopback key.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        mode = 0o600
+        fd = os.open(env_path, flags, mode)
+        with os.fdopen(fd, 'w') as f:
             f.write(env_content)
-        print(f"{Colors.GREEN}[✓] Cryptographic handshake initialized (.env created).{Colors.ENDC}")
+            
+        print(f"{Colors.GREEN}[✓] Cryptographic handshake initialized (.env locked to OS user).{Colors.ENDC}")
         return True
     except Exception as e:
         print(f"{Colors.RED}[ERROR] Failed to lock environment: {e}{Colors.ENDC}")
