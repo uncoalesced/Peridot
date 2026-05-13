@@ -2,7 +2,7 @@
 
 # PERIDOT KERNEL | SECURITY POLICY
 
-### Threat Model & Defense Architecture — v1.3.2-beta
+### Threat Model & Defense Architecture — v1.4.0-stable
 
 *Defense-in-Depth. Local-First. Air-Gapped by Design.*
 
