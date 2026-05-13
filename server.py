@@ -1,6 +1,13 @@
-# Engineered by uncoalesced
 # -----------------------------------------------------------------------------
-# PERIDOT SERVER | Sovereign AI Kernel
+# PERIDOT SOVEREIGN KERNEL | NEURAL ENGINE
+# Copyright (C) 2026 uncoalesced
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
 import sys
@@ -16,7 +23,6 @@ from flask_cors import CORS
 from llama_cpp import Llama
 from dotenv import load_dotenv
 
-# CRITICAL FIX: Load the .env file BEFORE importing config
 load_dotenv()
 
 # --- RAG SUBSYSTEM IMPORTS ---

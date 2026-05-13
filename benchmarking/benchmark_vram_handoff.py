@@ -1,8 +1,19 @@
+# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL
+# Copyright (C) 2026 uncoalesced
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
+
 """
 VRAM Handoff Latency
 Measures the time it takes to switch from Folding@Home to inference.
 This is Peridot's UNIQUE FEATURE - no other local LLM does medical research integration.
-# Engineered by uncoalesced
 """
 
 import sys
