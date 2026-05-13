@@ -9,8 +9,6 @@
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 ```
 
-# `PERIDOT SOVEREIGN KERNEL`
-
 ### `SOVEREIGN LOCAL AI KERNEL — v1.4.0 STABLE`
 
 [![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
@@ -26,7 +24,7 @@
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 
-*GPU-accelerated, air-gapped sovereign AI runtime with defense-in-depth security and hardware-aware orchestration.*  
+*GPU-accelerated, air-gapped sovereign AI runtime with defense in depth security and hardware aware orchestration.*  
 *Zero telemetry. Zero cloud dependency. Absolute user sovereignty.*
 
 </div>
@@ -35,7 +33,7 @@
 
 # `> OVERVIEW`
 
-Peridot is a sovereign local AI kernel engineered to execute entirely on user-owned hardware without external dependency, cloud inference, telemetry collection, or remote orchestration.
+Peridot is a sovereign local AI kernel engineered to execute entirely on user owned hardware without external dependency, cloud inference, telemetry collection, or remote orchestration.
 
 The runtime combines:
 - Local LLM inference
@@ -46,12 +44,12 @@ The runtime combines:
 - Asynchronous forensic auditing
 - Immutable logging infrastructure
 
-Unlike cloud-first AI platforms, Peridot was architected around:
-- deterministic local execution
-- transparent orchestration
-- operator sovereignty
-- hardware-aware optimization
-- zero telemetry dependency
+Unlike cloud first AI platforms, Peridot was architected around:
+- Deterministic local execution
+- Transparent orchestration
+- Operator sovereignty
+- Hardware-aware optimization
+- Zero telemetry dependency
 
 Most AI assistants are surveillance infrastructure with a chat interface.
 
@@ -65,18 +63,18 @@ Therefore the user controls the intelligence running on it.
 ```
 
 Unlike cloud first assistants, Peridot does not:
-- transmit prompts externally
-- require external inference APIs
-- rely on cloud orchestration
-- force locked safety layers
-- hide execution behavior from the operator
+- Transmit prompts externally
+- Require external inference APIs
+- Rely on cloud orchestration
+- Force locked safety layers
+- Hide execution behavior from the operator
 
 Every subsystem is locally inspectable, locally auditable, and locally controllable.
 
 > **Development Note**  
-> Peridot's runtime architecture, telemetry systems, security infrastructure, inference pipeline, orchestration layers, setup wizard, VRAM state machine, and kernel logic are human engineered.
+> Peridot's runtime architecture, telemetry systems, security infrastructure, inference pipeline, orchestration layers, setup wizard, VRAM state machine and kernel logic are all human engineered.
 >
-> AI-generated code is used exclusively inside the `benchmarking/` suite for telemetry automation and validation tooling.
+> AI generated code is used exclusively inside the `benchmarking/` suite for telemetry automation and validation tooling.
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
@@ -690,7 +688,7 @@ Advanced users may bypass automatic recommendations and expose all raw hardware 
 
 ```text
 [████████████████████] v1.2 BETA      Security Hardening + Benchmarking
-[████████████████████] v1.3 BETA RAG  Engine (Document Analysis)
+[████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
 [████░░░░░░░░░░░░░░░░] v1.5           Linux Support
 [░░░░░░░░░░░░░░░░░░░░] v1.6           AMD GPU Support (ROCm)
@@ -713,7 +711,7 @@ It does not.
 Every design decision reflects a single principle:
 
 ```text
-the user is sovereign
+The user is sovereign.
 ```
 
 That means:
