@@ -2,7 +2,7 @@
 
 # PERIDOT | MEDICAL RESEARCH INTEGRATION
 
-### Folding@Home Runtime Integration — v1.3.2-beta
+### Folding@Home Runtime Integration — v1.4-STABLE
 
 *Inference First. Distributed Compute Second.*
 
