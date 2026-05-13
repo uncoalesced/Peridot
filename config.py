@@ -38,9 +38,8 @@ for path in [LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INP
 
 # --- ENGINE CONFIGURATION (v1.4 TurboQuant) ---
 
-# Toggle this variable depending on your daily driver. 
-# Do NOT use the Q4_K_M anymore. Use the IQ3_M or the Qwen 3B.
-ACTIVE_MODEL_NAME = "Meta-Llama-3-8B-Instruct-IQ3_M.gguf" 
+# The Llama 3 8B IQ3_XXS is the crowned daily driver for maximum semantic intelligence (56 t/s | 4.7GB VRAM)
+ACTIVE_MODEL_NAME = "Meta-Llama-3-8B-Instruct-IQ3_XXS.gguf" 
 # ACTIVE_MODEL_NAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
 MODEL_PATH = MODEL_DIR / ACTIVE_MODEL_NAME
