@@ -307,19 +307,56 @@ def main():
         sys_info = HardwareDetector().detect_hardware()
         wait_for_enter("Hardware detection complete. Continue?", allow_cancel=False)
         
-        # Profile Selection
-        auto_profile = HardwareProfile.auto_select_profile(sys_info)
-        print(f"\n{Colors.GREEN}Select Configuration Mode:{Colors.ENDC}")
-        print(" 1. Auto-Detect (Recommended)")
-        print(" 2. Manual Matrix Override")
-        
-        if get_numeric_choice("Mode:", 1, 2) == 1:
-            selected = auto_profile
+        # Profile Selection Phase
+        vram = sys_info.get('gpu_memory_gb', 0)
+        vendor = sys_info.get('gpu_vendor')
+
+        clear_screen()
+        print_banner()
+
+        if vendor == 'NVIDIA' and vram >= 8:
+            print(f"\n{Colors.CYAN}{'='*70}{Colors.ENDC}")
+            print(f"{Colors.BOLD}ENGINE TUNING: INTELLIGENCE VS. SPEED{Colors.ENDC}")
+            print(f"{Colors.CYAN}{'='*70}{Colors.ENDC}\n")
+            
+            print(f"{Colors.YELLOW}Your {vram}GB GPU supports multiple execution paths. Choose your primary directive:{Colors.ENDC}\n")
+            
+            print(f" 1. {Colors.BOLD}DEEP THINKER (High Quality, Slower){Colors.ENDC}")
+            print(f"    {Colors.CYAN}Engine:{Colors.ENDC} Llama 3 8B (IQ3_XXS) | ~60 t/s | ~4.7GB VRAM")
+            print(f"    {Colors.GREEN}Pros:{Colors.ENDC} Maximum semantic depth. Strict RAG document citation. Highly accurate.")
+            print(f"    {Colors.RED}Cons:{Colors.ENDC} Consumes more VRAM, leaving less overhead for background Folding@home.\n")
+            
+            print(f" 2. {Colors.BOLD}AGILE / DAILY DRIVER (Blistering Fast, Lower Precision){Colors.ENDC}")
+            print(f"    {Colors.CYAN}Engine:{Colors.ENDC} Qwen 2.5 3B (Q4_K_M) | ~100+ t/s | ~2.7GB VRAM")
+            print(f"    {Colors.GREEN}Pros:{Colors.ENDC} Instantaneous generation. Leaves massive 5GB+ VRAM buffer for maximum medical research throughput.")
+            print(f"    {Colors.RED}Cons:{Colors.ENDC} Smaller parameter count. May hallucinate on complex multi-document RAG queries.\n")
+
+            print(f" 3. {Colors.BOLD}MANUAL MATRIX OVERRIDE{Colors.ENDC}")
+            print(f"    {Colors.YELLOW}Show all raw hardware profiles.{Colors.ENDC}\n")
+
+            choice = get_numeric_choice("Select Execution Path:", 1, 3)
+
+            if choice == 1:
+                selected = 'nvidia_12gb_plus' if vram >= 12 else 'nvidia_8gb_deep'
+            elif choice == 2:
+                selected = 'nvidia_8gb_agile'
+            else:
+                profiles = list(HardwareProfile.PROFILES.items())
+                for idx, (pid, p) in enumerate(profiles, 1):
+                    print(f" {idx}. {p['name']} -> {HardwareProfile.MODELS[p['recommended_model']]['name']}")
+                selected = profiles[get_numeric_choice("Select Profile:", 1, len(profiles)) - 1][0]
         else:
-            profiles = list(HardwareProfile.PROFILES.items())
-            for idx, (pid, p) in enumerate(profiles, 1):
-                print(f" {idx}. {p['name']} -> {HardwareProfile.MODELS[p['recommended_model']]['name']}")
-            selected = profiles[get_numeric_choice("Select Profile:", 1, len(profiles)) - 1][0]
+            print(f"\n{Colors.GREEN}Select Configuration Mode:{Colors.ENDC}")
+            print(" 1. Auto-Detect (Recommended)")
+            print(" 2. Manual Matrix Override")
+            
+            if get_numeric_choice("Mode:", 1, 2) == 1:
+                selected = HardwareProfile.auto_select_profile(sys_info)
+            else:
+                profiles = list(HardwareProfile.PROFILES.items())
+                for idx, (pid, p) in enumerate(profiles, 1):
+                    print(f" {idx}. {p['name']} -> {HardwareProfile.MODELS[p['recommended_model']]['name']}")
+                selected = profiles[get_numeric_choice("Select Profile:", 1, len(profiles)) - 1][0]
             
         profile = HardwareProfile.PROFILES[selected]
         model_id = profile['recommended_model']
