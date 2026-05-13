@@ -11,9 +11,9 @@
 
 ### `SOVEREIGN AI KERNEL — v1.3.2 BETA`
 
-[![STATUS](https://img.shields.io/badge/STATUS-OPERATIONAL-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
-[![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS_GPU-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
-[![PRIVACY](https://img.shields.io/badge/PRIVACY-AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot)
+[![STATUS](https://img.shields.io/badge/STATUS-OPERATIONAL-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
+[![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/blob/main/COMMUNITY_INSTALL.md)
+[![PRIVACY](https://img.shields.io/badge/PRIVACY-AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/blob/main/SECURITY.md)
 
 <br>
 
