@@ -17,7 +17,7 @@
 
 <br>
 
-[![LICENSE](https://img.shields.io/badge/LICENSE-MIT-f9e642?style=for-the-badge&labelColor=0a0a0a)](LICENSE)
+[![LICENSE](https://img.shields.io/badge/LICENSE-AGPL--3.0-ff5f25?style=for-the-badge&labelColor=0a0a0a)](LICENSE)
 [![Python](https://img.shields.io/badge/PYTHON-3.11-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://python.org)
 
 <br>
