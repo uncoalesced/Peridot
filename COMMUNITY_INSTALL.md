@@ -1,19 +1,52 @@
-# Peridot Sovereign Kernel  
-## Community Hardware Implementation
+<div align="center">
+
+# PERIDOT SOVEREIGN KERNEL
+
+### Community Hardware Implementation
+
+*Community-Maintained Deployment Documentation*
+
+</div>
 
 ---
 
-This documentation outlines the deployment procedures for the Peridot kernel on non-NVIDIA architectures, specifically AMD Radeon and Intel Arc graphics processors.
+# `> CRITICAL DISCLAIMER: UNCHARTED SILICON`
 
-These configurations are strictly community-maintained.
+To be completely direct:
 
-The Peridot core architecture is optimized and officially validated exclusively on NVIDIA environments; therefore, alternative GPU deployments require manual configuration and are provided without official guarantees of stability.
+As of the current build, the Peridot Kernel has ONLY been officially tested and benchmarked on an NVIDIA RTX 5050 (8GB).
 
-Hardware-specific issues should be logged in the repository's Issue tracker utilizing the `[AMD]` or `[Intel Arc]` tags.
+CPU fallback mode has been successfully validated (specifically against architectures like the Ryzen 7 250 AI with 16GB of DDR5 RAM), and while it functions natively, official CPU throughput benchmarks have not been established.
+
+We have not tested this on:
+- AMD GPUs
+- Intel Arc GPUs
+- Native Linux environments
+
+If you are deploying Peridot on non-NVIDIA hardware, there is absolutely no concrete assurance that it will work out of the box.
+
+However, if you do test this, whether it runs flawlessly at 60 t/s or crashes spectacularly with an Out Of Memory fault any telemetry, crash logs, or benchmarks you are comfortable sharing are immensely valuable.
+
+If it breaks, tell us.
+
+If it works, prove it.
+
+This documentation outlines the theoretical deployment procedures for the Peridot kernel on non-NVIDIA architectures.
+
+These configurations are strictly community maintained.
+
+Hardware specific issues should be logged in the repository Issue tracker utilizing the:
+
+```text
+[AMD]
+[Intel Arc]
+```
+
+tags.
 
 ---
 
-# 1. AMD Radeon Architecture (ROCm)
+# `> 1. AMD RADEON ARCHITECTURE (ROCm)`
 
 Support for AMD graphics processing units is currently restricted to Linux environments utilizing the ROCm framework.
 
@@ -24,33 +57,35 @@ Windows deployments via ROCm are highly experimental and are not supported withi
 ## Hardware Compatibility Matrix
 
 | Architecture | VRAM | Validation Status | Expected Inference (t/s) |
-|--------------|------|------------------|--------------------------|
-| RX 6600      | 8GB  | Confirmed       | 35-42                    |
-| RX 6700 XT   | 12GB | Confirmed       | 42-50                    |
-| RX 6800 XT   | 16GB | Confirmed       | 48-55                    |
-| RX 6900 XT   | 16GB | Confirmed       | 50-58                    |
-| RX 7600      | 8GB  | Limited Testing | 38-45 (Est.)             |
-| RX 7700 XT   | 12GB | Limited Testing | 45-52 (Est.)             |
-| RX 7800 XT   | 16GB | Confirmed       | 52-60                    |
-| RX 7900 XT   | 20GB | Confirmed       | 58-65                    |
-| RX 7900 XTX  | 24GB | Confirmed       | 60-70                    |
+|:--|:--:|:--:|:--:|
+| RX 6600 | 8GB | Unverified | 35-42 (Est.) |
+| RX 6700 XT | 12GB | Unverified | 42-50 (Est.) |
+| RX 6800 XT | 16GB | Unverified | 48-55 (Est.) |
+| RX 6900 XT | 16GB | Unverified | 50-58 (Est.) |
+| RX 7600 | 8GB | Unverified | 38-45 (Est.) |
+| RX 7700 XT | 12GB | Unverified | 45-52 (Est.) |
+| RX 7800 XT | 16GB | Unverified | 52-60 (Est.) |
+| RX 7900 XT | 20GB | Unverified | 58-65 (Est.) |
+| RX 7900 XTX | 24GB | Unverified | 60-70 (Est.) |
 
 ---
 
 ## System Prerequisites
 
-- **Operating System:** Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, or Debian 12  
-- **Kernel:** 5.15 or later  
-- **Drivers:** AMDGPU kernel module  
-- **Environment:** Python 3.11  
+- **Operating System:** Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, or Debian 12
+- **Kernel:** 5.15 or later
+- **Drivers:** AMDGPU kernel module
+- **Environment:** Python 3.11 or 3.12
 
 ---
 
 ## Deployment Steps
 
+---
+
 ### Step 1.1: Verify Hardware Detection
 
-Ensure the operating system recognizes the AMD architecture:
+Ensure the operating system recognizes the AMD architecture.
 
 ```bash
 lspci | grep -i amd
@@ -63,21 +98,10 @@ lsmod | grep amdgpu
 
 Execute the following commands based on your Linux distribution to install the Radeon Open Compute (ROCm) stack.
 
-#### For Ubuntu 24.04 LTS
+#### Ubuntu 24.04 LTS
 
 ```bash
 wget https://repo.radeon.com/amdgpu-install/6.0/ubuntu/noble/amdgpu-install_6.0.60000-1_all.deb
-sudo dpkg -i amdgpu-install_6.0.60000-1_all.deb
-sudo apt update
-sudo amdgpu-install --usecase=rocm
-sudo usermod -a -G render,video $USER
-sudo reboot
-```
-
-#### For Ubuntu 22.04 LTS
-
-```bash
-wget https://repo.radeon.com/amdgpu-install/6.0/ubuntu/jammy/amdgpu-install_6.0.60000-1_all.deb
 sudo dpkg -i amdgpu-install_6.0.60000-1_all.deb
 sudo apt update
 sudo amdgpu-install --usecase=rocm
@@ -89,7 +113,7 @@ sudo reboot
 
 ### Step 1.3: Verify ROCm Installation
 
-Post-reboot, confirm the compute nodes are active:
+Post-reboot, confirm the compute nodes are active.
 
 ```bash
 /opt/rocm/bin/rocminfo
@@ -103,8 +127,10 @@ Post-reboot, confirm the compute nodes are active:
 ```bash
 git clone https://github.com/uncoalesced/Peridot.git
 cd Peridot
-python3.11 -m venv venv
+
+python -m venv venv
 source venv/bin/activate
+
 pip install --upgrade pip
 ```
 
@@ -112,12 +138,14 @@ pip install --upgrade pip
 
 ### Step 1.5: Build Engine with HIP Support
 
-The llama-cpp-python binding must be compiled manually to interface with the ROCm backend.
+The `llama-cpp-python` binding must be compiled manually to interface with the ROCm backend.
 
 ```bash
 export ROCM_PATH=/opt/rocm
 export HIP_PATH=/opt/rocm
+
 sudo apt install cmake build-essential
+
 CMAKE_ARGS="-DLLAMA_HIPBLAS=on" pip install llama-cpp-python --no-cache-dir --force-reinstall --upgrade
 ```
 
@@ -127,15 +155,17 @@ CMAKE_ARGS="-DLLAMA_HIPBLAS=on" pip install llama-cpp-python --no-cache-dir --fo
 
 ```bash
 pip install -r requirements.txt
+
 mkdir -p models
+
 wget -O models/llama-3-8b-q4.gguf https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf
 ```
 
 ---
 
-### Step 1.7: Configuration (config.py)
+### Step 1.7: Configuration (`config.py`)
 
-Modify the configuration file to address the AMD hardware:
+Modify the configuration file to address the AMD hardware.
 
 ```python
 MODEL_PATH = "models/llama-3-8b-q4.gguf"
@@ -152,12 +182,13 @@ GPU_TYPE = "amd"
 ```bash
 export GPU_DEVICE_ORDINAL=0
 export HIP_VISIBLE_DEVICES=0
+
 python launcher.py
 ```
 
 ---
 
-# 2. Intel Arc Architecture (Vulkan)
+# `> 2. INTEL ARC ARCHITECTURE (VULKAN)`
 
 Intel Arc integrations utilize the Vulkan backend, which maintains operational compatibility across both Windows 11 and Linux environments.
 
@@ -166,24 +197,38 @@ Intel Arc integrations utilize the Vulkan backend, which maintains operational c
 ## Hardware Compatibility Matrix
 
 | Architecture | VRAM | Validation Status | Expected Inference (t/s) |
-|--------------|------|------------------|--------------------------|
-| Arc A310     | 4GB  | Limited Testing | 15-20                    |
-| Arc A380     | 6GB  | Confirmed       | 20-28                    |
-| Arc A750     | 8GB  | Confirmed       | 25-35                    |
-| Arc A770     | 8GB  | Confirmed       | 28-38                    |
-| Arc A770     | 16GB | Confirmed       | 30-42                    |
+|:--|:--:|:--:|:--:|
+| Arc A310 | 4GB | Unverified | 15-20 (Est.) |
+| Arc A380 | 6GB | Unverified | 20-28 (Est.) |
+| Arc A750 | 8GB | Unverified | 25-35 (Est.) |
+| Arc A770 | 8GB | Unverified | 28-38 (Est.) |
+| Arc A770 | 16GB | Unverified | 30-42 (Est.) |
 
 ---
 
 ## Deployment Steps
 
+---
+
 ### Step 2.1: Install Intel Drivers and Vulkan SDK
 
-Windows:  
-Install the latest Intel Arc graphics drivers and the LunarG Vulkan SDK (Runtime).
+#### Windows
 
-Linux (Ubuntu 22.04+):  
-Ensure kernel 6.2+ is active. Install necessary runtime packages:
+Install:
+- latest Intel Arc graphics drivers
+- LunarG Vulkan SDK (Runtime)
+
+#### Linux (Ubuntu 22.04+)
+
+Ensure kernel:
+
+```text
+6.2+
+```
+
+is active.
+
+Install runtime packages:
 
 ```bash
 sudo apt update
@@ -200,6 +245,7 @@ Ensure the virtual environment is active before compilation.
 
 ```powershell
 $env:CMAKE_ARGS="-DLLAMA_VULKAN=on"
+
 pip install llama-cpp-python --no-cache-dir --force-reinstall --upgrade
 ```
 
@@ -207,14 +253,15 @@ pip install llama-cpp-python --no-cache-dir --force-reinstall --upgrade
 
 ```bash
 sudo apt install cmake build-essential
+
 CMAKE_ARGS="-DLLAMA_VULKAN=on" pip install llama-cpp-python --no-cache-dir --force-reinstall --upgrade
 ```
 
 ---
 
-### Step 2.3: Configuration (config.py)
+### Step 2.3: Configuration (`config.py`)
 
-Adjust the VRAM layer offloading to accommodate Intel architecture:
+Adjust the VRAM layer offloading to accommodate Intel architecture.
 
 ```python
 MODEL_PATH = "models/llama-3-8b-q4.gguf"
@@ -226,71 +273,196 @@ GPU_TYPE = "intel_arc"
 
 ---
 
-# 3. Medical Research Module Integration
+# `> 3. MEDICAL RESEARCH MODULE INTEGRATION`
 
-The Peridot kernel's VRAM handoff for medical research (Folding@home) natively supports both AMD (via OpenCL) and Intel (via Vulkan) backends.
+The Peridot kernel VRAM handoff for medical research (Folding@home) natively supports:
+- AMD (via OpenCL)
+- Intel (via Vulkan)
 
-To initialize the daemon on either architecture, run:
+backends.
+
+To initialize the daemon on either architecture:
 
 ```bash
 python medical_research.py setup
 ```
 
-AMD RX 6600+ Expected Throughput: ~300,000 PPD (Points Per Day).  
-Intel Arc A750+ Expected Throughput: ~200,000 PPD.
+---
+
+## Expected Throughput
+
+### AMD RX 6600+
+
+```text
+~300,000 PPD (Points Per Day)
+```
+
+### Intel Arc A750+
+
+```text
+~200,000 PPD
+```
 
 ---
 
-# 4. Submitting Telemetry and Benchmark Data
+# `> 4. SUBMITTING TELEMETRY AND BENCHMARK DATA`
 
-To expand our hardware validation matrices, community members are encouraged to submit performance telemetry.
+To expand hardware validation matrices, community members are encouraged to submit performance telemetry.
 
-If you achieve stable execution on undocumented hardware, please fork this repository, update the relevant markdown tables, and submit a Pull Request formatted as follows:
+If you achieve stable execution on undocumented hardware:
 
-### PR Title
+- fork the repository
+- update the relevant markdown tables
+- submit a Pull Request
 
-```
+---
+
+## PR Title
+
+```text
 Hardware Telemetry: [GPU Model]
 ```
 
-### Description Requirements
+---
 
-- Hardware Architecture  
-- OS Version / Kernel  
-- Driver or ROCm Build Version  
-- Sustained Inference Speed (t/s)  
-- Layer Configuration (GPU_LAYERS)  
+## Description Requirements
+
+- Hardware Architecture (e.g., AMD RX 7800 XT)
+- Host CPU and RAM Setup
+- OS Version / Kernel
+- Driver or ROCm Build Version
+- Sustained Inference Speed (t/s)
+- Layer Configuration (`GPU_LAYERS`)
 
 ---
 
+# `> 5. RAG ENGINE: HARDWARE-AWARE EMBEDDING TIERS`
 
-## 5. RAG Engine: Hardware-Aware Embedding Tiers
+Peridot dynamically scales Retrieval Augmented Generation (RAG) capabilities based on available VRAM.
 
-Peridot dynamically scales its Retrieval-Augmented Generation (RAG) capabilities based on available VRAM to prevent Out-Of-Memory (OOM) faults and preserve the 21ms Folding@home handoff latency.
+This prevents:
+- Out-Of-Memory (OOM) faults
+- instability
+- disruption of the ~21ms Folding@home handoff latency
 
-### Tier 0: LITE Configuration (4GB - 6GB VRAM)
-* **Target Hardware:** Intel Arc A310, AMD RX 6500 XT, older community hardware.
-* **Embedding Model:** `all-MiniLM-L3-v2` (~45MB).
-* **Execution:** Forced strictly to CPU. 
-* **Details:** Leaves 100% of the limited VRAM available for the quantized LLM. Retrieval takes slightly longer, but system stability is guaranteed.
-
-### Tier 1: Baseline Configuration (8GB VRAM)
-* **Target Hardware:** AMD RX 6600, Intel Arc A750.
-* **Embedding Model:** `all-MiniLM-L6-v2` (~90MB).
-* **Execution:** Forced strictly to CPU.
-* **Details:** The standard Peridot configuration. Balances highly accurate retrieval with zero VRAM footprint, protecting the background medical research state machine.
-
-### Tier 2: Balanced Configuration (12GB - 16GB VRAM)
-* **Target Hardware:** AMD RX 6700 XT, RX 7800 XT, Intel Arc A770.
-* **Embedding Model:** `nomic-embed-text-v1.5` (~550MB).
-* **Execution:** VRAM Accelerated.
-* **Details:** Utilizes the VRAM buffer to load a massive 8192-token context window. Capable of ingesting entire document chapters in a single pass with sub-millisecond retrieval.
-
-### Tier 3: High-Fidelity Configuration (24GB+ VRAM)
-* **Target Hardware:** AMD RX 7900 XTX.
-* **Embedding Model:** `mxbai-embed-large-v1` (~1.5GB).
-* **Execution:** VRAM Accelerated.
-* **Details:** Enterprise-grade retrieval. Best suited for massive personal databases and deep semantic search operations.
 ---
 
-For technical assistance regarding these implementations, utilize the GitHub Discussions panel or open a properly tagged Issue.
+## Tier 0: LITE Configuration (4GB - 6GB VRAM)
+
+### Target Hardware
+
+- Intel Arc A310
+- AMD RX 6500 XT
+
+### Embedding Model
+
+```text
+all-MiniLM-L3-v2 (~45MB)
+```
+
+### Execution
+
+```text
+Forced strictly to CPU
+```
+
+### Details
+
+Leaves 100% of limited VRAM available for the quantized LLM.
+
+Retrieval takes slightly longer, but system stability is guaranteed.
+
+---
+
+## Tier 1: Baseline Configuration (8GB VRAM)
+
+### Target Hardware
+
+- AMD RX 6600
+- Intel Arc A750
+
+### Embedding Model
+
+```text
+all-MiniLM-L6-v2 (~90MB)
+```
+
+### Execution
+
+```text
+Forced strictly to CPU
+```
+
+### Details
+
+The standard Peridot configuration.
+
+Balances highly accurate retrieval with zero VRAM footprint while protecting the background medical research state machine.
+
+---
+
+## Tier 2: Balanced Configuration (12GB - 16GB VRAM)
+
+### Target Hardware
+
+- AMD RX 6700 XT
+- RX 7800 XT
+- Intel Arc A770
+
+### Embedding Model
+
+```text
+nomic-embed-text-v1.5 (~550MB)
+```
+
+### Execution
+
+```text
+VRAM Accelerated
+```
+
+### Details
+
+Utilizes the VRAM buffer to load a massive:
+
+```text
+8192-token context window
+```
+
+Capable of ingesting entire document chapters in a single pass with sub-millisecond retrieval.
+
+---
+
+## Tier 3: High-Fidelity Configuration (24GB+ VRAM)
+
+### Target Hardware
+
+- AMD RX 7900 XTX
+
+### Embedding Model
+
+```text
+mxbai-embed-large-v1 (~1.5GB)
+```
+
+### Execution
+
+```text
+VRAM Accelerated
+```
+
+### Details
+
+Enterprise-grade retrieval.
+
+Best suited for:
+- massive personal databases
+- deep semantic search operations
+
+---
+
+<div align="center">
+
+**Engineered by uncoalesced**
+
+</div>
