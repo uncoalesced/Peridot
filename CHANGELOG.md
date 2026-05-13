@@ -3,6 +3,93 @@
 
 ---
 
+## [v1.4.0-STABLE] - 2026-05-14
+**Name:** Peridot v1.4.0 STABLE — TurboQuant Architecture & Sovereign Runtime Finalization
+
+### Core Engine Architecture (TurboQuant)
+
+- **Deprecated Legacy K-Quants:** Purged the default `Llama-3-8B-Instruct (Q4_K_M)` baseline due to unacceptable memory bus saturation (~6.6GB VRAM footprint) on 8GB hardware.
+- **Integrated Importance Matrix (I-Quant) Support:** Shifted the primary inference engine to natively support `IQ3_XXS` and FP4 execution paths. Vaporized ~1.5GB of VRAM overhead while increasing deep-reasoning inference throughput.
+- **Dual-Profile Bootstrapping:** Hardcoded two primary runtime profiles inside `config.py` for dynamic loading:
+  - **Deep Thinker Profile:** `Llama-3-8B-Instruct (IQ3_XXS)` achieving **60.5 t/s** at ~4.5GB VRAM.
+  - **Agile / Daily Driver Profile:** `Qwen 2.5 3B (Q4_K_M)` achieving **101.9 t/s** at ~2.7GB VRAM.
+- **Thermal & Context Limits:** Locked the baseline context window to **8192 tokens** and dropped the default engine temperature to **0.1** to enforce strict, hallucination-resistant RAG document citation behavior.
+- **Sliding Context Preservation:** Retained the lightweight sliding conversational window internally to preserve RAM stability during prolonged execution sessions.
+
+### System Initialization & Security Perimeter
+
+- **Setup Wizard Overhaul (`setup.py`):** Rewrote the installation pipeline into a hardware-aware deployment interface. The wizard now actively profiles GPU VRAM pools and dynamically recommends runtime profiles to prevent Out-Of-Memory (OOM) deployment failures.
+- **Engine Tuning Interface:** Injected a dedicated initialization-stage tuning layer allowing operators to explicitly choose between:
+  - Deep Thinker (maximum reasoning depth)
+  - Agile / Daily Driver (maximum throughput)
+- **Manual Matrix Override:** Added advanced profile bypass logic exposing raw runtime selection for unsupported or experimental hardware deployments.
+- **Cryptographic Handshake Integration:** Completely abandoned the legacy static `config.json` authentication paradigm. System initialization is now locked behind a securely generated `.env` file containing a localized 16-byte hex `API_KEY`.
+- **Air-Gap Enforcement:** The setup wizard now automatically injects:
+  ```text
+  HF_HUB_OFFLINE=1
+  TRANSFORMERS_OFFLINE=1
+  ```
+  into the environment to permanently sever unauthorized HuggingFace telemetry and outbound network synchronization.
+- **AGPL-3.0 Migration:** Upgraded the Peridot kernel licensing structure from MIT to AGPL-3.0 to preserve sovereign-source transparency across derivative deployments and hosted modifications.
+
+### State-Machine & Medical Handoff (Folding@Home)
+
+- **Zero-Latency Interrupt Protocol:** Finalized the WebSocket interrupt architecture. When a prompt hits the API, the Peridot kernel dispatches the Folding@Home pause payload in ~21ms and fully purges the VRAM allocation buffer in under 510ms.
+- **Aggressive Idle Return:** Reduced the `RESEARCH_IDLE_THRESHOLD` to **30 seconds** to maximize distributed medical research contribution when the user is not actively generating tokens.
+- **Aether-Route CPU Offloading:** Hardcoded the semantic embedding engine (`all-MiniLM-L6-v2`) to execute strictly on CPU/RAM resources (e.g., Ryzen 7 DDR5 memory footprint), preserving 100% of GPU VRAM for inference and Folding@Home transitions.
+- **Persistent Research Arbitration:** Refined VRAM ownership logic to maintain deterministic hardware handoffs without requiring inference engine restarts.
+
+### Performance
+
+- **TurboQuant Throughput Validation:** Established the new stable benchmark baseline:
+  - `Llama-3-8B-Instruct (IQ3_XXS)` → **60.5 tokens/sec**
+  - `Qwen 2.5 3B (Q4_K_M)` → **101.9 tokens/sec**
+- **Reduced VRAM Saturation:** Lowered active inference VRAM consumption from ~6.6GB to ~4.5GB under Deep Thinker mode.
+- **Improved Tensor Allocation Stability:** Reduced CUDA allocation pressure during sustained inference + Folding@Home coexistence.
+- **Enhanced Low-VRAM Runtime Reliability:** Optimized execution stability for systems operating below the 8GB VRAM threshold while preserving CPU-only fallback capability.
+
+### Architecture
+
+- **Aether-Route v1.4:** Expanded the routing layer with:
+  - CPU-isolated semantic embedding
+  - deterministic VRAM preservation
+  - improved telemetry-aware execution
+  - hardware-aware RAG arbitration
+- **Inference Pipeline Refinement:** Refactored orchestration boundaries between:
+  - embedding execution
+  - tensor generation
+  - VRAM arbitration
+  - telemetry polling
+- **Hardware-Aware Runtime Scaling:** Improved dynamic runtime behavior on:
+  - constrained VRAM systems
+  - Ryzen AI processors
+  - CPU-only deployments
+  - multitasking inference environments
+
+### Security
+
+- **Offline Enforcement Hardening:** Strengthened sovereign telemetry suppression by enforcing offline execution during setup initialization rather than post-launch configuration.
+- **Expanded Authentication Isolation:** Refined `.env` handling to eliminate residual static credential dependencies.
+- **Runtime Boundary Preservation:** Hardened subsystem isolation between:
+  - telemetry
+  - inference
+  - RAG execution
+  - GhostLogger auditing
+  - Folding@Home orchestration
+
+### Changed
+
+- **README Overhaul:** Completely rebuilt repository documentation around the v1.4 STABLE runtime architecture, including:
+  - TurboQuant execution profiles
+  - sovereign network topology
+  - VRAM allocation diagrams
+  - hardware handoff visualization
+  - Aether-Route topology mapping
+- **Benchmark Visualization Infrastructure:** Added dedicated benchmark illustrations and engineering diagrams for performance validation and architecture transparency.
+- **Stable Release Transition:** Removed beta-stage medical research warnings and finalized the sovereign runtime stack as the official v1.4 STABLE baseline.
+
+---
+
 ## [v1.3.2-beta] - 2026-05-13
 **Name:** Peridot v1.3.2 - Memory Deduplication, Meta-Citations & Sovereign Telemetry
 
