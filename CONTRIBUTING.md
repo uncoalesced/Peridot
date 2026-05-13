@@ -2,7 +2,7 @@
 
 # CONTRIBUTING TO PERIDOT
 
-### Sovereign Development Protocol — v1.3
+### Sovereign Development Protocol — v1.3.2-beta
 
 *Build First. Ship Code. No Hype.*
 
