@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
@@ -21,41 +22,40 @@ from dotenv import load_dotenv
 # before any other libraries initialize.
 load_dotenv()
 
-# Paths
+# --- SYSTEM PATHS ---
 BASE_DIR = Path(__file__).parent
 ROOT_PATH = BASE_DIR.resolve()
 INPUT_PATH = ROOT_PATH / "input"
 PROCESSED_PATH = INPUT_PATH / "processed"
 LOG_PATH = ROOT_PATH / "logs"
 BACKUP_PATH = ROOT_PATH / "backups"
+STORAGE_PATH = ROOT_PATH / "storage"
 MODEL_DIR = ROOT_PATH / "models"
 
 # Create directories if missing
-for path in [LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR]:
+for path in [LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH]:
     path.mkdir(exist_ok=True)
 
-# Model Configuration
-MODEL_PATH = MODEL_DIR / "Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
-MODEL_TYPE = "llama-3"
-QUANTIZATION = "Q4_K_M"
+# --- ENGINE CONFIGURATION (v1.4 TurboQuant) ---
 
-# --- GPU & MEMORY LIMITS (BLACKWELL RTX 5050 - NATIVE FP4 PROFILE) ---
-# Validated during ARPM Benchmarks: All 32 layers fit in VRAM with ~2040MB free.
-GPU_LAYERS = 100 
+# Toggle this variable depending on your daily driver. 
+# Do NOT use the Q4_K_M anymore. Use the IQ3_M or the Qwen 3B.
+ACTIVE_MODEL_NAME = "Meta-Llama-3-8B-Instruct-IQ3_M.gguf" 
+# ACTIVE_MODEL_NAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
-# Context length restored to full capacity based on stable KV cache telemetry
-CONTEXT_LENGTH = 8192
+MODEL_PATH = MODEL_DIR / ACTIVE_MODEL_NAME
 
-# Safe output generation cap
-MAX_TOKENS = 512
-# ---------------------------------------------------------------------
+# Hardware Allocation (BLACKWELL RTX 5050 / Ryzen 7)
+GPU_LAYERS = 100        # 100 forces full VRAM offloading
+CONTEXT_LENGTH = 8192   # TurboQuant Standard (Requires ~1.2GB VRAM buffer)
+MAX_TOKENS = 1024       # Expanded for deeper RAG summaries
 
-# Inference Settings
-TEMPERATURE = 0.7
+# Generation Parameters (Tuned for strict RAG precision)
+TEMPERATURE = 0.1       # Dropped from 0.7 to 0.1 to stop hallucinations
 TOP_P = 0.9
 REPEAT_PENALTY = 1.1
 
-# Server Settings
+# --- NETWORK & SECURITY ---
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 5000
 SHUTDOWN_TIMEOUT = 2
@@ -65,16 +65,13 @@ AI_SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ask"
 SHUTDOWN_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/shutdown"
 
 # --- CRYPTOGRAPHIC HANDSHAKE ---
-# Pulls directly from .env to maintain perfect synchronization across all processes
 API_KEY = os.getenv("API_KEY", "08101954")
-
-# Push it to os.environ so ephemeral RAM scrapers still find it
 os.environ["PERIDOT_AUTH_TOKEN"] = API_KEY
 
-# Medical Research Settings
-RESEARCH_IDLE_THRESHOLD = 60  # Tightened to 1 minute
+# --- MEDICAL RESEARCH (FAH v8) ---
+RESEARCH_IDLE_THRESHOLD = 30  # Dropped to 30s to maximize Folding uptime
 RESEARCH_CHECK_INTERVAL = 10  # seconds
 
 # Validate critical paths
 if not MODEL_PATH.exists():
-    print(f"[WARNING] Model not found at {MODEL_PATH}. Run setup to download.")
+    print(f"[WARNING] Model not found at {MODEL_PATH}. Awaiting TurboQuant payload.")
