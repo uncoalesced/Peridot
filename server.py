@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL | NEURAL ENGINE
+# PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE (FSM)
 # Copyright (C) 2026 uncoalesced
 # 
 # This program is free software: you can redistribute it and/or modify
@@ -25,17 +25,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- RAG SUBSYSTEM IMPORTS ---
+# --- RAG SUBSYSTEM & v1.5 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
     from core_system.memory.ephemeral_cache import EphemeralCache
-    from core_system.ingestion.vector_store import vector_store  # v1.3.2 Aether-Route CPU Memory
+    from core_system.ingestion.vector_store import vector_store
+    from core_system.rag_cache import AetherCache # v1.5 LRU Cache
     
     l1_cache = EphemeralCache()
+    rag_cache = AetherCache(max_ram_items=50) # System RAM limit enforcement
 except ImportError as e:
     print(f"[WARN] RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
     l1_cache = None
     vector_store = None
+    rag_cache = None
+
+# --- KERNEL FSM IMPORTS ---
+from core_system.kernel import SovereignKernel, KernelState
 
 # --- PERIDOT CONFIGURATION ---
 from config import (
@@ -50,33 +56,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 CORS(app)
 
-# --- STATE MANAGEMENT ---
-llm = None
-last_activity_time = time.time()
-research_active = False
-research_allowed = False  # Default to False (Opt-In Security)
-research_lock = threading.Lock()
-
-# Initialize Hardware Monitoring
-try:
-    pynvml.nvmlInit()
-except Exception as e:
-    print(f"[WARN] Failed to initialize NVML (VRAM tracking disabled): {e}")
-
-# --- SECURITY & AUTHENTICATION ---
-
-def require_auth(f):
-    """Decorator to enforce strict API Key authentication."""
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or auth_header != f"Bearer {API_KEY}":
-            return jsonify({"error": "Unauthorized. Invalid or missing API Key."}), 403
-        return f(*args, **kwargs)
-    decorated.__name__ = f.__name__
-    return decorated
-
 # --- RESOURCE ORCHESTRATION (FAH v8 WebSockets) ---
-
 def get_vram_free() -> int:
     """Returns free VRAM in MB directly from the NVIDIA driver."""
     try:
@@ -99,54 +79,69 @@ def send_fah_command(cmd_state: str) -> bool:
     except Exception as e:
         return False
 
-def start_research():
-    """Wakes FAH via WebSocket."""
-    global research_active, last_activity_time
-    with research_lock:
-        if not research_active:
-            if send_fah_command("fold"):
-                research_active = True
-                print(f"\n[Peridot-Research] - SUCCESS - Idle threshold reached. VRAM allocated to Research. (Free: {get_vram_free()}MB)")
-            else:
-                last_activity_time = time.time()
-
-def kill_research():
-    """Pauses FAH via WebSocket to purge VRAM."""
-    global research_active
-    with research_lock:
-        if research_active:
-            print("\n[Peridot-Research] - INFO - Prompt Detected. Sending WebSocket VRAM purge signal...")
-            start_time = time.time()
-            send_fah_command("pause")
-            research_active = False
-            elapsed_ms = (time.time() - start_time) * 1000
-            print(f"[Peridot-Research] - SUCCESS - VRAM Cleared in {elapsed_ms:.2f}ms. (Free: {get_vram_free()}MB)")
+# --- v1.5 KERNEL INTEGRATION (Binding Network to FSM) ---
+class PeridotProductionKernel(SovereignKernel):
+    def _execute_vram_purge(self):
+        """Overrides FSM with actual hardware WebSockets and dynamic VRAM limits."""
+        print("[HARDWARE] Firing WebSocket SIGSTOP to FAH v8...")
+        send_fah_command("pause")
+        
+        timeout = 20  # 2.0 seconds maximum wait time
+        cleared = False
+        
+        while timeout > 0:
+            info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+            used_vram_mb = info.used / (1024 ** 2)
             
-            try:
-                ghost.info(f"VRAM_STATE | Action: PURGE | Free: {get_vram_free()}MB | Latency: {elapsed_ms:.2f}ms")
-            except Exception:
-                pass
+            # 8GB RTX 5050 ceiling is ~8000MB. 
+            # If we are below 7500MB, we have enough headroom for the Llama 3 attention window.
+            if used_vram_mb < 7500:
+                cleared = True
+                break
+                
+            time.sleep(0.1)
+            timeout -= 1
+            
+        if cleared:
+            self.request_state_change(KernelState.INFERENCE, f"Hardware cleared. Load: {used_vram_mb:.0f} MB.")
+        else:
+            self.event_queue.put("FAH_HANG_DETECTED")
+
+kernel = PeridotProductionKernel()
+
+# --- STATE MANAGEMENT ---
+llm = None
+last_activity_time = time.time()
+research_allowed = False  # Default to False (Opt-In Security)
 
 def idle_monitor():
-    """Watches the clock in the background."""
+    """v1.5 Idle Monitor linked to the FSM."""
     global last_activity_time
     while True:
         elapsed = time.time() - last_activity_time
-        if elapsed > RESEARCH_IDLE_THRESHOLD and not research_active and research_allowed:
-            start_research()
+        if elapsed > RESEARCH_IDLE_THRESHOLD and research_allowed:
+            with kernel.state_lock:
+                if kernel.state == KernelState.IDLE:
+                    if send_fah_command("fold"):
+                        kernel.state = KernelState.FAH_ACTIVE
+                        print(f"\n[Peridot-Research] Idle threshold met. VRAM allocated to FAH. (Free: {get_vram_free()}MB)")
         time.sleep(1)
 
 def boot_engine():
-    """Loads the Llama-3 model into VRAM."""
+    """Loads the Llama-3 model into VRAM and ignites FSM."""
     global llm
     print(f"\n{'='*50}")
-    print("   PERIDOT NEURAL ENGINE (VRAM STATE MACHINE)")
+    print("   PERIDOT NEURAL ENGINE (v1.5 SOVEREIGN KERNEL)")
     print(f"{'='*50}")
     
     if not MODEL_PATH.exists():
         print(f"[FATAL] Model not found at {MODEL_PATH}")
         sys.exit(1)
 
+    # Ignite the v1.5 Central Nervous System
+    kernel.start()
+
+    # Force hardware clear for LLM instantiation
     send_fah_command("pause")
 
     try:
@@ -157,7 +152,7 @@ def boot_engine():
             n_gpu_layers=100,      
             n_batch=1024,          
             flash_attn=True,      
-            verbose=True,         
+            verbose=False, # Suppress llama.cpp verbosity for cleaner kernel logs         
         )
         print(f">> [SUCCESS] Peridot Brain Online. (Free VRAM: {get_vram_free()}MB)")
         threading.Thread(target=idle_monitor, daemon=True).start()
@@ -165,11 +160,19 @@ def boot_engine():
         print(f"\n[FATAL ERROR] {e}")
         sys.exit(1)
 
-# --- API ENDPOINTS ---
+# --- SECURITY & AUTHENTICATION ---
+def require_auth(f):
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or auth_header != f"Bearer {API_KEY}":
+            return jsonify({"error": "Unauthorized. Invalid or missing API Key."}), 403
+        return f(*args, **kwargs)
+    decorated.__name__ = f.__name__
+    return decorated
 
+# --- API ENDPOINTS ---
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Unauthenticated endpoint for launcher.py to verify server status."""
     if llm is not None:
         return jsonify({"status": "online"}), 200
     return jsonify({"status": "booting"}), 503
@@ -180,53 +183,58 @@ def ask():
     global last_activity_time
     last_activity_time = time.time()
 
-    # Ensure GPU is empty before inference starts
-    kill_research() 
-
-    try:
-        data = request.json
-        user_query = data.get("query", "")
-        full_prompt = data.get("prompt", "")
+    data = request.json
+    user_query = data.get("query", "")
+    full_prompt = data.get("prompt", "")
+    
+    if not user_query or not full_prompt:
+        user_query = data.get("command", "")
+        full_prompt = user_query
         
-        # Fallback for legacy commands if missing split payload
-        if not user_query or not full_prompt:
-            user_query = data.get("command", "")
-            full_prompt = user_query
-            
-        if not user_query:
-            return jsonify({"response": "Empty prompt received."}), 400
+    if not user_query:
+        return jsonify({"response": "Empty prompt received."}), 400
 
-        # --- ROUTING LOGIC ---
+    # --- THE v1.5 FSM HARDWARE LOCK ---
+    print(f"\n[API] Received payload. Requesting hardware clearance...")
+    kernel.event_queue.put("PROMPT_RECEIVED")
+    
+    timeout = 100 # 10 seconds max wait for FAH to yield its memory
+    while kernel.state != KernelState.INFERENCE:
+        if kernel.state == KernelState.PANIC:
+            return jsonify({"error": "KERNEL PANIC: Hardware failed to yield. Inference aborted."}), 503
+        time.sleep(0.1)
+        timeout -= 1
+        if timeout <= 0:
+            kernel.request_state_change(KernelState.PANIC, "FAH Timeout")
+            return jsonify({"error": "KERNEL TIMEOUT: Hardware clearance not granted."}), 504
+
+    # --- ROUTING LOGIC ---
+    try:
         if l1_cache is not None:
-            try:
-                ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB | Latency: 0.00ms")
-            except Exception:
-                pass
+            try: ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB")
+            except: pass
                 
-            # STEP 1: Check L1 RAM Cache
             cached_response = l1_cache.search(user_query)
             if cached_response:
-                try:
-                    ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
-                except Exception:
-                    pass
+                try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
+                except: pass
                 return jsonify({"response": cached_response})
 
-        # STEP 2: Check Semantic Memory (Vector Store)
         if vector_store is not None:
-            try:
-                ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
-            except Exception:
-                pass
+            try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
+            except: pass
             
-            # v1.3.2 Enhancement: Increase depth to 3 blocks for citation precision
             relevant_context = vector_store.search(user_query, top_k=3)
             
             if relevant_context:
                 context_segments = []
                 for res in relevant_context:
-                    # v1.3.2 Enhancement: Inject source tags for citation accuracy
-                    context_segments.append(f"[SOURCE: {res.get('source', 'Unknown')}]: {res['content']}")
+                    source_id = res.get('source', 'Unknown')
+                    context_segments.append(f"[SOURCE: {source_id}]: {res['content']}")
+                    
+                    # v1.5 LRU Cache Integration: Push accessed chunks into System RAM cache
+                    if rag_cache is not None:
+                        rag_cache.put(source_id, [1.0, 0.0]) # Tracks active state for SSD eviction
                 
                 context_str = "\n---\n".join(context_segments)
                 
@@ -238,21 +246,16 @@ def ask():
                     f"RETRIEVED CONTEXT:\n{context_str}<|eot_id|>\n"
                 )
                 final_prompt = system_instruction + full_prompt
-                
-                try:
-                    ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks with citations.")
-                except Exception:
-                    pass
+                try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks with citations.")
+                except: pass
             else:
                 final_prompt = full_prompt
-                try:
-                    ghost.info("ROUTER | MEMORY MISS. No relevant documents found. Proceeding raw.")
-                except Exception:
-                    pass
+                try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
+                except: pass
         else:
             final_prompt = full_prompt
 
-        # STEP 3: Final LLM Generation (Wakes up the GPU)
+        # --- LLM GENERATION ---
         start_time = time.time()
         output = llm(
             final_prompt, 
@@ -267,16 +270,12 @@ def ask():
         
         final_response = output["choices"][0]["text"].strip()
         
-        # Extract metrics for the GhostLogger
         tokens_generated = output.get("usage", {}).get("completion_tokens", len(final_response.split()) * 1.3)
         tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
         
-        try:
-            ghost.info(f"INFERENCE  | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
-        except Exception:
-            pass
+        try: ghost.info(f"INFERENCE  | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
+        except: pass
         
-        # STEP 4: Store new result in L1 Cache
         if l1_cache is not None:
             l1_cache.add(user_query, final_response)
             
@@ -284,31 +283,33 @@ def ask():
         
     except Exception as e:
         error_msg = str(e)
-        print(f"LOG: Internal Inference Error - {error_msg}")
-        try:
-            ghost.error(f"CRITICAL   | Component: server_ask_route | Error: {error_msg}")
-        except Exception:
-            pass
+        print(f"[FATAL] Internal Inference Error - {error_msg}")
+        try: ghost.error(f"CRITICAL   | Component: server_ask_route | Error: {error_msg}")
+        except: pass
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
+        
+    finally:
+        # --- FSM UNLOCK (MANDATORY) ---
+        print("[API] Payload delivered. Releasing hardware lock...")
+        kernel.event_queue.put("INFERENCE_COMPLETE")
 
 @app.route("/shutdown", methods=["POST"])
 @require_auth
 def shutdown():
-    kill_research()
+    send_fah_command("pause")
+    kernel.event_queue.put("SHUTDOWN")
     shutdown_func = request.environ.get('werkzeug.server.shutdown')
     if shutdown_func:
         shutdown_func()
     return jsonify({"message": "Shutting down Neural Engine..."}), 200
 
-# --- RESEARCH CONTROL ENDPOINTS ---
-
 @app.route("/research/status", methods=["GET"])
 @require_auth
 def get_research_status():
-    global research_active, research_allowed
+    global research_allowed
     return jsonify({
         "enabled": research_allowed, 
-        "active": research_active,
+        "active": kernel.state == KernelState.FAH_ACTIVE,
         "vram_free": get_vram_free()
     })
 
@@ -324,7 +325,9 @@ def enable_research():
 def disable_research():
     global research_allowed
     research_allowed = False
-    kill_research()
+    send_fah_command("pause")
+    if kernel.state == KernelState.FAH_ACTIVE:
+        kernel.request_state_change(KernelState.IDLE, "Research disabled via UI.")
     return jsonify({"status": "disabled"})
 
 if __name__ == "__main__":
