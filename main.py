@@ -1,11 +1,6 @@
 # -----------------------------------------------------------------------------
-# PERIDOT CLIENT | Main Entry Point
+# PERIDOT CLIENT | Main Entry Point (Synchronized Ignition)
 # Copyright (C) 2026 uncoalesced
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
 #
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
@@ -35,22 +30,41 @@ except ImportError as e:
 # --- CONFIGURATION ---
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 
-def check_server_status():
-    """Checks if the Neural Engine (server.py) is online using the health endpoint."""
-    try:
-        r = requests.get(f"{SERVER_URL}/health", timeout=1)
-        return r.status_code == 200
-    except requests.exceptions.RequestException:
-        return False
+def wait_for_neural_engine(max_retries=45, delay=1.0):
+    """
+    Actively polls the FSM Kernel. 
+    Locks the frontend boot sequence until the backend LLM is fully allocated in VRAM.
+    """
+    ghost.info("CLIENT | Scanning for Neural Engine heartbeat...")
+    
+    for i in range(max_retries):
+        try:
+            r = requests.get(f"{SERVER_URL}/health", timeout=2)
+            if r.status_code == 200:
+                ghost.info(f"CLIENT | Neural Link Established [Latency: {r.elapsed.total_seconds()*1000:.0f}ms]")
+                return True
+            elif r.status_code == 503:
+                # The Flask server is up, but the Llama model is still loading into the GPU
+                ghost.info(f"CLIENT | Engine Booting... Allocating Tensor Layers ({i+1}/{max_retries})")
+        except requests.exceptions.ConnectionError:
+            # The Flask server hasn't even bound to the port yet
+            ghost.info(f"CLIENT | Awaiting Server Socket... ({i+1}/{max_retries})")
+        except requests.exceptions.RequestException as e:
+            ghost.warning(f"CLIENT | Handshake interrupted: {e}")
+            
+        time.sleep(delay)
+        
+    return False
 
 def main():
     ghost.info("CLIENT | Initializing Peridot Sovereign Kernel Client...")
 
-    # 1. Server Handshake
-    if check_server_status():
-        ghost.info("CLIENT | Neural Link Established [OK]")
-    else:
-        ghost.info("CLIENT | Neural Link Status: [WAITING] (Engine may still be loading)")
+    # 1. Synchronized Server Handshake (Ignition Lock)
+    engine_online = wait_for_neural_engine()
+    
+    if not engine_online:
+        ghost.error("CLIENT | FATAL: Neural Engine failed to boot within timeout limit. Aborting UI launch.")
+        sys.exit(1)
 
     try:
         # 2. Initialize Core Logic
@@ -63,7 +77,7 @@ def main():
         core.ui = app
 
         # 5. Launch
-        ghost.info("CLIENT | Handing control to User Interface...")
+        ghost.info("CLIENT | Hardware verified. Handing control to User Interface...")
         app.run()
 
     except KeyboardInterrupt:
