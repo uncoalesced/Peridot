@@ -2,7 +2,7 @@
 
 # PERIDOT KERNEL | SECURITY POLICY
 
-### Threat Model & Defense Architecture — v1.4.0-stable
+### Threat Model & Defense Architecture — v1.5.0-stable
 
 *Defense-in-Depth. Local-First. Air-Gapped by Design.*
 
@@ -263,7 +263,7 @@ Responsible disclosure is expected.
 
 <div align="center">
 
-`PERIDOT SECURITY POLICY` · `v1.3.2-beta`
+`PERIDOT SECURITY POLICY` · `v1.5`
 
 **Engineered by uncoalesced**
 
