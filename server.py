@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE (FSM)
+# PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE
 # Copyright (C) 2026 uncoalesced
 # 
 # Engineered by uncoalesced.
@@ -21,6 +21,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- PERIDOT CONFIGURATION ---
+from config import (
+    MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH, 
+    TEMPERATURE, TOP_P, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
+    RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE
+)
+
+# --- DYNAMIC TRANSLATION LAYER ---
+def get_model_format():
+    """Detects the architecture format based on the model filename."""
+    model_name = MODEL_PATH.name.lower()
+    if "llama" in model_name:
+        return "llama3"
+    elif "qwen" in model_name:
+        return "chatml"
+    else:
+        # Fallback to ChatML as it is the most common standard for new models
+        return "chatml" 
+
 # --- CONSTITUTION BOOTSTRAP ---
 CONSTITUTION_PATH = Path("constitution.json")
 CONSTITUTION = {}
@@ -35,13 +54,24 @@ if CONSTITUTION_PATH.exists():
 else:
     print("[WARN] constitution.json not found. Operating without identity bounds.")
 
-def build_system_prompt(context_str=""):
-    """Dynamically compiles the Llama-3 prompt using the Constitution."""
+def build_system_prompt(context_str="", model_format="chatml"):
+    """Dynamically compiles the prompt using the auto-detected format."""
     p = CONSTITUTION.get("personality", {})
     rules = CONSTITUTION.get("hard_rules", [])
     anti_patterns = p.get("anti_patterns", [])
 
-    sys_prompt = "<|start_header_id|>system<|end_header_id|>\n\n"
+    # Set Format-Specific Tokens
+    if model_format == "llama3":
+        sys_start = "<|start_header_id|>system<|end_header_id|>\n\n"
+        sys_end = "<|eot_id|>\n"
+        user_start = "<|start_header_id|>user<|end_header_id|>\n\n"
+    else:
+        sys_start = "<|im_start|>system\n"
+        sys_end = "<|im_end|>\n"
+        user_start = "<|im_start|>user\n"
+
+    # Build Core Prompt
+    sys_prompt = sys_start
     sys_prompt += f"IDENTITY: {p.get('identity_enforcement', 'You are Peridot.')}\n"
     sys_prompt += f"TONE & VOICE: {p.get('tone', '')} {p.get('voice', '')}\n"
     sys_prompt += f"EXPLANATION STYLE: {p.get('explanation_style', '')}\n"
@@ -61,7 +91,7 @@ def build_system_prompt(context_str=""):
             f"RETRIEVED CONTEXT:\n{context_str}\n"
         )
 
-    sys_prompt += "<|eot_id|>\n<|start_header_id|>user<|end_header_id|>\n\n"
+    sys_prompt += sys_end + user_start
     return sys_prompt
 
 # --- RAG SUBSYSTEM & v1.5 CACHE IMPORTS ---
@@ -83,13 +113,6 @@ except ImportError as e:
 
 # --- KERNEL FSM IMPORTS ---
 from core_system.kernel import SovereignKernel, KernelState
-
-# --- PERIDOT CONFIGURATION ---
-from config import (
-    MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH, 
-    TEMPERATURE, TOP_P, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
-    RESEARCH_IDLE_THRESHOLD
-)
 
 # Configure Logging
 log = logging.getLogger("werkzeug")
@@ -116,21 +139,32 @@ def send_fah_command(cmd_state: str) -> bool:
     except Exception:
         return False
 
-# --- v1.5 KERNEL INTEGRATION ---
+# --- v1.5 KERNEL INTEGRATION (Delta Watchdog) ---
 class PeridotProductionKernel(SovereignKernel):
     def _execute_vram_purge(self):
         print("[HARDWARE] Firing WebSocket SIGSTOP to FAH v8...")
         start_time = time.time()
+        
+        # Capture exact VRAM state before the pause signal
+        initial_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+        initial_vram_mb = initial_info.used / (1024 ** 2)
+        
         send_fah_command("pause")
         
         timeout = 20
         cleared = False
+        reclaimed_mb = 0
+        current_vram_mb = initial_vram_mb
         
+        # Monitor for explicit memory yield (Delta Verification)
         while timeout > 0:
             info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-            used_vram_mb = info.used / (1024 ** 2)
+            current_vram_mb = info.used / (1024 ** 2)
+            reclaimed_mb = initial_vram_mb - current_vram_mb
             
-            if used_vram_mb < 7500:
+            # CLEARANCE REQUIREMENT FIX: 
+            # 7B Model baseline is ~5800MB. Absolute safety ceiling raised to 7200MB.
+            if reclaimed_mb > 500 or current_vram_mb < 7200:
                 cleared = True
                 break
                 
@@ -139,10 +173,15 @@ class PeridotProductionKernel(SovereignKernel):
             
         latency_ms = (time.time() - start_time) * 1000
         
+        # Cryptographic Hardware Handoff
         if cleared:
+            log_msg = f"Hardware yielded. Reclaimed: {reclaimed_mb:.0f}MB. Total Load: {current_vram_mb:.0f}MB. Latency: {latency_ms:.0f}ms."
+            print(f">> {log_msg}")
             if ledger: ledger.log_handoff(latency_ms, success=True)
-            self.request_state_change(KernelState.INFERENCE, f"Hardware cleared in {latency_ms:.0f}ms. Load: {used_vram_mb:.0f} MB.")
+            self.request_state_change(KernelState.INFERENCE, log_msg)
         else:
+            fail_msg = f"VRAM LOCKOUT: Reclaimed {reclaimed_mb:.0f}MB. Load stuck at {current_vram_mb:.0f}MB. Threshold: 7200MB."
+            print(f"[KERNEL PANIC] {fail_msg}")
             if ledger: ledger.log_handoff(latency_ms, success=False)
             self.event_queue.put("FAH_HANG_DETECTED")
 
@@ -174,17 +213,21 @@ def boot_engine():
     if not MODEL_PATH.exists():
         print(f"[FATAL] Model not found at {MODEL_PATH}")
         sys.exit(1)
+        
+    model_mode = get_model_format().upper()
+    print(f"[SYSTEM] Engine architecture auto-detected: {model_mode}")
 
     kernel.start()
     send_fah_command("pause")
 
     try:
+        # Llama initialization now strictly adheres to config.py variables entirely
         llm = Llama(
             model_path=str(MODEL_PATH),
-            n_ctx=8192,            
-            n_threads=8,          
-            n_gpu_layers=100,      
-            n_batch=1024,          
+            n_ctx=CONTEXT_LENGTH,            
+            n_threads=THREADS,          
+            n_gpu_layers=GPU_LAYERS,      
+            n_batch=BATCH_SIZE,          
             flash_attn=True,      
             verbose=False,       
         )
@@ -276,15 +319,27 @@ def ask():
                 try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
                 except: pass
 
-        # Inject Constitution identity with optional RAG context
-        final_prompt = build_system_prompt(context_str) + full_prompt
+        # --- DYNAMIC INFERENCE ASSEMBLY ---
+        model_format = get_model_format()
+        
+        # FIX: Removed the forced markdown prefill and aggressive stop tokens. 
+        # The model is now free to reason, refuse, and explain organically.
+        if model_format == "llama3":
+            assistant_start = "<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n"
+            target_stops = ["<|eot_id|>", "<|start_header_id|>"]
+        else:
+            assistant_start = "<|im_end|>\n<|im_start|>assistant\n"
+            target_stops = ["<|im_end|>", "<|im_start|>"]
+
+        # Inject Constitution identity, close the user tag, open the assistant tag
+        final_prompt = build_system_prompt(context_str, model_format) + full_prompt + assistant_start
 
         # --- LLM GENERATION ---
         start_time = time.time()
         output = llm(
             final_prompt, 
             max_tokens=MAX_TOKENS, 
-            stop=["<|eot_id|>", "<|start_header_id|>", "assistant\n", "User:"], 
+            stop=target_stops, 
             temperature=TEMPERATURE,
             top_p=TOP_P,
             repeat_penalty=REPEAT_PENALTY,
@@ -292,6 +347,7 @@ def ask():
         )
         elapsed_s = time.time() - start_time
         
+        # Cleanly extract the generated text
         final_response = output["choices"][0]["text"].strip()
         
         tokens_generated = output.get("usage", {}).get("completion_tokens", len(final_response.split()) * 1.3)

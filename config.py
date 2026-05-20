@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL
+# PERIDOT SOVEREIGN KERNEL | CONFIGURATION ENGINE
 # Copyright (C) 2026 uncoalesced
 # 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -18,8 +13,6 @@ from dotenv import load_dotenv
 # -----------------------------------------------------------------------------
 # ENVIRONMENT BOOTSTRAP
 # -----------------------------------------------------------------------------
-# Load the .env file FIRST. This applies HF_HUB_OFFLINE and locks the API_KEY
-# before any other libraries initialize.
 load_dotenv()
 
 # --- SYSTEM PATHS ---
@@ -37,20 +30,18 @@ for path in [LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INP
     path.mkdir(exist_ok=True)
 
 # --- ENGINE CONFIGURATION (v1.5 TurboQuant) ---
-
-# 1. Declare the active model brain
-ACTIVE_MODEL_NAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
-
-# 2. Let the kernel dynamically construct the absolute path
+ACTIVE_MODEL_NAME = "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
 MODEL_PATH = MODEL_DIR / ACTIVE_MODEL_NAME
 
-# Hardware Allocation (BLACKWELL RTX 5050 / Ryzen 7)
-GPU_LAYERS = 100        # 100 forces full VRAM offloading
-CONTEXT_LENGTH = 8192   # TurboQuant Standard (Requires ~1.2GB VRAM buffer)
-MAX_TOKENS = 1024       # Expanded for deeper RAG summaries
+# Hardware Allocation (BLACKWELL RTX 5050 / Ryzen 7 AI)
+GPU_LAYERS = 100         # 100 forces full VRAM offloading
+CONTEXT_LENGTH = 8192    # TurboQuant Standard (Requires ~1.2GB VRAM buffer)
+MAX_TOKENS = 1024        # Expanded for deeper RAG summaries
+THREADS = 8              # CPU Thread pool for parallel processing chunks
+BATCH_SIZE = 1024        # Batch size for prompt processing evaluation
 
 # Generation Parameters (Tuned for strict RAG precision)
-TEMPERATURE = 0.1       # Dropped from 0.7 to 0.1 to stop hallucinations
+TEMPERATURE = 0.1        # Dropped from 0.7 to 0.1 to stop hallucinations
 TOP_P = 0.9
 REPEAT_PENALTY = 1.1
 
