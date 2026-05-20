@@ -36,12 +36,12 @@ MODEL_DIR = ROOT_PATH / "models"
 for path in [LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH]:
     path.mkdir(exist_ok=True)
 
-# --- ENGINE CONFIGURATION (v1.4 TurboQuant) ---
+# --- ENGINE CONFIGURATION (v1.5 TurboQuant) ---
 
-# The Llama 3 8B IQ3_XXS is the crowned daily driver for maximum semantic intelligence (56 t/s | 4.7GB VRAM)
-ACTIVE_MODEL_NAME = "Meta-Llama-3-8B-Instruct-IQ3_XXS.gguf" 
-# ACTIVE_MODEL_NAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
+# 1. Declare the active model brain
+ACTIVE_MODEL_NAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
+# 2. Let the kernel dynamically construct the absolute path
 MODEL_PATH = MODEL_DIR / ACTIVE_MODEL_NAME
 
 # Hardware Allocation (BLACKWELL RTX 5050 / Ryzen 7)

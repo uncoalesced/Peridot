@@ -1,7 +1,6 @@
+#!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL | IGNITION LAUNCHER
-# -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL
+# PERIDOT SOVEREIGN KERNEL v1.5 | IGNITION LAUNCHER
 # Copyright (C) 2026 uncoalesced
 # 
 # This program is free software: you can redistribute it and/or modify
@@ -29,6 +28,7 @@ load_dotenv()
 from config import SERVER_HOST, SERVER_PORT, LOG_PATH
 
 def kill_proc_tree(pid, including_parent=True):
+    """Sovereign protocol to forcibly terminate all child threads."""
     try:
         parent = psutil.Process(pid)
         children = parent.children(recursive=True)
@@ -41,7 +41,7 @@ def kill_proc_tree(pid, including_parent=True):
 
 def main():
     print("==================================================")
-    print("  PERIDOT SOVEREIGN KERNEL | INITIATING IGNITION")
+    print("  PERIDOT SOVEREIGN KERNEL v1.5 | INITIATING BOOT ")
     print("==================================================")
 
     # Pass the fully locked-down, air-gapped environment variables to child processes
@@ -51,14 +51,17 @@ def main():
     server_cmd = [sys.executable, "server.py"]
     
     try:
+        # Ensure log directory exists
+        LOG_PATH.mkdir(parents=True, exist_ok=True)
         server_log_path = LOG_PATH / "server.log"
+        
         # Overwrite ('w') instead of append ('a') to prevent the log from becoming a 5GB text file over time
         server_log = open(server_log_path, "w") 
         server_process = subprocess.Popen(
             server_cmd, cwd=os.getcwd(), stdout=server_log, stderr=subprocess.STDOUT, env=custom_env
         )
     except Exception as e:
-        print(f"FATAL: Inference server failed to start: {e}")
+        print(f"[FATAL] Inference server failed to start: {e}")
         sys.exit(1)
 
     print(">> [WAIT] Allocating VRAM and verifying API health...")
@@ -66,11 +69,11 @@ def main():
     
     server_ready = False
     
-    # OPTIMIZATION: Increased timeout to 120s. Hardware allocation takes time.
+    # OPTIMIZATION: Increased timeout to 120s. FSM Hardware allocation takes time.
     for _ in range(120):
         # Fail fast if the process died prematurely (e.g., CUDA OOM crash)
         if server_process.poll() is not None:
-            print("\n[SYSTEM ERROR] Neural Engine crashed during boot.")
+            print("\n[SYSTEM ERROR] Neural Engine crashed during boot sequence.")
             break
 
         try:
@@ -88,7 +91,7 @@ def main():
     print("") # Clear the dot-loading line
 
     if not server_ready:
-        print("ERROR: Engine failed to establish Neural Link.")
+        print("[ERROR] Engine failed to establish Neural Link.")
         try:
             with open(server_log_path, "r") as f:
                 lines = f.readlines()
@@ -107,9 +110,9 @@ def main():
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        print(f"Error running client: {e}")
+        print(f"[ERROR] Client interface execution failed: {e}")
     finally:
-        print(">> Shutting down Systems...")
+        print("\n>> Shutting down Kernel Subsystems...")
         kill_proc_tree(server_process.pid)
         
         # Clean up any leftover token files from the old v1.2.1 architecture
@@ -120,7 +123,7 @@ def main():
             except Exception:
                 pass
                 
-        print(">> Neural Link Severed. Goodbye.")
+        print(">> Neural Link Severed. Hardware released. Goodbye.")
 
 if __name__ == "__main__":
     main()

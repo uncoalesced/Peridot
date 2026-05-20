@@ -2,11 +2,6 @@
 # PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE (FSM)
 # Copyright (C) 2026 uncoalesced
 # 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -18,6 +13,7 @@ import os
 import json
 import websocket
 import pynvml
+from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from llama_cpp import Llama
@@ -25,20 +21,65 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- CONSTITUTION BOOTSTRAP ---
+CONSTITUTION_PATH = Path("constitution.json")
+CONSTITUTION = {}
+if CONSTITUTION_PATH.exists():
+    try:
+        with open(CONSTITUTION_PATH, "r") as f:
+            CONSTITUTION = json.load(f)
+        print("[KERNEL] Sovereign Constitution Loaded.")
+    except Exception as e:
+        print(f"[FATAL] Constitution parsing failed: {e}")
+        sys.exit(1)
+else:
+    print("[WARN] constitution.json not found. Operating without identity bounds.")
+
+def build_system_prompt(context_str=""):
+    """Dynamically compiles the Llama-3 prompt using the Constitution."""
+    p = CONSTITUTION.get("personality", {})
+    rules = CONSTITUTION.get("hard_rules", [])
+    anti_patterns = p.get("anti_patterns", [])
+
+    sys_prompt = "<|start_header_id|>system<|end_header_id|>\n\n"
+    sys_prompt += f"IDENTITY: {p.get('identity_enforcement', 'You are Peridot.')}\n"
+    sys_prompt += f"TONE & VOICE: {p.get('tone', '')} {p.get('voice', '')}\n"
+    sys_prompt += f"EXPLANATION STYLE: {p.get('explanation_style', '')}\n"
+    sys_prompt += f"REFUSAL STYLE: {p.get('refusal_style', '')}\n\n"
+
+    if rules:
+        sys_prompt += "HARD RULES:\n- " + "\n- ".join(rules) + "\n\n"
+
+    if anti_patterns:
+        sys_prompt += "ANTI-PATTERNS (CRITICAL - DO NOT DO THESE):\n- " + "\n- ".join(anti_patterns) + "\n\n"
+
+    if context_str:
+        sys_prompt += (
+            "RAG DIRECTIVE: You have access to local file context. "
+            "CRITICAL: If the retrieved context is irrelevant to the user's prompt (e.g., asking for a standard script or math), "
+            "IGNORE THE CONTEXT COMPLETELY. Do not mention it. ONLY cite a source if it contains the explicit answer.\n\n"
+            f"RETRIEVED CONTEXT:\n{context_str}\n"
+        )
+
+    sys_prompt += "<|eot_id|>\n<|start_header_id|>user<|end_header_id|>\n\n"
+    return sys_prompt
+
 # --- RAG SUBSYSTEM & v1.5 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
     from core_system.memory.ephemeral_cache import EphemeralCache
     from core_system.ingestion.vector_store import vector_store
-    from core_system.rag_cache import AetherCache # v1.5 LRU Cache
+    from core_system.rag_cache import AetherCache
+    from core_system.telemetry import ledger
     
     l1_cache = EphemeralCache()
-    rag_cache = AetherCache(max_ram_items=50) # System RAM limit enforcement
+    rag_cache = AetherCache(max_ram_items=50)
 except ImportError as e:
     print(f"[WARN] RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
     l1_cache = None
     vector_store = None
     rag_cache = None
+    ledger = None
 
 # --- KERNEL FSM IMPORTS ---
 from core_system.kernel import SovereignKernel, KernelState
@@ -58,7 +99,6 @@ CORS(app)
 
 # --- RESOURCE ORCHESTRATION (FAH v8 WebSockets) ---
 def get_vram_free() -> int:
-    """Returns free VRAM in MB directly from the NVIDIA driver."""
     try:
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -67,34 +107,29 @@ def get_vram_free() -> int:
         return 0
 
 def send_fah_command(cmd_state: str) -> bool:
-    """Fires WebSocket JSON commands directly into the FAH v8 backend."""
     try:
-        ws = websocket.create_connection(
-            "ws://127.0.0.1:7396/api/websocket", timeout=2.0
-        )
+        ws = websocket.create_connection("ws://127.0.0.1:7396/api/websocket", timeout=2.0)
         payload = json.dumps({"cmd": "state", "state": cmd_state})
         ws.send(payload)
         ws.close()
         return True
-    except Exception as e:
+    except Exception:
         return False
 
-# --- v1.5 KERNEL INTEGRATION (Binding Network to FSM) ---
+# --- v1.5 KERNEL INTEGRATION ---
 class PeridotProductionKernel(SovereignKernel):
     def _execute_vram_purge(self):
-        """Overrides FSM with actual hardware WebSockets and dynamic VRAM limits."""
         print("[HARDWARE] Firing WebSocket SIGSTOP to FAH v8...")
+        start_time = time.time()
         send_fah_command("pause")
         
-        timeout = 20  # 2.0 seconds maximum wait time
+        timeout = 20
         cleared = False
         
         while timeout > 0:
             info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
             used_vram_mb = info.used / (1024 ** 2)
             
-            # 8GB RTX 5050 ceiling is ~8000MB. 
-            # If we are below 7500MB, we have enough headroom for the Llama 3 attention window.
             if used_vram_mb < 7500:
                 cleared = True
                 break
@@ -102,9 +137,13 @@ class PeridotProductionKernel(SovereignKernel):
             time.sleep(0.1)
             timeout -= 1
             
+        latency_ms = (time.time() - start_time) * 1000
+        
         if cleared:
-            self.request_state_change(KernelState.INFERENCE, f"Hardware cleared. Load: {used_vram_mb:.0f} MB.")
+            if ledger: ledger.log_handoff(latency_ms, success=True)
+            self.request_state_change(KernelState.INFERENCE, f"Hardware cleared in {latency_ms:.0f}ms. Load: {used_vram_mb:.0f} MB.")
         else:
+            if ledger: ledger.log_handoff(latency_ms, success=False)
             self.event_queue.put("FAH_HANG_DETECTED")
 
 kernel = PeridotProductionKernel()
@@ -112,10 +151,9 @@ kernel = PeridotProductionKernel()
 # --- STATE MANAGEMENT ---
 llm = None
 last_activity_time = time.time()
-research_allowed = False  # Default to False (Opt-In Security)
+research_allowed = False
 
 def idle_monitor():
-    """v1.5 Idle Monitor linked to the FSM."""
     global last_activity_time
     while True:
         elapsed = time.time() - last_activity_time
@@ -128,7 +166,6 @@ def idle_monitor():
         time.sleep(1)
 
 def boot_engine():
-    """Loads the Llama-3 model into VRAM and ignites FSM."""
     global llm
     print(f"\n{'='*50}")
     print("   PERIDOT NEURAL ENGINE (v1.5 SOVEREIGN KERNEL)")
@@ -138,10 +175,7 @@ def boot_engine():
         print(f"[FATAL] Model not found at {MODEL_PATH}")
         sys.exit(1)
 
-    # Ignite the v1.5 Central Nervous System
     kernel.start()
-
-    # Force hardware clear for LLM instantiation
     send_fah_command("pause")
 
     try:
@@ -152,7 +186,7 @@ def boot_engine():
             n_gpu_layers=100,      
             n_batch=1024,          
             flash_attn=True,      
-            verbose=False, # Suppress llama.cpp verbosity for cleaner kernel logs         
+            verbose=False,       
         )
         print(f">> [SUCCESS] Peridot Brain Online. (Free VRAM: {get_vram_free()}MB)")
         threading.Thread(target=idle_monitor, daemon=True).start()
@@ -160,7 +194,7 @@ def boot_engine():
         print(f"\n[FATAL ERROR] {e}")
         sys.exit(1)
 
-# --- SECURITY & AUTHENTICATION ---
+# --- SECURITY ---
 def require_auth(f):
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
@@ -194,14 +228,13 @@ def ask():
     if not user_query:
         return jsonify({"response": "Empty prompt received."}), 400
 
-    # --- THE v1.5 FSM HARDWARE LOCK ---
     print(f"\n[API] Received payload. Requesting hardware clearance...")
     kernel.event_queue.put("PROMPT_RECEIVED")
     
-    timeout = 100 # 10 seconds max wait for FAH to yield its memory
+    timeout = 100
     while kernel.state != KernelState.INFERENCE:
         if kernel.state == KernelState.PANIC:
-            return jsonify({"error": "KERNEL PANIC: Hardware failed to yield. Inference aborted."}), 503
+            return jsonify({"error": "KERNEL PANIC: Hardware failed to yield."}), 503
         time.sleep(0.1)
         timeout -= 1
         if timeout <= 0:
@@ -218,8 +251,10 @@ def ask():
             if cached_response:
                 try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
                 except: pass
+                kernel.event_queue.put("INFERENCE_COMPLETE")
                 return jsonify({"response": cached_response})
 
+        context_str = ""
         if vector_store is not None:
             try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
             except: pass
@@ -231,29 +266,18 @@ def ask():
                 for res in relevant_context:
                     source_id = res.get('source', 'Unknown')
                     context_segments.append(f"[SOURCE: {source_id}]: {res['content']}")
-                    
-                    # v1.5 LRU Cache Integration: Push accessed chunks into System RAM cache
                     if rag_cache is not None:
-                        rag_cache.put(source_id, [1.0, 0.0]) # Tracks active state for SSD eviction
+                        rag_cache.put(source_id, [1.0, 0.0])
                 
                 context_str = "\n---\n".join(context_segments)
-                
-                system_instruction = (
-                    "<|start_header_id|>system<|end_header_id|>\n\n"
-                    "You are the Peridot Sovereign Kernel. You have access to the user's private documents. "
-                    "Use the provided context to answer the query. ALWAYS cite the specific source filename "
-                    "in your response if you use information from it. If the context is irrelevant, answer normally.\n\n"
-                    f"RETRIEVED CONTEXT:\n{context_str}<|eot_id|>\n"
-                )
-                final_prompt = system_instruction + full_prompt
-                try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks with citations.")
+                try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks.")
                 except: pass
             else:
-                final_prompt = full_prompt
                 try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
                 except: pass
-        else:
-            final_prompt = full_prompt
+
+        # Inject Constitution identity with optional RAG context
+        final_prompt = build_system_prompt(context_str) + full_prompt
 
         # --- LLM GENERATION ---
         start_time = time.time()
@@ -279,6 +303,8 @@ def ask():
         if l1_cache is not None:
             l1_cache.add(user_query, final_response)
             
+        if ledger: ledger.log_inference()
+            
         return jsonify({"response": final_response})
         
     except Exception as e:
@@ -289,9 +315,15 @@ def ask():
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
         
     finally:
-        # --- FSM UNLOCK (MANDATORY) ---
         print("[API] Payload delivered. Releasing hardware lock...")
         kernel.event_queue.put("INFERENCE_COMPLETE")
+
+@app.route("/telemetry/stability", methods=["GET"])
+@require_auth
+def get_stability_metrics():
+    if ledger:
+        return jsonify(ledger.generate_report()), 200
+    return jsonify({"error": "Telemetry Ledger Offline"}), 503
 
 @app.route("/shutdown", methods=["POST"])
 @require_auth
