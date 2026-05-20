@@ -12,7 +12,7 @@
 # -----------------------------------------------------------------------------
 
 """
-PERIDOT SETUP WIZARD v1.4 - TURBOQUANT
+PERIDOT SETUP WIZARD v1.5 - TURBOQUANT
 Intelligent hardware detection, VRAM profiling, and engine configuration
 Supports NVIDIA GPUs, AMD GPUs, and CPU-only fallback
 """
