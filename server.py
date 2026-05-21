@@ -30,15 +30,10 @@ from config import (
 
 # --- DYNAMIC TRANSLATION LAYER ---
 def get_model_format():
-    """Detects the architecture format based on the model filename."""
     model_name = MODEL_PATH.name.lower()
-    if "llama" in model_name:
-        return "llama3"
-    elif "qwen" in model_name:
-        return "chatml"
-    else:
-        # Fallback to ChatML as it is the most common standard for new models
-        return "chatml" 
+    if "llama" in model_name: return "llama3"
+    elif "qwen" in model_name: return "chatml"
+    else: return "chatml" 
 
 # --- CONSTITUTION BOOTSTRAP ---
 CONSTITUTION_PATH = Path("constitution.json")
@@ -55,12 +50,10 @@ else:
     print("[WARN] constitution.json not found. Operating without identity bounds.")
 
 def build_system_prompt(context_str="", model_format="chatml"):
-    """Dynamically compiles the prompt using the auto-detected format."""
     p = CONSTITUTION.get("personality", {})
     rules = CONSTITUTION.get("hard_rules", [])
     anti_patterns = p.get("anti_patterns", [])
 
-    # Set Format-Specific Tokens
     if model_format == "llama3":
         sys_start = "<|start_header_id|>system<|end_header_id|>\n\n"
         sys_end = "<|eot_id|>\n"
@@ -70,7 +63,6 @@ def build_system_prompt(context_str="", model_format="chatml"):
         sys_end = "<|im_end|>\n"
         user_start = "<|im_start|>user\n"
 
-    # Build Core Prompt
     sys_prompt = sys_start
     sys_prompt += f"IDENTITY: {p.get('identity_enforcement', 'You are Peridot.')}\n"
     sys_prompt += f"TONE & VOICE: {p.get('tone', '')} {p.get('voice', '')}\n"
@@ -86,8 +78,8 @@ def build_system_prompt(context_str="", model_format="chatml"):
     if context_str:
         sys_prompt += (
             "RAG DIRECTIVE: You have access to local file context. "
-            "CRITICAL: If the retrieved context is irrelevant to the user's prompt (e.g., asking for a standard script or math), "
-            "IGNORE THE CONTEXT COMPLETELY. Do not mention it. ONLY cite a source if it contains the explicit answer.\n\n"
+            "CRITICAL: If the retrieved context is irrelevant to the user's prompt, "
+            "IGNORE THE CONTEXT COMPLETELY. ONLY cite a source if it contains the explicit answer.\n\n"
             f"RETRIEVED CONTEXT:\n{context_str}\n"
         )
 
@@ -97,24 +89,34 @@ def build_system_prompt(context_str="", model_format="chatml"):
 # --- RAG SUBSYSTEM & v1.5 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
-    from core_system.memory.ephemeral_cache import EphemeralCache
-    from core_system.ingestion.vector_store import vector_store
-    from core_system.rag_cache import AetherCache
+except ImportError:
+    ghost = None
+
+try:
     from core_system.telemetry import ledger
+except ImportError:
+    ledger = None
+
+try:
+    from core_system.memory.ephemeral_cache import EphemeralCache
+    from core_system.memory.vault import PersistentVault
+    from core_system.memory.embedder import embedder
+    from core_system.rag_cache import AetherCache
     
     l1_cache = EphemeralCache()
+    vault = PersistentVault()
     rag_cache = AetherCache(max_ram_items=50)
+    print("[SYSTEM] RAG Subsystem Online.")
 except ImportError as e:
     print(f"[WARN] RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
     l1_cache = None
-    vector_store = None
+    vault = None
     rag_cache = None
-    ledger = None
+    embedder = None
 
 # --- KERNEL FSM IMPORTS ---
 from core_system.kernel import SovereignKernel, KernelState
 
-# Configure Logging
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 app = Flask(__name__)
@@ -145,7 +147,6 @@ class PeridotProductionKernel(SovereignKernel):
         print("[HARDWARE] Firing WebSocket SIGSTOP to FAH v8...")
         start_time = time.time()
         
-        # Capture exact VRAM state before the pause signal
         initial_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
         initial_vram_mb = initial_info.used / (1024 ** 2)
         
@@ -156,14 +157,11 @@ class PeridotProductionKernel(SovereignKernel):
         reclaimed_mb = 0
         current_vram_mb = initial_vram_mb
         
-        # Monitor for explicit memory yield (Delta Verification)
         while timeout > 0:
             info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
             current_vram_mb = info.used / (1024 ** 2)
             reclaimed_mb = initial_vram_mb - current_vram_mb
             
-            # CLEARANCE REQUIREMENT FIX: 
-            # 7B Model baseline is ~5800MB. Absolute safety ceiling raised to 7200MB.
             if reclaimed_mb > 500 or current_vram_mb < 7200:
                 cleared = True
                 break
@@ -173,7 +171,6 @@ class PeridotProductionKernel(SovereignKernel):
             
         latency_ms = (time.time() - start_time) * 1000
         
-        # Cryptographic Hardware Handoff
         if cleared:
             log_msg = f"Hardware yielded. Reclaimed: {reclaimed_mb:.0f}MB. Total Load: {current_vram_mb:.0f}MB. Latency: {latency_ms:.0f}ms."
             print(f">> {log_msg}")
@@ -221,7 +218,6 @@ def boot_engine():
     send_fah_command("pause")
 
     try:
-        # Llama initialization now strictly adheres to config.py variables entirely
         llm = Llama(
             model_path=str(MODEL_PATH),
             n_ctx=CONTEXT_LENGTH,            
@@ -287,43 +283,50 @@ def ask():
     # --- ROUTING LOGIC ---
     try:
         if l1_cache is not None:
-            try: ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB")
-            except: pass
+            if ghost:
+                try: ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB")
+                except: pass
                 
             cached_response = l1_cache.search(user_query)
             if cached_response:
-                try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
-                except: pass
+                if ghost:
+                    try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
+                    except: pass
                 kernel.event_queue.put("INFERENCE_COMPLETE")
                 return jsonify({"response": cached_response})
 
         context_str = ""
-        if vector_store is not None:
-            try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
-            except: pass
+        # CRITICAL FIX: The backend now correctly routes vector searches through vault.py instead of the deleted vector_store.py
+        if vault is not None and embedder is not None:
+            if ghost:
+                try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
+                except: pass
             
-            relevant_context = vector_store.search(user_query, top_k=3)
+            # Convert user query to vector natively
+            query_vector = embedder.embed_query(user_query)
+            # Search PersistentVault
+            relevant_context = vault.search(query_vector, top_k=3)
             
             if relevant_context:
                 context_segments = []
-                for res in relevant_context:
-                    source_id = res.get('source', 'Unknown')
-                    context_segments.append(f"[SOURCE: {source_id}]: {res['content']}")
+                for idx, chunk in enumerate(relevant_context):
+                    source_id = f"Vault_Chunk_{idx}"
+                    context_segments.append(f"[SOURCE: {source_id}]: {chunk}")
                     if rag_cache is not None:
                         rag_cache.put(source_id, [1.0, 0.0])
                 
                 context_str = "\n---\n".join(context_segments)
-                try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks.")
-                except: pass
+                if ghost:
+                    try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks.")
+                    except: pass
             else:
-                try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
-                except: pass
+                if ghost:
+                    try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
+                    except: pass
 
         # --- DYNAMIC INFERENCE ASSEMBLY ---
         model_format = get_model_format()
         
-        # FIX: Removed the forced markdown prefill and aggressive stop tokens. 
-        # The model is now free to reason, refuse, and explain organically.
         if model_format == "llama3":
             assistant_start = "<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n"
             target_stops = ["<|eot_id|>", "<|start_header_id|>"]
@@ -331,7 +334,6 @@ def ask():
             assistant_start = "<|im_end|>\n<|im_start|>assistant\n"
             target_stops = ["<|im_end|>", "<|im_start|>"]
 
-        # Inject Constitution identity, close the user tag, open the assistant tag
         final_prompt = build_system_prompt(context_str, model_format) + full_prompt + assistant_start
 
         # --- LLM GENERATION ---
@@ -347,14 +349,14 @@ def ask():
         )
         elapsed_s = time.time() - start_time
         
-        # Cleanly extract the generated text
         final_response = output["choices"][0]["text"].strip()
         
         tokens_generated = output.get("usage", {}).get("completion_tokens", len(final_response.split()) * 1.3)
         tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
         
-        try: ghost.info(f"INFERENCE  | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
-        except: pass
+        if ghost:
+            try: ghost.info(f"INFERENCE  | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
+            except: pass
         
         if l1_cache is not None:
             l1_cache.add(user_query, final_response)
@@ -366,8 +368,9 @@ def ask():
     except Exception as e:
         error_msg = str(e)
         print(f"[FATAL] Internal Inference Error - {error_msg}")
-        try: ghost.error(f"CRITICAL   | Component: server_ask_route | Error: {error_msg}")
-        except: pass
+        if ghost:
+            try: ghost.error(f"CRITICAL   | Component: server_ask_route | Error: {error_msg}")
+            except: pass
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
         
     finally:
