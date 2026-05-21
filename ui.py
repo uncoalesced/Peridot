@@ -105,11 +105,25 @@ class PeridotUI:
         self.is_processing = False
         self.research_active = False
         
-        # Load strict UK English lexicon
+        # Load base English lexicon but aggressively enforce UK standards
         if SPELLCHECK_AVAILABLE:
-            self.spell = SpellChecker(language='en_GB')
+            self.spell = SpellChecker(language='en')
             self.system_words = {"python", "fastapi", "sqlalchemy", "pydantic", "sqlite", "vram", "peridot"}
-            self.spell.word_frequency.load_words(list(self.system_words))
+            
+            # The Purge: Eradicate US spellings and enforce UK standards
+            us_variants = [
+                "color", "flavor", "behavior", "harbor", "honor", "humor", "labor", "neighbor", 
+                "rumor", "splendor", "analyze", "apologize", "organize", "recognize", "realize", 
+                "center", "meter", "theater", "defense", "offense", "traveler", "dialog"
+            ]
+            uk_variants = [
+                "colour", "flavour", "behaviour", "harbour", "honour", "humour", "labour", "neighbour", 
+                "rumour", "splendour", "analyse", "apologise", "organise", "recognise", "realise", 
+                "centre", "metre", "theatre", "defence", "offence", "traveller", "dialogue"
+            ]
+            
+            self.spell.word_frequency.remove_words(us_variants)
+            self.spell.word_frequency.load_words(uk_variants + list(self.system_words))
         
         self._setup_main_window()
         self._create_widgets()
@@ -166,7 +180,7 @@ class PeridotUI:
         # Expanding Input Fields
         self.entry = tk.Text(
             self.in_frame, bg=COLOR_INPUT, fg="white", font=FONT_MAIN,
-            insertbackground=COLOR_ACCENT, relief=tk.FLAT, bd=5, height=1, wrap=tk.WORD
+            insertbackground=COLOR_ACCENT, relief=tk.FLAT, bd=5, height=1, width=1, wrap=tk.WORD
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=5)
         
@@ -247,7 +261,7 @@ class PeridotUI:
         for match in words:
             word = match.group()
             if len(word) > 2:
-                # Check against the en_GB dictionary
+                # Check against the en dictionary (which has been purged of US spellings)
                 if word.lower() not in self.spell:
                     start_idx = f"1.0 + {match.start()} chars"
                     end_idx = f"1.0 + {match.end()} chars"
@@ -275,7 +289,7 @@ class PeridotUI:
                 end = self.entry.index(f"{index} wordend")
                 target_word = self.entry.get(start, end)
 
-                # Get UK English candidates
+                # Get candidates
                 candidates = self.spell.candidates(target_word.lower())
                 
                 if candidates:
