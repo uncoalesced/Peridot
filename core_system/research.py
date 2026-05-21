@@ -1,34 +1,18 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL
+# PERIDOT SOVEREIGN KERNEL | MEDICAL RESEARCH MODULE
 # Copyright (C) 2026 uncoalesced
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
-
-"""
-Peridot Medical Research Module
-================================
-Enables GPU contribution to medical research (Cancer, Alzheimer's etc.)
-via Folding@Home when Peridot is idle.
-"""
 
 import os
 import subprocess
 import threading
 import time
-import requests
 import logging
 import pynvml
 from config import RESEARCH_IDLE_THRESHOLD, RESEARCH_CHECK_INTERVAL
 
 logger = logging.getLogger("Peridot-Research")
-
-# Task 4: Command Whitelist
 ALLOWED_FAH_COMMANDS = ("pause", "unpause", "finish", "shutdown")
 
 class MedicalResearchModule:
@@ -39,22 +23,22 @@ class MedicalResearchModule:
         self.status = "DISABLED"
         self.lock = threading.Lock()
 
-        # Paths
         self.fah_path = r"C:\Program Files (x86)\FAHClient\FAHClient.exe"
-        self.config_path = os.path.join(os.getenv("APPDATA"), "FAHClient", "config.xml")
-
-        self.user_name = "Peridot_User"
-        self.team_id = "0"
-
-    def get_vram_free(self) -> int:
-        """Returns free VRAM in MB directly from the NVIDIA driver."""
+        
+        # Initialise NVML once to prevent handle leaking
         try:
             pynvml.nvmlInit()
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            return info.free // 1024 // 1024
+            self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         except Exception as e:
-            logger.error(f"Failed to read VRAM: {e}")
+            logger.error(f"NVML Initialisation failed: {e}")
+            self.nvml_handle = None
+
+    def get_vram_free(self) -> int:
+        if not self.nvml_handle: return 0
+        try:
+            info = pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
+            return info.free // 1024 // 1024
+        except:
             return 0
 
     def check_installation(self) -> bool:
@@ -81,7 +65,6 @@ class MedicalResearchModule:
         logger.info("Medical Research Module [DISABLED]")
 
     def pause(self) -> bool:
-        """Returns True if pause succeeded."""
         if self.is_folding:
             if self._send_cmd("pause"):
                 self.is_folding = False
@@ -91,9 +74,7 @@ class MedicalResearchModule:
         return False
 
     def unpause(self) -> bool:
-        """Returns True if unpause succeeded."""
-        if not self.enabled:
-            return False
+        if not self.enabled: return False
         if self._send_cmd("unpause"):
             self.is_folding = True
             self.status = "FOLDING (Curing Disease)"
@@ -102,13 +83,11 @@ class MedicalResearchModule:
         return False
 
     def _send_cmd(self, cmd) -> bool:
-        # Task 4: Hard Block on Unauthorized Commands
         if cmd not in ALLOWED_FAH_COMMANDS:
-            logger.error(f"SECURITY BLOCK: Unauthorized FAH command '{cmd}' rejected.")
+            logger.error(f"SECURITY BLOCK: Unauthorised FAH command '{cmd}' rejected.")
             return False
 
-        if not self.check_installation():
-            return False
+        if not self.check_installation(): return False
         try:
             subprocess.Popen(
                 [self.fah_path, f"--send-{cmd}"],
@@ -125,8 +104,7 @@ class MedicalResearchModule:
         logger.info("Research Monitor Started.")
         while True:
             with self.lock:
-                if not self.enabled:
-                    break
+                if not self.enabled: break
                 
                 idle_seconds = time.time() - self.core.last_interaction_time
                 if idle_seconds > RESEARCH_IDLE_THRESHOLD and not self.is_folding:
@@ -135,9 +113,3 @@ class MedicalResearchModule:
                     self.pause()
             
             time.sleep(RESEARCH_CHECK_INTERVAL)
-
-    def get_stats(self) -> str:
-        state = "ACTIVE" if self.enabled else "DISABLED"
-        folding = "YES" if self.is_folding else "NO"
-        vram = self.get_vram_free()
-        return f"Module: {state} | Folding Now: {folding} | Status: {self.status} | Free VRAM: {vram}MB"
