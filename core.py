@@ -2,11 +2,7 @@
 # PERIDOT SOVEREIGN KERNEL | CORE LOGIC
 # Copyright (C) 2026 uncoalesced
 # 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -37,14 +33,6 @@ def safe_import(module_path, class_names):
         logger.debug(f"Failed to import from {module_path}: {e}")
     return None
 
-SYSTEM_IDENTITY = (
-    "You are Peridot, a sovereign AI assistant. "
-    "You help users with tasks while respecting their intent. "
-    "You can refuse harmful or dangerous requests that delete system files "
-    "or compromise host OS integrity. "
-    "Style: Technical, precise, and direct."
-)
-
 class PeridotCore:
     def __init__(self):
         self.logger = logger
@@ -54,7 +42,6 @@ class PeridotCore:
 
         # Identity & State
         self.chat_memory = []
-        self.context_history = collections.deque(maxlen=5)
         self.last_interaction_time = time.time()
         
         # Load Security Configuration
@@ -67,7 +54,7 @@ class PeridotCore:
         # [v2.0] Layer 2 Persistent PDF Vault
         self.vault = PersistentVault()
         
-        self.logger.info("Kernel logic initialized.", source="CORE")
+        self.logger.info("Kernel logic initialised.", source="CORE")
 
     def start(self):
         if self.ui:
@@ -90,8 +77,8 @@ class PeridotCore:
                 self.ears = ears_class()
                 self.ears.load_model_async(callback=lambda s: self._notify("Audio", s))
             except Exception as e:
-                self.logger.error(f"Audio initialization failed: {e}")
-                self._notify("Audio", False, "Initialization error")
+                self.logger.error(f"Audio initialisation failed: {e}")
+                self._notify("Audio", False, "Initialisation error")
         else:
             self._notify("Audio", False, "Module missing")
 
@@ -113,15 +100,25 @@ class PeridotCore:
             return "[SECURITY BLOCK] Access Denied: Malicious code pattern detected. Incident logged."
 
         clean_text = clean_text.strip()
+        
+        # 2. Vault Ingestion Intercept
+        if clean_text.lower() == "/ingest":
+            self.logger.info("Manual ingestion sequence triggered.", source="CORE")
+            try:
+                self.vault.ingest_directory()
+                return "Vault ingestion sequence completed. Check terminals for chunk metrics."
+            except Exception as e:
+                return f"[SYSTEM FAULT] Ingestion failed: {e}"
+
+        # 3. System Command Routing
         parts = clean_text.split(maxsplit=1)
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
 
-        # 2. System Command Routing
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        # 3. Cold Query the LLM (Caching is now strictly handled server-side)
+        # 4. Query the LLM
         response = self._ask_ai_with_memory(clean_text)
         
         return response
@@ -133,38 +130,41 @@ class PeridotCore:
         if len(self.chat_memory) > 10:
             self.chat_memory = self.chat_memory[-10:]
 
-        prompt_segments = [f"<|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_IDENTITY}<|eot_id|>"]
+        # CRITICAL FIX: Build neutral context block without ChatML/Llama tags.
+        # server.py will wrap this safely based on the detected model architecture.
+        prompt_segments = []
         for msg in self.chat_memory:
-            prompt_segments.append(f"<|start_header_id|>{msg['role']}<|end_header_id|>\n\n{msg['content']}<|eot_id|>")
-        
-        prompt_segments.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
-        full_prompt = "".join(prompt_segments)
+            role_header = "[USER]" if msg['role'] == 'user' else "[PERIDOT]"
+            prompt_segments.append(f"{role_header}\n{msg['content']}\n")
+            
+        full_prompt = "\n".join(prompt_segments)
 
         response = self._send_to_server(query=user_text, prompt=full_prompt)
-        self.chat_memory.append({"role": "assistant", "content": response})
+        
+        # Ensure we only append successful responses to the memory matrix
+        if "[SYSTEM ERROR]" not in response and "[HTTP ERROR]" not in response:
+            self.chat_memory.append({"role": "assistant", "content": response})
+            
         return response
 
     def _ask_ai_isolated(self, prompt):
         """Bypasses conversational memory for sterile RAG extraction."""
-        full_prompt = (
-            f"<|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_IDENTITY}<|eot_id|>"
-            f"<|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|>"
-            f"<|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
-        return self._send_to_server(query=prompt, prompt=full_prompt)
+        return self._send_to_server(query=prompt, prompt=prompt)
 
     def _send_to_server(self, query, prompt):
         try:
-            # CRITICAL FIX: Explicit Content-Type and Authorization Headers
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {ACTIVE_API_KEY}"
             }
+            
             # Timeout extended to 180s to account for heavy contextual processing
             payload = {"query": query, "prompt": prompt}
             r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=180)
             r.raise_for_status()
+            
             return r.json().get("response", "No response from brain.")
+            
         except requests.exceptions.HTTPError as e:
             if r.status_code == 403:
                 return "[SECURITY BLOCK] API Key rejected. Handshake failed. Ensure ACTIVE_API_KEY matches server."
@@ -181,7 +181,6 @@ class PeridotCore:
             self.research.disable()
 
         try:
-            # CRITICAL FIX: Explicit Content-Type and Authorization Headers for shutdown
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {ACTIVE_API_KEY}"
