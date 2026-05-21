@@ -15,8 +15,17 @@ import subprocess
 import os
 import ctypes
 import requests
+import re
 
 from config import SERVER_HOST, SERVER_PORT, API_KEY
+
+# --- UK ENGLISH DICTIONARY ENGINE ---
+try:
+    from spellchecker import SpellChecker
+    SPELLCHECK_AVAILABLE = True
+except ImportError:
+    SPELLCHECK_AVAILABLE = False
+    print("[WARN] pyspellchecker module missing. Run: pip install pyspellchecker")
 
 # --- OS-LEVEL OVERRIDES ---
 try:
@@ -96,6 +105,12 @@ class PeridotUI:
         self.is_processing = False
         self.research_active = False
         
+        # Load strict UK English lexicon
+        if SPELLCHECK_AVAILABLE:
+            self.spell = SpellChecker(language='en_GB')
+            self.system_words = {"python", "fastapi", "sqlalchemy", "pydantic", "sqlite", "vram", "peridot"}
+            self.spell.word_frequency.load_words(list(self.system_words))
+        
         self._setup_main_window()
         self._create_widgets()
         self._configure_styles()
@@ -106,13 +121,20 @@ class PeridotUI:
         self.root.geometry("1150x800")
         self.root.configure(bg=COLOR_BG)
         
-        # Systemic Icon Mapping Fix
+        # Hardened Icon Extraction Pipeline
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             icon_path = os.path.join(base_dir, "assets", "ui", "logo", "peridot.ico")
             self.root.iconbitmap(icon_path)
+            
+            # Direct User32 handle intercept to strip old cached window mappings immediately
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            if hwnd:
+                hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010 | 0x00000020)
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon) # Set big icon
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon) # Set small icon
         except Exception:
-            pass # Silently proceed if the file is moved or deleted
+            pass
 
         # Dark Title Bar (Windows 11)
         try:
@@ -132,28 +154,40 @@ class PeridotUI:
         )
         self.chat.pack(fill=tk.BOTH, expand=True)
 
-        # Dynamic Input Frame
+        # Responsive Grid Manager Setup (Prevents Execution Button Squash)
         self.in_frame = tk.Frame(self.root, bg=COLOR_BG)
         self.in_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
-        tk.Frame(self.in_frame, bg=COLOR_ACCENT, height=2).pack(fill=tk.X, pady=(0, 10))
+        tk.Frame(self.in_frame, bg=COLOR_ACCENT, height=2).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
         
-        # Expanding Text Box
+        self.in_frame.columnconfigure(0, weight=1) # Input field consumes excess geometry
+        self.in_frame.columnconfigure(1, weight=0) # Mic static sizing
+        self.in_frame.columnconfigure(2, weight=0) # Execute static sizing
+
+        # Expanding Input Fields
         self.entry = tk.Text(
             self.in_frame, bg=COLOR_INPUT, fg="white", font=FONT_MAIN,
             insertbackground=COLOR_ACCENT, relief=tk.FLAT, bd=5, height=1, wrap=tk.WORD
         )
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=5)
+        self.entry.grid(row=1, column=0, sticky="ew", ipady=5)
         
-        # Key Binds
+        # Key Layout Configurations
         self.entry.bind("<Return>", self._on_enter)
         self.entry.bind("<Shift-Return>", self._on_shift_enter)
-        self.entry.bind("<KeyRelease>", self._adjust_input_height)
+        self.entry.bind("<KeyRelease>", self._on_key_release)
+        self.entry.bind("<Button-3>", self._show_spellcheck_menu) # Right-click context loop
 
-        # Buttons
-        self.btn_mic = self._mk_btn("MIC", self.handle_voice)
-        self.btn_mic.pack(side=tk.LEFT, padx=(10, 5))
-        self.btn_run = self._mk_btn("EXECUTE", self.handle_input, COLOR_ACCENT, "black")
-        self.btn_run.pack(side=tk.LEFT, padx=5)
+        # Symmetrical Layout Clamping
+        self.btn_mic = tk.Button(
+            self.in_frame, text="MIC", command=self.handle_voice, bg=COLOR_DIM, fg="white",
+            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
+        )
+        self.btn_mic.grid(row=1, column=1, padx=(10, 5), sticky="ns")
+
+        self.btn_run = tk.Button(
+            self.in_frame, text="EXECUTE", command=self.handle_input, bg=COLOR_ACCENT, fg="black",
+            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
+        )
+        self.btn_run.grid(row=1, column=2, padx=5, sticky="ns")
 
         # Glass Box Telemetry Status Bar
         self.stat_bar = tk.Frame(self.root, bg="#0A0A0A", height=40)
@@ -195,6 +229,74 @@ class PeridotUI:
             self.chat.tag_config(tag, foreground=col, font=FONT_BOLD if tag != "ai" else FONT_MAIN)
         self.chat.tag_config("logo", justify="center", font=("Consolas", 11, "bold"))
         self.chat.tag_config("code_block", font=FONT_CODE, foreground="#FFD700", background=COLOR_CODE_BG, lmargin1=10, lmargin2=10, rmargin=10)
+        
+        # Spellcheck underline tag declaration
+        self.entry.tag_config("misspelled", underline=True, underlinefg=COLOR_ERROR)
+
+    # --- SPELLCHECK ARBITRATION (UK ENGLISH) ---
+    def _run_spellcheck(self):
+        """Asynchronously parses input matrix to locate non-UK English strings."""
+        if not SPELLCHECK_AVAILABLE:
+            return
+            
+        self.entry.tag_remove("misspelled", "1.0", tk.END)
+        content = self.entry.get("1.0", "end-1c")
+        
+        # Basic alphanumeric isolate block
+        words = re.finditer(r'\b[a-zA-Z]+\b', content)
+        for match in words:
+            word = match.group()
+            if len(word) > 2:
+                # Check against the en_GB dictionary
+                if word.lower() not in self.spell:
+                    start_idx = f"1.0 + {match.start()} chars"
+                    end_idx = f"1.0 + {match.end()} chars"
+                    self.entry.tag_add("misspelled", start_idx, end_idx)
+
+    def _apply_correction(self, start, end, correct_word):
+        self.entry.delete(start, end)
+        self.entry.insert(start, correct_word)
+        self._run_spellcheck()
+
+    def _show_spellcheck_menu(self, event):
+        """Generates screen-space suggestion panel upon right-click handles."""
+        if not SPELLCHECK_AVAILABLE:
+            return
+            
+        try:
+            index = self.entry.index(f"@{event.x},{event.y}")
+            tags = self.entry.tag_names(index)
+            
+            if "misspelled" in tags:
+                menu = tk.Menu(self.root, tearoff=0, bg=COLOR_DIM, fg="white", activebackground=COLOR_ACCENT, activeforeground="black", font=FONT_UI)
+                
+                # Extract word bounds near cursor coordinates
+                start = self.entry.index(f"{index} wordstart")
+                end = self.entry.index(f"{index} wordend")
+                target_word = self.entry.get(start, end)
+
+                # Get UK English candidates
+                candidates = self.spell.candidates(target_word.lower())
+                
+                if candidates:
+                    for idx, candidate in enumerate(candidates):
+                        if idx > 4: break # Limit to top 5 suggestions
+                        menu.add_command(
+                            label=candidate, 
+                            command=lambda c=candidate, s=start, e=end: self._apply_correction(s, e, c)
+                        )
+                else:
+                    menu.add_command(label="No UK suggestions", state=tk.DISABLED)
+                    
+                menu.add_separator()
+                menu.add_command(
+                    label="Add to System Dictionary", 
+                    command=lambda w=target_word: self.spell.word_frequency.load_words([w.lower()]) or self._run_spellcheck()
+                )
+                
+                menu.tk_popup(event.x_root, event.y_root)
+        except Exception:
+            pass
 
     # --- INPUT HANDLERS ---
     def _on_enter(self, event):
@@ -203,6 +305,13 @@ class PeridotUI:
 
     def _on_shift_enter(self, event):
         return
+
+    def _on_key_release(self, event):
+        self._adjust_input_height()
+        # Debounce the spellcheck slightly so it doesn't stutter on fast typing
+        if hasattr(self, '_spellcheck_timer'):
+            self.root.after_cancel(self._spellcheck_timer)
+        self._spellcheck_timer = self.root.after(500, self._run_spellcheck)
 
     def _adjust_input_height(self, event=None):
         num_lines = int(self.entry.index('end-1c').split('.')[0])
@@ -216,6 +325,7 @@ class PeridotUI:
         
         self.entry.delete("1.0", tk.END)
         self._adjust_input_height()
+        self.entry.tag_remove("misspelled", "1.0", tk.END)
         
         self.write(f"\n> {t}\n", "user")
         self._process_async(t)
