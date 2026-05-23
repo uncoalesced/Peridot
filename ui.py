@@ -177,10 +177,10 @@ class PeridotUI:
         self.in_frame.columnconfigure(1, weight=0) # Mic static sizing
         self.in_frame.columnconfigure(2, weight=0) # Execute static sizing
 
-        # Expanding Input Fields
+        # Expanding Input Fields (undo=False applied)
         self.entry = tk.Text(
             self.in_frame, bg=COLOR_INPUT, fg="white", font=FONT_MAIN,
-            insertbackground=COLOR_ACCENT, relief=tk.FLAT, bd=5, height=1, width=1, wrap=tk.WORD
+            insertbackground=COLOR_ACCENT, relief=tk.FLAT, bd=5, height=1, width=1, wrap=tk.WORD, undo=False
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=5)
         
@@ -323,9 +323,10 @@ class PeridotUI:
     def _on_key_release(self, event):
         self._adjust_input_height()
         # Debounce the spellcheck slightly so it doesn't stutter on fast typing
-        if hasattr(self, '_spellcheck_timer'):
-            self.root.after_cancel(self._spellcheck_timer)
-        self._spellcheck_timer = self.root.after(500, self._run_spellcheck)
+        if not self.is_processing:
+            if hasattr(self, '_spellcheck_timer'):
+                self.root.after_cancel(self._spellcheck_timer)
+            self._spellcheck_timer = self.root.after(500, self._run_spellcheck)
 
     def _adjust_input_height(self, event=None):
         num_lines = int(self.entry.index('end-1c').split('.')[0])
@@ -338,6 +339,7 @@ class PeridotUI:
         if not t: return
         
         self.entry.delete("1.0", tk.END)
+        # BUG DESTROYED: edit_reset() removed to prevent TclError crash
         self._adjust_input_height()
         self.entry.tag_remove("misspelled", "1.0", tk.END)
         
