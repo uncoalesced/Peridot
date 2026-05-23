@@ -7,61 +7,72 @@
 # -----------------------------------------------------------------------------
 
 import os
+import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Initialize basic logging for the bootstrap phase
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | [CONFIG] %(message)s")
+logger = logging.getLogger("Peridot-Config")
 
 # -----------------------------------------------------------------------------
 # ENVIRONMENT BOOTSTRAP
 # -----------------------------------------------------------------------------
-load_dotenv()
+# Force override to ensure dynamic changes to .env are immediately ingested
+load_dotenv(override=True)
 
 # --- SYSTEM PATHS ---
-BASE_DIR = Path(__file__).parent
-ROOT_PATH = BASE_DIR.resolve()
-INPUT_PATH = ROOT_PATH / "input"
-PROCESSED_PATH = INPUT_PATH / "processed"
-LOG_PATH = ROOT_PATH / "logs"
-BACKUP_PATH = ROOT_PATH / "backups"
-STORAGE_PATH = ROOT_PATH / "storage"
-MODEL_DIR = ROOT_PATH / "models"
+BASE_DIR: Path = Path(__file__).parent.resolve()
+ROOT_PATH: Path = BASE_DIR
 
-# Create directories if missing
-for path in [LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH]:
-    path.mkdir(exist_ok=True)
+INPUT_PATH: Path = ROOT_PATH / "input"
+PROCESSED_PATH: Path = INPUT_PATH / "processed"
+LOG_PATH: Path = ROOT_PATH / "logs"
+BACKUP_PATH: Path = ROOT_PATH / "backups"
+STORAGE_PATH: Path = ROOT_PATH / "storage"
+MODEL_DIR: Path = ROOT_PATH / "models"
+
+# Ensure strict existence of the kernel directory tree
+for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH):
+    directory.mkdir(parents=True, exist_ok=True)
 
 # --- ENGINE CONFIGURATION (v1.5 TurboQuant) ---
-ACTIVE_MODEL_NAME = "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
-MODEL_PATH = MODEL_DIR / ACTIVE_MODEL_NAME
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf")
+MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
-# Hardware Allocation (BLACKWELL RTX 5050 / Ryzen 7 AI)
-GPU_LAYERS = 100         # 100 forces full VRAM offloading
-CONTEXT_LENGTH = 8192    # TurboQuant Standard (Requires ~1.2GB VRAM buffer)
-MAX_TOKENS = 1024        # Expanded for deeper RAG summaries
-THREADS = 8              # CPU Thread pool for parallel processing chunks
-BATCH_SIZE = 1024        # Batch size for prompt processing evaluation
+# Hardware Allocation 
+GPU_LAYERS: int = int(os.getenv("GPU_LAYERS", "-1"))       # -1 explicitly forces full VRAM offloading
+CONTEXT_LENGTH: int = int(os.getenv("CONTEXT_LENGTH", "8192")) # TurboQuant Standard (~1.2GB VRAM buffer overhead)
+MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "1024"))     # Deep RAG summaries limit
+THREADS: int = int(os.getenv("THREADS", "8"))              # Mapped to physical cores to prevent thread thrashing
+BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "1024"))     # Prompt ingestion evaluation limit
 
-# Generation Parameters (Tuned for strict RAG precision)
-TEMPERATURE = 0.1        # Dropped from 0.7 to 0.1 to stop hallucinations
-TOP_P = 0.9
-REPEAT_PENALTY = 1.1
+# Generation Parameters (Strict RAG precision constraints)
+TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.1")) # Minimized to enforce logical extraction over hallucination
+TOP_P: float = float(os.getenv("TOP_P", "0.9"))
+REPEAT_PENALTY: float = float(os.getenv("REPEAT_PENALTY", "1.1"))
 
 # --- NETWORK & SECURITY ---
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 5000
-SHUTDOWN_TIMEOUT = 2
+SERVER_HOST: str = os.getenv("SERVER_HOST", "127.0.0.1")
+SERVER_PORT: int = int(os.getenv("SERVER_PORT", "5000"))
+SHUTDOWN_TIMEOUT: int = int(os.getenv("SHUTDOWN_TIMEOUT", "2"))
 
-# API Endpoints
-AI_SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ask"
-SHUTDOWN_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/shutdown"
+# Internal Endpoint Routing
+AI_SERVER_URL: str = f"http://{SERVER_HOST}:{SERVER_PORT}/ask"
+SHUTDOWN_URL: str = f"http://{SERVER_HOST}:{SERVER_PORT}/shutdown"
 
 # --- CRYPTOGRAPHIC HANDSHAKE ---
-API_KEY = os.getenv("API_KEY", "08101954")
+# Fallback hardcoded key only utilized if environment injection fails
+API_KEY: str = os.getenv("API_KEY", "08101954")
 os.environ["PERIDOT_AUTH_TOKEN"] = API_KEY
 
-# --- MEDICAL RESEARCH (FAH v8) ---
-RESEARCH_IDLE_THRESHOLD = 30  # Dropped to 30s to maximize Folding uptime
-RESEARCH_CHECK_INTERVAL = 10  # seconds
+# --- MEDICAL RESEARCH CLUSTER (FAH v8) ---
+RESEARCH_IDLE_THRESHOLD: int = int(os.getenv("RESEARCH_IDLE_THRESHOLD", "30")) # Time (s) before VRAM yields
+RESEARCH_CHECK_INTERVAL: int = int(os.getenv("RESEARCH_CHECK_INTERVAL", "10")) # Polling rate (s)
 
-# Validate critical paths
+# -----------------------------------------------------------------------------
+# STARTUP VALIDATION
+# -----------------------------------------------------------------------------
 if not MODEL_PATH.exists():
-    print(f"[WARNING] Model not found at {MODEL_PATH}. Awaiting TurboQuant payload.")
+    logger.warning(f"Core logic matrix not found at {MODEL_PATH}. Awaiting TurboQuant payload ingestion.")
