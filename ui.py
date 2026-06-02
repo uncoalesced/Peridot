@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL | INTERFACE & TELEMETRY
+# PERIDOT SOVEREIGN KERNEL | INTERFACE & TELEMETRY OVERHAUL
 # Copyright (C) 2026 uncoalesced
 # 
 # Licensed under the MIT License.
@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 import tkinter as tk
-from tkinter import scrolledtext, font
+from tkinter import scrolledtext, font, ttk
 import threading
 import psutil
 import time
@@ -31,7 +31,7 @@ except ImportError:
 try:
     # High DPI Awareness
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    # Taskbar Icon Separation (Forces Windows to drop the Python logo)
+    # Taskbar Icon Separation
     myappid = 'uncoalesced.peridot.sovereign.1_5'
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except Exception:
@@ -49,7 +49,6 @@ COLOR_ERROR = "#FF2A6D"
 COLOR_INPUT = "#0F0F0F"
 COLOR_CODE_BG = "#0C0C0C"
 
-# Fonts (+10% Scaled, Locked to Consolas)
 FONT_MAIN = ("Consolas", 12)
 FONT_BOLD = ("Consolas", 12, "bold")
 FONT_CODE = ("Consolas", 12)
@@ -58,7 +57,7 @@ FONT_UI = ("Consolas", 9, "bold")
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
-# --- SYMMETRICAL ASCII LOGO ---
+# --- ASCII LOGO ---
 ASCII_LOGO = """
 ██████╗ ███████╗██████╗ ██╗██████╗  ██████╗ ████████╗
 ██╔══██╗██╔════╝██╔══██╗██║██╔══██╗██╔═══██╗╚══██╔══╝
@@ -105,12 +104,10 @@ class PeridotUI:
         self.is_processing = False
         self.research_active = False
         
-        # Load base English lexicon but aggressively enforce UK standards
         if SPELLCHECK_AVAILABLE:
             self.spell = SpellChecker(language='en')
             self.system_words = {"python", "fastapi", "sqlalchemy", "pydantic", "sqlite", "vram", "peridot"}
             
-            # The Purge: Eradicate US spellings and enforce UK standards
             us_variants = [
                 "color", "flavor", "behavior", "harbor", "honor", "humor", "labor", "neighbor", 
                 "rumor", "splendor", "analyze", "apologize", "organize", "recognize", "realize", 
@@ -126,6 +123,7 @@ class PeridotUI:
             self.spell.word_frequency.load_words(uk_variants + list(self.system_words))
         
         self._setup_main_window()
+        self._configure_notebook_styles()
         self._create_widgets()
         self._configure_styles()
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -135,62 +133,84 @@ class PeridotUI:
         self.root.geometry("1150x800")
         self.root.configure(bg=COLOR_BG)
         
-        # Hardened Icon Extraction Pipeline
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             icon_path = os.path.join(base_dir, "assets", "ui", "logo", "peridot.ico")
             self.root.iconbitmap(icon_path)
             
-            # Direct User32 handle intercept to strip old cached window mappings immediately
             hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
             if hwnd:
                 hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010 | 0x00000020)
-                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon) # Set big icon
-                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon) # Set small icon
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
         except Exception:
             pass
 
-        # Dark Title Bar (Windows 11)
         try:
             hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(2)), 4)
         except:
             pass
 
+    def _configure_notebook_styles(self):
+        """Injects custom terminal aesthetics into the tab engine."""
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("TNotebook", background=COLOR_BG, borderwidth=0, highlightthickness=0)
+        style.configure("TNotebook.Tab", background=COLOR_DIM, foreground="#888888", font=FONT_UI, padding=[15, 5], borderwidth=0)
+        style.map("TNotebook.Tab", background=[("selected", COLOR_INPUT)], foreground=[("selected", COLOR_ACCENT)])
+
     def _create_widgets(self):
-        # Chat Buffer
-        self.out_frame = tk.Frame(self.root, bg=COLOR_BG)
-        self.out_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 10))
+        # Notebook Layout Manager Partition
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 10))
+
+        # Tab 1: Chat Buffer Matrix
+        self.tab_chat = tk.Frame(self.notebook, bg=COLOR_BG)
+        self.notebook.add(self.tab_chat, text="[01] CHAT MATRIX")
+
         self.chat = scrolledtext.ScrolledText(
-            self.out_frame, wrap=tk.WORD, bg=COLOR_BG, fg=COLOR_TEXT,
+            self.tab_chat, wrap=tk.WORD, bg=COLOR_BG, fg=COLOR_TEXT,
             font=FONT_MAIN, insertbackground=COLOR_ACCENT, bd=0,
             highlightthickness=0, padx=10, pady=10, state=tk.DISABLED
         )
         self.chat.pack(fill=tk.BOTH, expand=True)
 
-        # Responsive Grid Manager Setup (Prevents Execution Button Squash)
+        # Tab 2: Secured Document Storage Matrix
+        self.tab_vault = tk.Frame(self.notebook, bg=COLOR_BG)
+        self.notebook.add(self.tab_vault, text="[02] KERNEL VAULT")
+
+        self.vault_label = tk.Label(self.tab_vault, text=">> DATA-INGEST SECURE CONSOLE VECTOR DIRECTORY:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w")
+        self.vault_label.pack(fill=tk.X, padx=15, pady=(15, 5))
+
+        self.vault_list = tk.Listbox(
+            self.tab_vault, bg=COLOR_INPUT, fg=COLOR_TEXT, font=FONT_CODE, 
+            relief=tk.FLAT, highlightthickness=1, highlightcolor=COLOR_DIM, highlightbackground=COLOR_DIM,
+            selectbackground=COLOR_DIM, selectforeground=COLOR_ACCENT
+        )
+        self.vault_list.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # Responsive Input Controls Layout
         self.in_frame = tk.Frame(self.root, bg=COLOR_BG)
         self.in_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
         tk.Frame(self.in_frame, bg=COLOR_ACCENT, height=2).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
         
-        self.in_frame.columnconfigure(0, weight=1) # Input field consumes excess geometry
-        self.in_frame.columnconfigure(1, weight=0) # Mic static sizing
-        self.in_frame.columnconfigure(2, weight=0) # Execute static sizing
+        self.in_frame.columnconfigure(0, weight=1) 
+        self.in_frame.columnconfigure(1, weight=0) 
+        self.in_frame.columnconfigure(2, weight=0) 
 
-        # Expanding Input Fields (undo=False applied)
         self.entry = tk.Text(
             self.in_frame, bg=COLOR_INPUT, fg="white", font=FONT_MAIN,
             insertbackground=COLOR_ACCENT, relief=tk.FLAT, bd=5, height=1, width=1, wrap=tk.WORD, undo=False
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=5)
         
-        # Key Layout Configurations
         self.entry.bind("<Return>", self._on_enter)
         self.entry.bind("<Shift-Return>", self._on_shift_enter)
         self.entry.bind("<KeyRelease>", self._on_key_release)
-        self.entry.bind("<Button-3>", self._show_spellcheck_menu) # Right-click context loop
+        self.entry.bind("<Button-3>", self._show_spellcheck_menu)
 
-        # Symmetrical Layout Clamping
         self.btn_mic = tk.Button(
             self.in_frame, text="MIC", command=self.handle_voice, bg=COLOR_DIM, fg="white",
             font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
@@ -203,7 +223,7 @@ class PeridotUI:
         )
         self.btn_run.grid(row=1, column=2, padx=5, sticky="ns")
 
-        # Glass Box Telemetry Status Bar
+        # Fixed Status Telemetry Panel
         self.stat_bar = tk.Frame(self.root, bg="#0A0A0A", height=40)
         self.stat_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
@@ -218,12 +238,6 @@ class PeridotUI:
 
         for m in [("RAM", "bar_ram"), ("CPU", "bar_cpu"), ("VRAM", "bar_vram")]:
             self._add_monitor(m[0], m[1])
-
-    def _mk_btn(self, txt, cmd, bg=COLOR_DIM, fg="white"):
-        return tk.Button(
-            self.in_frame, text=txt, command=cmd, bg=bg, fg=fg,
-            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
-        )
 
     def _add_monitor(self, lbl, var):
         f = tk.Frame(self.stat_bar, bg="#0A0A0A")
@@ -244,24 +258,39 @@ class PeridotUI:
         self.chat.tag_config("logo", justify="center", font=("Consolas", 11, "bold"))
         self.chat.tag_config("code_block", font=FONT_CODE, foreground="#FFD700", background=COLOR_CODE_BG, lmargin1=10, lmargin2=10, rmargin=10)
         
-        # Spellcheck underline tag declaration
         self.entry.tag_config("misspelled", underline=True, underlinefg=COLOR_ERROR)
 
-    # --- SPELLCHECK ARBITRATION (UK ENGLISH) ---
+    def _on_tab_changed(self, event):
+        """Triggers local data directory evaluation scans upon tab change initialization."""
+        selected_tab = self.notebook.index(self.notebook.select())
+        if selected_tab == 1:
+            self._update_vault_directory()
+
+    def _update_vault_directory(self):
+        """Queries local physical directories to verify active source matrices."""
+        self.vault_list.delete(0, tk.END)
+        input_dir = "input"
+        if os.path.exists(input_dir):
+            files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+            if not files:
+                self.vault_list.insert(tk.END, " [EMPTY] No text corpora or source files detected inside memory vectors.")
+            for file in files:
+                self.vault_list.insert(tk.END, f" └── [SECURE-DATA-NODE] : {file}")
+        else:
+            self.vault_list.insert(tk.END, " [ERROR] Physical storage path root 'input' unmapped.")
+
+    # --- SPELLCHECK ARBITRATION ---
     def _run_spellcheck(self):
-        """Asynchronously parses input matrix to locate non-UK English strings."""
         if not SPELLCHECK_AVAILABLE:
             return
             
         self.entry.tag_remove("misspelled", "1.0", tk.END)
         content = self.entry.get("1.0", "end-1c")
         
-        # Basic alphanumeric isolate block
         words = re.finditer(r'\b[a-zA-Z]+\b', content)
         for match in words:
             word = match.group()
             if len(word) > 2:
-                # Check against the en dictionary (which has been purged of US spellings)
                 if word.lower() not in self.spell:
                     start_idx = f"1.0 + {match.start()} chars"
                     end_idx = f"1.0 + {match.end()} chars"
@@ -273,7 +302,6 @@ class PeridotUI:
         self._run_spellcheck()
 
     def _show_spellcheck_menu(self, event):
-        """Generates screen-space suggestion panel upon right-click handles."""
         if not SPELLCHECK_AVAILABLE:
             return
             
@@ -284,17 +312,15 @@ class PeridotUI:
             if "misspelled" in tags:
                 menu = tk.Menu(self.root, tearoff=0, bg=COLOR_DIM, fg="white", activebackground=COLOR_ACCENT, activeforeground="black", font=FONT_UI)
                 
-                # Extract word bounds near cursor coordinates
                 start = self.entry.index(f"{index} wordstart")
                 end = self.entry.index(f"{index} wordend")
                 target_word = self.entry.get(start, end)
 
-                # Get candidates
                 candidates = self.spell.candidates(target_word.lower())
                 
                 if candidates:
                     for idx, candidate in enumerate(candidates):
-                        if idx > 4: break # Limit to top 5 suggestions
+                        if idx > 4: break
                         menu.add_command(
                             label=candidate, 
                             command=lambda c=candidate, s=start, e=end: self._apply_correction(s, e, c)
@@ -322,7 +348,6 @@ class PeridotUI:
 
     def _on_key_release(self, event):
         self._adjust_input_height()
-        # Debounce the spellcheck slightly so it doesn't stutter on fast typing
         if not self.is_processing:
             if hasattr(self, '_spellcheck_timer'):
                 self.root.after_cancel(self._spellcheck_timer)
@@ -339,7 +364,6 @@ class PeridotUI:
         if not t: return
         
         self.entry.delete("1.0", tk.END)
-        # BUG DESTROYED: edit_reset() removed to prevent TclError crash
         self._adjust_input_height()
         self.entry.tag_remove("misspelled", "1.0", tk.END)
         
@@ -382,11 +406,9 @@ class PeridotUI:
         
         for i, block in enumerate(blocks):
             if i % 2 == 0:
-                # Standard Text Payload
                 if block:
                     self.chat.insert(tk.END, block, "ai")
             else:
-                # Code Block Payload
                 lines = block.split('\n', 1)
                 lang = lines[0].strip() if len(lines) > 1 else ""
                 code_content = lines[1] if len(lines) > 1 else block
@@ -395,7 +417,6 @@ class PeridotUI:
                 if code_content:
                     self.chat.insert(tk.END, "\n")
                     
-                    # Generate Interactive Header Frame
                     h_frame = tk.Frame(self.chat, bg="#1E1E1E", padx=8, pady=2)
                     tk.Label(
                         h_frame, text=lang.upper() if lang else "CODE", 
@@ -410,7 +431,6 @@ class PeridotUI:
                     )
                     btn.pack(side=tk.RIGHT)
                     
-                    # Inject Frame and Styled Code into Tkinter Buffer
                     self.chat.window_create(tk.END, window=h_frame)
                     self.chat.insert(tk.END, "\n")
                     self.chat.insert(tk.END, code_content + "\n", "code_block")
@@ -446,7 +466,6 @@ class PeridotUI:
             self.display_system_message("Failed to toggle Research Cluster. Engine offline.")
 
     def _poll_backend_telemetry(self):
-        """Actively pulls real-time FSM states from the Neural Engine"""
         try:
             r = requests.get(SERVER_URL + "/research/status", headers=HEADERS, timeout=0.5)
             if r.status_code == 200:
@@ -460,16 +479,13 @@ class PeridotUI:
     def _update_stats(self):
         if not self.root.winfo_exists(): return
         try:
-            # OS Hardware Polling
             self.bar_cpu.update_value(psutil.cpu_percent())
             self.bar_ram.update_value(psutil.virtual_memory().percent)
             
-            # NVIDIA VRAM Polling
             c = "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits"
             o = subprocess.check_output(c, shell=True, creationflags=0x08000000).decode().strip().split(",")
             self.bar_vram.update_value((int(o[0]) / int(o[1])) * 100)
             
-            # Backend FSM Polling
             threading.Thread(target=self._poll_backend_telemetry, daemon=True).start()
         except:
             pass
