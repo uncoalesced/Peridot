@@ -2,7 +2,6 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL | VAULT INGESTION AUTOMATION
 # Copyright (C) 2026 uncoalesced
-# 
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -23,7 +22,7 @@ HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 def run_ingestion_sweep():
     logger.info("Initiating system-wide secure text matrix scan...")
     input_dir = Path("input")
-    
+        
     if not input_dir.exists():
         logger.error("Physical storage path root 'input' is missing.")
         sys.exit(1)
@@ -37,7 +36,7 @@ def run_ingestion_sweep():
     
     try:
         # Pings the internal core system router to begin multi-threaded semantic chunking
-        response = requests.post(f"{SERVER_URL}/vault/ingest", headers=HEADERS, timeout=300)
+        response = requests.post(f"{SERVER_URL}/ingest", headers=HEADERS, timeout=300)
         if response.status_code == 200:
             logger.info("SUCCESS: Elements securely tokenized, vectorized, and written to FAISS storage.")
             data = response.json()
