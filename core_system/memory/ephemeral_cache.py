@@ -19,7 +19,6 @@ class EphemeralCache:
         self.queries = []
         self.responses = []
 
-        # 'all-MiniLM-L6-v2' outputs 384-dimensional vectors
         self.embedding_dim = 384
         self.index = faiss.IndexFlatIP(self.embedding_dim)
         self.logger.info("Layer 1 FAISS RAM Cache Initialised.")
