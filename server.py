@@ -1,7 +1,6 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE
+# PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE & INGESTION CORE
 # Copyright (C) 2026 uncoalesced
-# 
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -25,7 +24,7 @@ load_dotenv()
 from config import (
     MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH, 
     TEMPERATURE, TOP_P, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
-    RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE
+    RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE, INPUT_PATH, PROCESSED_PATH
 )
 
 # --- DYNAMIC TRANSLATION LAYER ---
@@ -64,10 +63,13 @@ def build_system_prompt(context_str="", model_format="chatml"):
         user_start = "<|im_start|>user\n"
 
     sys_prompt = sys_start
+    sys_prompt += "SYSTEM DIRECTIVE: You are Peridot, a sovereign local AI kernel.\n"
+    sys_prompt += "CRITICAL OPERATIONAL CONSTRAINT: Avoid roleplay, conversational filler, or asterisks (e.g., *sigh*, *rolls eyes*). Be stark, brief, direct, and elite.\n\n"
+    
     sys_prompt += f"IDENTITY: {p.get('identity_enforcement', 'You are Peridot.')}\n"
-    sys_prompt += f"TONE & VOICE: {p.get('tone', '')} {p.get('voice', '')}\n"
-    sys_prompt += f"EXPLANATION STYLE: {p.get('explanation_style', '')}\n"
-    sys_prompt += f"REFUSAL STYLE: {p.get('refusal_style', '')}\n\n"
+    sys_prompt += f"TONE & VOICE: {p.get('tone', 'Direct and analytical.')} {p.get('voice', 'Stark.')}\n"
+    sys_prompt += f"EXPLANATION STYLE: {p.get('explanation_style', 'Highly concise and technical.')}\n"
+    sys_prompt += f"REFUSAL STYLE: {p.get('refusal_style', 'State lack of context explicitly.')}\n\n"
 
     if rules:
         sys_prompt += "HARD RULES:\n- " + "\n- ".join(rules) + "\n\n"
@@ -77,16 +79,16 @@ def build_system_prompt(context_str="", model_format="chatml"):
 
     if context_str:
         sys_prompt += (
-            "RAG DIRECTIVE: You have access to local file context. "
-            "CRITICAL: If the retrieved context is irrelevant to the user's prompt, "
-            "IGNORE THE CONTEXT COMPLETELY. ONLY cite a source if it contains the explicit answer.\n\n"
+            "RAG DIRECTIVE: You have access to secure local file context.\n"
+            "CRITICAL: Ground your logic purely in the provided context below. "
+            "If the context contains the data, answer with high precision. If not relevant, state it directly.\n\n"
             f"RETRIEVED CONTEXT:\n{context_str}\n"
         )
 
     sys_prompt += sys_end + user_start
     return sys_prompt
 
-# --- RAG SUBSYSTEM & v1.5 CACHE IMPORTS ---
+# --- RAG SUBSYSTEM AND v1.5 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
 except ImportError:
@@ -122,7 +124,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 CORS(app)
 
-# --- RESOURCE ORCHESTRATION (FAH v8 WebSockets) ---
+# --- RESOURCE ORCHESTRATION (FAH v8) ---
 def get_vram_free() -> int:
     try:
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -144,6 +146,9 @@ def send_fah_command(cmd_state: str) -> bool:
 # --- v1.5 KERNEL INTEGRATION (Delta Watchdog) ---
 class PeridotProductionKernel(SovereignKernel):
     def _execute_vram_purge(self):
+        if self.state == KernelState.PANIC:
+            return
+            
         print("[HARDWARE] Firing WebSocket SIGSTOP to FAH v8...")
         start_time = time.time()
         
@@ -161,8 +166,9 @@ class PeridotProductionKernel(SovereignKernel):
             info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
             current_vram_mb = info.used / (1024 ** 2)
             reclaimed_mb = initial_vram_mb - current_vram_mb
+            free_vram_mb = info.free / (1024 ** 2)
             
-            if reclaimed_mb > 500 or current_vram_mb < 7200:
+            if reclaimed_mb > 10 or free_vram_mb > 200:
                 cleared = True
                 break
                 
@@ -172,15 +178,16 @@ class PeridotProductionKernel(SovereignKernel):
         latency_ms = (time.time() - start_time) * 1000
         
         if cleared:
-            log_msg = f"Hardware yielded. Reclaimed: {reclaimed_mb:.0f}MB. Total Load: {current_vram_mb:.0f}MB. Latency: {latency_ms:.0f}ms."
+            log_msg = f"Hardware yielded. Free VRAM: {free_vram_mb:.0f}MB. Latency: {latency_ms:.0f}ms."
             print(f">> {log_msg}")
             if ledger: ledger.log_handoff(latency_ms, success=True)
             self.request_state_change(KernelState.INFERENCE, log_msg)
         else:
-            fail_msg = f"VRAM LOCKOUT: Reclaimed {reclaimed_mb:.0f}MB. Load stuck at {current_vram_mb:.0f}MB. Threshold: 7200MB."
+            fail_msg = f"VRAM LOCKOUT: Free VRAM critical at {free_vram_mb:.0f}MB. Threshold: 200MB."
             print(f"[KERNEL PANIC] {fail_msg}")
             if ledger: ledger.log_handoff(latency_ms, success=False)
             self.event_queue.put("FAH_HANG_DETECTED")
+            self.state = KernelState.PANIC
 
 kernel = PeridotProductionKernel()
 
@@ -223,6 +230,7 @@ def boot_engine():
             n_ctx=CONTEXT_LENGTH,            
             n_threads=THREADS,          
             n_gpu_layers=GPU_LAYERS,      
+            n_gpu=1 if GPU_LAYERS != 0 else 0,
             n_batch=BATCH_SIZE,          
             flash_attn=True,      
             verbose=False,       
@@ -249,6 +257,89 @@ def health_check():
     if llm is not None:
         return jsonify({"status": "online"}), 200
     return jsonify({"status": "booting"}), 503
+
+@app.route("/ingest", methods=["POST"])
+@require_auth
+def ingest_vault_nodes():
+    """Upgraded vector ingestion loop with forced character-clamped sliding window chunking."""
+    if vault is None or embedder is None:
+        return jsonify({"error": "RAG vector systems are currently unmapped or offline."}), 500
+        
+    try:
+        input_path = Path(INPUT_PATH)
+        processed_path = Path(PROCESSED_PATH)
+        processed_count = 0
+        
+        for file_path in input_path.iterdir():
+            if not file_path.is_file():
+                continue
+                
+            content = ""
+            ext = file_path.suffix.lower()
+            
+            if ext == ".txt":
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read().strip()
+                    
+            elif ext == ".pdf":
+                try:
+                    import PyPDF2
+                    with open(file_path, "rb") as f:
+                        pdf_reader = PyPDF2.PdfReader(f)
+                        for page in pdf_reader.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                content += page_text + "\n"
+                except ImportError:
+                    print(f"[WARN] PyPDF2 missing. Bypassing {file_path.name}. Run: pip install PyPDF2")
+                    continue
+                except Exception as e:
+                    print(f"[ERROR] Failed to parse PDF matrix {file_path.name}: {e}")
+                    continue
+            else:
+                continue
+            
+            if not content.strip():
+                continue
+                
+            # Sliding Window Token Optimization (Clamped boundaries near ~800-1000 characters)
+            raw_paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
+            chunks = []
+            current_chunk = ""
+            
+            for para in raw_paragraphs:
+                if len(current_chunk) + len(para) < 800:
+                    current_chunk += para + " "
+                else:
+                    if current_chunk.strip():
+                        chunks.append(current_chunk.strip())
+                    current_chunk = para + " "
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+                
+            # Vector allocation processing cycles
+            for chunk in chunks:
+                if not chunk: continue
+                vector = embedder.embed_query(chunk)
+                if hasattr(vault, 'add'):
+                    vault.add(chunk, vector)
+                elif hasattr(vault, 'add_document'):
+                    vault.add_document(chunk, vector)
+                    
+            try:
+                os.rename(file_path, processed_path / file_path.name)
+            except Exception as e:
+                print(f"[WARN] Failed to relocate processed node {file_path.name}: {e}")
+                pass
+            
+            processed_count += 1
+            print(f">> [INGESTED SECURE NODE] {file_path.name}")
+            
+        return jsonify({"status": "SUCCESS", "processed_files": processed_count}), 200
+        
+    except Exception as e:
+        print(f"[FATAL] Ingestion Routine Disrupted: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/ask", methods=["POST"])
 @require_auth
@@ -280,7 +371,6 @@ def ask():
             kernel.request_state_change(KernelState.PANIC, "FAH Timeout")
             return jsonify({"error": "KERNEL TIMEOUT: Hardware clearance not granted."}), 504
 
-    # --- ROUTING LOGIC ---
     try:
         if l1_cache is not None:
             if ghost:
@@ -296,16 +386,14 @@ def ask():
                 return jsonify({"response": cached_response})
 
         context_str = ""
-        # CRITICAL FIX: The backend now correctly routes vector searches through vault.py instead of the deleted vector_store.py
         if vault is not None and embedder is not None:
             if ghost:
                 try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
                 except: pass
             
-            # Convert user query to vector natively
             query_vector = embedder.embed_query(user_query)
-            # Search PersistentVault
-            relevant_context = vault.search(query_vector, top_k=3)
+            # Scaled retrieval lookup vector from top_k=3 to top_k=6
+            relevant_context = vault.search(query_vector, top_k=6)
             
             if relevant_context:
                 context_segments = []
@@ -324,19 +412,17 @@ def ask():
                     try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
                     except: pass
 
-        # --- DYNAMIC INFERENCE ASSEMBLY ---
         model_format = get_model_format()
         
         if model_format == "llama3":
             assistant_start = "<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n"
-            target_stops = ["<|eot_id|>", "<|start_header_id|>"]
+            target_stops = ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"]
         else:
             assistant_start = "<|im_end|>\n<|im_start|>assistant\n"
             target_stops = ["<|im_end|>", "<|im_start|>"]
 
         final_prompt = build_system_prompt(context_str, model_format) + full_prompt + assistant_start
 
-        # --- LLM GENERATION ---
         start_time = time.time()
         output = llm(
             final_prompt, 
@@ -355,7 +441,7 @@ def ask():
         tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
         
         if ghost:
-            try: ghost.info(f"INFERENCE  | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
+            try: ghost.info(f"INFERENCE   | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
             except: pass
         
         if l1_cache is not None:
@@ -369,7 +455,7 @@ def ask():
         error_msg = str(e)
         print(f"[FATAL] Internal Inference Error - {error_msg}")
         if ghost:
-            try: ghost.error(f"CRITICAL   | Component: server_ask_route | Error: {error_msg}")
+            try: ghost.error(f"CRITICAL    | Component: server_ask_route | Error: {error_msg}")
             except: pass
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
         
