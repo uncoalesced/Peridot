@@ -2,12 +2,6 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -24,17 +18,16 @@ except ImportError:
     print("[FATAL] Missing benchmark dependencies. Ensure llama-cpp-python and pynvml are installed.")
     exit(1)
 
-# Ensure logs directory exists
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 REPORT_PATH = LOG_DIR / "benchmark_matrix.json"
 
-# Synthetic RAG Payload to simulate Aether-Route stress
+# Synthetic RAG Payload to simulate Aether Route stress
 SYNTHETIC_CONTEXT = """
 [SOURCE: medical_report_01.pdf]: The patient exhibits signs of acute demyelination. VRAM offloading must maintain a strict 21ms latency to prevent hardware interrupts.
 [SOURCE: engineering_log.txt]: The Aether-Route protocol successfully bypassed the L1 cache, shifting 8GB of context directly to the Ryzen 7 CPU to preserve RTX 5050 overhead.
 [SOURCE: financial_q3.csv]: Q3 operating costs for cloud AI routing totaled $14,000. Peridot localized execution reduced this to $0.00, utilizing existing power grids.
-""" * 50 # Multiplier simulates a massive 4K+ token context window
+""" * 50
 
 def get_vram_usage() -> int:
     """Returns currently used VRAM in MB."""
@@ -53,7 +46,7 @@ def run_stress_test(model_path: str, gpu_layers: int = 100) -> Dict[str, Any]:
     
     metrics = {
         "model": Path(model_path).name,
-        "quantization": Path(model_path).suffix, # Will need manual parsing later if not explicitly in filename
+        "quantization": Path(model_path).suffix,
         "gpu_layers": gpu_layers,
         "ttft_sec": 0.0,
         "tps": 0.0,
@@ -63,7 +56,6 @@ def run_stress_test(model_path: str, gpu_layers: int = 100) -> Dict[str, Any]:
 
     try:
         start_boot = time.time()
-        # Initialize bare-metal engine
         llm = Llama(
             model_path=str(model_path),
             n_ctx=8192,
@@ -85,13 +77,13 @@ def run_stress_test(model_path: str, gpu_layers: int = 100) -> Dict[str, Any]:
 
         print(">> Ingesting Synthetic RAG Payload...")
         
-        # Track Time-to-First-Token
+        # Tracking Time till first token
         ttft_start = time.time()
         output_stream = llm(
             prompt,
-            max_tokens=256,
+            max_tokens=512,
             temperature=0.1,
-            stream=True # Crucial for measuring TTFT accurately
+            stream=True
         )
 
         first_token = True
@@ -106,7 +98,6 @@ def run_stress_test(model_path: str, gpu_layers: int = 100) -> Dict[str, Any]:
                 first_token = False
             generated_tokens += 1
             
-            # Continuously sample VRAM to catch the peak
             current_vram = get_vram_usage()
             if current_vram > metrics["peak_vram_mb"]:
                 metrics["peak_vram_mb"] = current_vram
@@ -123,7 +114,6 @@ def run_stress_test(model_path: str, gpu_layers: int = 100) -> Dict[str, Any]:
         metrics["error"] = str(e)
     
     finally:
-        # Force memory cleanup
         try:
             del llm
         except UnboundLocalError:
@@ -132,7 +122,7 @@ def run_stress_test(model_path: str, gpu_layers: int = 100) -> Dict[str, Any]:
 
 def execute_matrix():
     print(f"{'='*50}\n PERIDOT DIAGNOSTICS | TURBOQUANT MATRIX\n{'='*50}")
-    
+
     models_dir = Path("models")
     if not models_dir.exists() or not any(models_dir.iterdir()):
         print("[WARN] No GGUF models found in 'models/' directory to benchmark.")
@@ -140,17 +130,13 @@ def execute_matrix():
 
     matrix_results = []
     
-    # Scan for all GGUF variants
     for model_file in models_dir.glob("*.gguf"):
-        # Run test. You can dynamically adjust gpu_layers in future iterations to test CPU fallback.
         result = run_stress_test(str(model_file), gpu_layers=100)
         matrix_results.append(result)
         
-        # Cooldown period to allow VRAM to flush completely
-        print(">> Cooldown cycle initiated (5s)...")
-        time.sleep(5)
+        print(">> Cooldown cycle initiated (10s)...")
+        time.sleep(11)
 
-    # Save forensic matrix
     with open(REPORT_PATH, "w") as f:
         json.dump(matrix_results, f, indent=4)
     
