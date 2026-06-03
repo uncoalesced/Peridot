@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 import tkinter as tk
-from tkinter import scrolledtext, font, ttk
+from tkinter import scrolledtext, font, ttk, messagebox
 import threading
 import psutil
 import time
@@ -16,8 +16,10 @@ import os
 import ctypes
 import requests
 import re
+import webbrowser
+from pathlib import Path
 
-from config import SERVER_HOST, SERVER_PORT, API_KEY
+from config import SERVER_HOST, SERVER_PORT, API_KEY, MODEL_PATH
 
 # --- UK ENGLISH DICTIONARY ENGINE ---
 try:
@@ -53,6 +55,7 @@ FONT_MAIN = ("Consolas", 12)
 FONT_BOLD = ("Consolas", 12, "bold")
 FONT_CODE = ("Consolas", 12)
 FONT_UI = ("Consolas", 9, "bold")
+FONT_LINK = ("Consolas", 9, "bold underline")
 
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
@@ -104,6 +107,10 @@ class PeridotUI:
         self.is_processing = False
         self.research_active = False
         
+        # Kinetic Scroll State Variables
+        self.chat_scroll_velocity = 0.0
+        self.chat_scroll_animating = False
+        
         if SPELLCHECK_AVAILABLE:
             self.spell = SpellChecker(language='en')
             self.system_words = {"python", "fastapi", "sqlalchemy", "pydantic", "sqlite", "vram", "peridot"}
@@ -126,6 +133,7 @@ class PeridotUI:
         self._configure_notebook_styles()
         self._create_widgets()
         self._configure_styles()
+        self._bind_shortcuts()
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _setup_main_window(self):
@@ -153,14 +161,49 @@ class PeridotUI:
             pass
 
     def _configure_notebook_styles(self):
-        """Injects custom terminal aesthetics into the tab engine."""
+        """Injects custom terminal aesthetics into the tab engine and Comboboxes."""
         style = ttk.Style()
         style.theme_use("default")
+        
+        # Notebook Tab Styling
         style.configure("TNotebook", background=COLOR_BG, borderwidth=0, highlightthickness=0)
         style.configure("TNotebook.Tab", background=COLOR_DIM, foreground="#888888", font=FONT_UI, padding=[15, 5], borderwidth=0)
         style.map("TNotebook.Tab", background=[("selected", COLOR_INPUT)], foreground=[("selected", COLOR_ACCENT)])
 
+        # Modern Deep-Theme Combobox Styling
+        style.configure("TCombobox",
+            fieldbackground=COLOR_INPUT,
+            background=COLOR_DIM,
+            foreground=COLOR_TEXT,
+            bordercolor=COLOR_DIM,
+            arrowcolor=COLOR_ACCENT,
+            darkcolor=COLOR_DIM,
+            lightcolor=COLOR_DIM
+        )
+        style.map("TCombobox",
+            fieldbackground=[("readonly", COLOR_INPUT)],
+            selectbackground=[("readonly", COLOR_DIM)],
+            selectforeground=[("readonly", COLOR_ACCENT)]
+        )
+        
+        # Dropdown Popup List Styling
+        self.root.option_add('*TCombobox*Listbox.background', COLOR_INPUT)
+        self.root.option_add('*TCombobox*Listbox.foreground', COLOR_TEXT)
+        self.root.option_add('*TCombobox*Listbox.selectBackground', COLOR_DIM)
+        self.root.option_add('*TCombobox*Listbox.selectForeground', COLOR_ACCENT)
+        self.root.option_add('*TCombobox*Listbox.font', FONT_CODE)
+
     def _create_widgets(self):
+        # Search Bar Overlay (Hidden by default)
+        self.search_frame = tk.Frame(self.root, bg=COLOR_DIM, height=30)
+        self.search_entry = tk.Entry(self.search_frame, bg=COLOR_INPUT, fg=COLOR_TEXT, font=FONT_UI, insertbackground=COLOR_ACCENT, relief=tk.FLAT)
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10, pady=5)
+        self.search_entry.bind("<KeyRelease>", self._execute_search)
+        self.search_entry.bind("<Return>", self._execute_search)
+        self.search_entry.bind("<Escape>", self._close_search)
+        btn_close_search = tk.Button(self.search_frame, text="[X]", bg=COLOR_DIM, fg=COLOR_ERROR, font=FONT_UI, command=self._close_search, relief=tk.FLAT, cursor="hand2")
+        btn_close_search.pack(side=tk.RIGHT, padx=10)
+
         # Notebook Layout Manager Partition
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 10))
@@ -175,6 +218,7 @@ class PeridotUI:
             highlightthickness=0, padx=10, pady=10, state=tk.DISABLED
         )
         self.chat.pack(fill=tk.BOTH, expand=True)
+        self.chat.bind("<MouseWheel>", self._on_kinetic_scroll)
 
         # Tab 2: Secured Document Storage Matrix
         self.tab_vault = tk.Frame(self.notebook, bg=COLOR_BG)
@@ -189,6 +233,12 @@ class PeridotUI:
             selectbackground=COLOR_DIM, selectforeground=COLOR_ACCENT
         )
         self.vault_list.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+
+        # Tab 3: Settings & Hardware Configuration
+        self.tab_settings = tk.Frame(self.notebook, bg=COLOR_BG)
+        self.notebook.add(self.tab_settings, text="[03] SETTINGS")
+        self._build_settings_tab()
+
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         # Responsive Input Controls Layout
@@ -239,6 +289,160 @@ class PeridotUI:
         for m in [("RAM", "bar_ram"), ("CPU", "bar_cpu"), ("VRAM", "bar_vram")]:
             self._add_monitor(m[0], m[1])
 
+    def _build_settings_tab(self):
+        """Constructs hardware-aware configuration matrix."""
+        # Top Config Container
+        config_frame = tk.Frame(self.tab_settings, bg=COLOR_BG)
+        config_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        tk.Label(config_frame, text=">> CURRENT ACTIVE MODEL:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
+        
+        # Read exact current model dynamically from python context
+        try:
+            current_model = os.path.basename(str(MODEL_PATH))
+        except Exception:
+            current_model = "UNKNOWN"
+
+        self.lbl_current_model = tk.Label(config_frame, text=f"   {current_model}", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_MAIN, anchor="w")
+        self.lbl_current_model.pack(fill=tk.X, pady=(0, 20))
+
+        tk.Label(config_frame, text=">> HARDWARE-AWARE MODEL SWAP (E:\\Peridot\\models):", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
+
+        self.model_var = tk.StringVar()
+        self.model_dropdown = ttk.Combobox(
+            config_frame, textvariable=self.model_var, state="readonly", font=FONT_CODE
+        )
+        self.model_dropdown.pack(fill=tk.X, pady=(0, 10))
+
+        # Dynamically calculate VRAM limit - Calibrated for RTX 5050 8GB architectures
+        total_vram_gb = 8.0 
+        try:
+            c = "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits"
+            o = subprocess.check_output(c, shell=True, creationflags=0x08000000).decode().strip()
+            total_vram_gb = int(o) / 1024
+        except Exception:
+            pass
+
+        models_dir = r"E:\Peridot\models"
+        self.available_models_map = {}
+        dropdown_values = []
+
+        if os.path.exists(models_dir):
+            for f in os.listdir(models_dir):
+                if f.endswith(".gguf"):
+                    file_size_gb = os.path.getsize(os.path.join(models_dir, f)) / (1024**3)
+                    
+                    # Heuristics constraint checks
+                    if file_size_gb < (total_vram_gb * 0.6):
+                        rating = "[HIGH COMPATIBILITY]"
+                    elif file_size_gb < (total_vram_gb * 0.9):
+                        rating = "[MEDIUM COMPATIBILITY]"
+                    else:
+                        rating = "[LOW COMPATIBILITY / OVERLOAD RISK]"
+                    
+                    display_str = f"{rating.ljust(35)} : {f}"
+                    self.available_models_map[display_str] = f
+                    dropdown_values.append(display_str)
+                    
+            self.model_dropdown['values'] = dropdown_values
+            if dropdown_values:
+                self.model_dropdown.current(0)
+        else:
+            self.model_dropdown['values'] = [" [ERROR] E:\\Peridot\\models directory not found."]
+            self.model_dropdown.current(0)
+
+        btn_swap = tk.Button(
+            config_frame, text="APPLY WEIGHTS AND REBOOT KERNEL", bg=COLOR_DIM, fg=COLOR_TEXT,
+            font=FONT_UI, relief=tk.FLAT, cursor="hand2", command=self._swap_model
+        )
+        btn_swap.pack(anchor="w", pady=(0, 20))
+
+        # Footer Navigation Links
+        footer_frame = tk.Frame(self.tab_settings, bg=COLOR_BG)
+        footer_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=20)
+        tk.Frame(footer_frame, bg=COLOR_DIM, height=1).pack(fill=tk.X, pady=(0, 10))
+
+        link_frame = tk.Frame(footer_frame, bg=COLOR_BG)
+        link_frame.pack(anchor="center")
+
+        links = [
+            ("Report Bugs", "https://github.com/uncoalesced/Peridot/issues"),
+            ("About Peridot", "https://github.com/uncoalesced/Peridot/wiki/The-Sovereign-Directive"),
+            ("Contribute", "https://github.com/uncoalesced/Peridot/blob/main/CONTRIBUTING.md")
+        ]
+
+        for text, url in links:
+            lbl = tk.Label(link_frame, text=f"[{text}]", bg=COLOR_BG, fg=COLOR_USER, font=FONT_LINK, cursor="hand2")
+            lbl.pack(side=tk.LEFT, padx=15)
+            lbl.bind("<Button-1>", lambda e, u=url: webbrowser.open_new(u))
+
+    def _swap_model(self):
+        """Modifies config.py architecture map to select a new binary."""
+        selection_str = self.model_var.get()
+        if not selection_str or "[ERROR]" in selection_str:
+            messagebox.showwarning("Warning", "Select a valid model from the dropdown matrix to apply.")
+            return
+            
+        selected_model = self.available_models_map.get(selection_str)
+        if not selected_model:
+            return
+            
+        new_path = f"E:/Peridot/models/{selected_model}"
+        
+        try:
+            with open("config.py", "r") as f:
+                content = f.read()
+            
+            # Robust regex to rewrite regardless of Path() formatting
+            new_content = re.sub(r'MODEL_PATH\s*=\s*(?:Path\()?[\'"].*?[\'"]\)?', f'MODEL_PATH = Path("{new_path}")', content)
+            
+            with open("config.py", "w") as f:
+                f.write(new_content)
+                
+            messagebox.showinfo("Kernel Update", "Neural weights mapped. Shut down the engine and restart launcher.py to load the new architecture into VRAM.")
+            self.lbl_current_model.config(text=f"   {selected_model}")
+        except Exception as e:
+            messagebox.showerror("Write Fault", f"Failed to rewrite config.py: {str(e)}")
+
+    def _bind_shortcuts(self):
+        """Global key bindings for UX navigation."""
+        self.root.bind("<Control-Key-1>", lambda e: self.notebook.select(0))
+        self.root.bind("<Control-Key-2>", lambda e: self.notebook.select(1))
+        self.root.bind("<Control-Key-3>", lambda e: self.notebook.select(2))
+        self.root.bind("<Control-f>", self._toggle_search)
+        self.root.bind("<Control-F>", self._toggle_search)
+        self.root.bind("<Control-R>", lambda e: self._toggle_research())
+        self.root.bind("<Control-r>", lambda e: self._toggle_research())
+
+    def _toggle_search(self, event=None):
+        if self.search_frame.winfo_ismapped():
+            self._close_search()
+        else:
+            self.search_frame.pack(fill=tk.X, before=self.notebook)
+            self.search_entry.focus_set()
+
+    def _close_search(self, event=None):
+        self.search_frame.pack_forget()
+        self.chat.tag_remove("search", "1.0", tk.END)
+        self.entry.focus_set()
+
+    def _execute_search(self, event=None):
+        """Real-time indexing over active text buffer."""
+        self.chat.tag_remove("search", "1.0", tk.END)
+        query = self.search_entry.get()
+        if not query: return
+        
+        start_idx = "1.0"
+        while True:
+            pos = self.chat.search(query, start_idx, stopindex=tk.END, nocase=True)
+            if not pos:
+                break
+            end_idx = f"{pos}+{len(query)}c"
+            self.chat.tag_add("search", pos, end_idx)
+            start_idx = end_idx
+            
+        self.chat.tag_config("search", background="#FFD700", foreground="black")
+
     def _add_monitor(self, lbl, var):
         f = tk.Frame(self.stat_bar, bg="#0A0A0A")
         f.pack(side=tk.RIGHT, padx=15, pady=5)
@@ -260,24 +464,68 @@ class PeridotUI:
         
         self.entry.tag_config("misspelled", underline=True, underlinefg=COLOR_ERROR)
 
+    # --- KINETIC SMOOTH SCROLLING PIPELINE ---
+    def _on_kinetic_scroll(self, event):
+        """Intercepts raw OS wheel events to populate the kinetic velocity vector."""
+        delta = event.delta / 120.0
+        self.chat_scroll_velocity -= delta * 50.0 
+        
+        if not self.chat_scroll_animating:
+            self._animate_smooth_scroll()
+            
+        return "break"
+
+    def _animate_smooth_scroll(self):
+        """High-frequency (200Hz) animation loop for sub-pixel fluid text movement."""
+        if abs(self.chat_scroll_velocity) < 1.0:
+            self.chat_scroll_velocity = 0.0
+            self.chat_scroll_animating = False
+            return
+            
+        self.chat_scroll_animating = True
+        
+        step = self.chat_scroll_velocity * 0.15 
+        pixel_step = int(step)
+        if pixel_step == 0:
+            pixel_step = 1 if step > 0 else -1
+            
+        try:
+            self.chat.yview_scroll(pixel_step, "pixels")
+        except:
+            self.chat.yview_scroll(1 if pixel_step > 0 else -1, "units")
+            self.chat_scroll_velocity = 0
+            self.chat_scroll_animating = False
+            return
+            
+        self.chat_scroll_velocity -= step
+        self.root.after(5, self._animate_smooth_scroll)
+
     def _on_tab_changed(self, event):
-        """Triggers local data directory evaluation scans upon tab change initialization."""
         selected_tab = self.notebook.index(self.notebook.select())
         if selected_tab == 1:
             self._update_vault_directory()
 
     def _update_vault_directory(self):
-        """Queries local physical directories to verify active source matrices."""
         self.vault_list.delete(0, tk.END)
-        input_dir = "input"
-        if os.path.exists(input_dir):
-            files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+        
+        vault_dir = os.path.join("input", "processed")
+        fallback_dir = "input"
+        
+        if os.path.exists(vault_dir):
+            files = [f for f in os.listdir(vault_dir) if os.path.isfile(os.path.join(vault_dir, f))]
             if not files:
-                self.vault_list.insert(tk.END, " [EMPTY] No text corpora or source files detected inside memory vectors.")
+                self.vault_list.insert(tk.END, " [EMPTY] No text corpora or source files detected inside archived sectors.")
             for file in files:
-                self.vault_list.insert(tk.END, f" └── [SECURE-DATA-NODE] : {file}")
+                self.vault_list.insert(tk.END, f" └── [SECURED-VAULT-NODE] : {file}")
+        elif os.path.exists(fallback_dir):
+            files = [f for f in os.listdir(fallback_dir) if os.path.isfile(os.path.join(fallback_dir, f))]
+            if files:
+                for file in files:
+                    self.vault_list.insert(tk.END, f" └── [STAGED-NODE] : {file}")
+                return
+            self.vault_list.insert(tk.END, " [EMPTY] Vector directories are completely unmapped.")
         else:
-            self.vault_list.insert(tk.END, " [ERROR] Physical storage path root 'input' unmapped.")
+            self.vault_list.insert(tk.END, " [ERROR] Physical storage path roots are missing.")
 
     # --- SPELLCHECK ARBITRATION ---
     def _run_spellcheck(self):
@@ -463,7 +711,7 @@ class PeridotUI:
             color = COLOR_ACCENT if self.research_active else "white"
             self.btn_research.config(text=f"RESEARCH: {state}", fg=color)
         except Exception:
-            self.display_system_message("Failed to toggle Research Cluster. Engine offline.")
+            self.display_system_message("Failed to toggle Research Cluster. Run FAH Client and then try again.")
 
     def _poll_backend_telemetry(self):
         try:
