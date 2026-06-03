@@ -1,7 +1,6 @@
 # -----------------------------------------------------------------------------
 # PERIDOT CLIENT | Main Entry Point (Synchronized Ignition)
 # Copyright (C) 2026 uncoalesced
-#
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -11,8 +10,6 @@ import time
 import requests
 from pathlib import Path
 
-# CRITICAL FIX: Force Python to recognize the current directory as the root path.
-# This completely eliminates "No module named X" errors during subprocess launches.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # --- INTERNAL MODULES ---
@@ -59,7 +56,7 @@ def wait_for_neural_engine(max_retries=45, delay=1.0):
 def main():
     ghost.info("CLIENT | Initializing Peridot Sovereign Kernel Client...")
 
-    # 1. Synchronized Server Handshake (Ignition Lock)
+    # 1. Synchronized Server Handshake
     engine_online = wait_for_neural_engine()
     
     if not engine_online:
@@ -67,13 +64,13 @@ def main():
         sys.exit(1)
 
     try:
-        # 2. Initialize Core Logic
+        # 2. Load Core Logic
         core = PeridotCore()
 
-        # 3. Initialize User Interface
+        # 3. Load User Interface
         app = PeridotUI(core)
 
-        # 4. Link UI back to Core
+        # 4. Link User Interface back to Core
         core.ui = app
 
         # 5. Launch
@@ -81,7 +78,7 @@ def main():
         app.run()
 
     except KeyboardInterrupt:
-        ghost.info("CLIENT | Manual Interrupt Detected.")
+        ghost.info("CLIENT | Manual Interruption Detected.")
         
     except Exception as e:
         ghost.error(f"CLIENT | CRITICAL FAILURE: {e}")
@@ -90,7 +87,7 @@ def main():
         
     finally:
         # 6. Cleanup on Exit
-        ghost.info("CLIENT | System Shutdown.")
+        ghost.info("CLIENT | System Shutdown Successful.")
         sys.exit(0)
 
 if __name__ == "__main__":
