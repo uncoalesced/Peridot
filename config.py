@@ -35,7 +35,7 @@ for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH
     directory.mkdir(parents=True, exist_ok=True)
 
 # --- ENGINE CONFIGURATION (v1.5 TurboQuant) ---
-ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen2.5-14B-Instruct-Q4_K_M.gguf")
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf")
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
 GPU_LAYERS: int = int(os.getenv("GPU_LAYERS", "-1"))
