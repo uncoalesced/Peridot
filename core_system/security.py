@@ -1,11 +1,6 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
 #
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
@@ -27,7 +22,7 @@ DEFAULT_CONSTITUTION = {
     "allow_code_execute": False,
 }
 
-# --- LOGGING SETUP (Task 3) ---
+# --- LOGGING SETUP ---
 LOG_PATH = Path("logs")
 LOG_PATH.mkdir(exist_ok=True)
 
@@ -58,7 +53,7 @@ def sanitize_input(user_input: str) -> tuple[str, bool]:
             log_event("INPUT_REJECTED", f"Dangerous pattern detected: {pattern}", "WARNING")
             return "", False
             
-    # Clean null bytes
+    # Clean up null bytes
     return user_input.replace("\x00", ""), True
 
 def is_file_safe(filepath: str) -> tuple[bool, str]:
