@@ -1,6 +1,80 @@
 # Peridot — Changelog
 > Engineered by uncoalesced
 
+
+---
+
+
+## [v1.5.0-STABLE] - 2026-06-03
+
+**Name:** Peridot v1.5.0 STABLE — Sovereign Kernel Architecture & Split-Tensor Allocation
+
+
+
+### Core Engine Architecture & Hardware Arbitration
+
+
+
+- **14B Model Pivot & Split-Tensor Allocation:** Bypassed the planned 7B tier and transitioned the core inference weights to the high-logic Qwen2.5-14B-Instruct-Q4_K_M to permanently resolve RAG hallucinations. `GPU_LAYERS` in `config.py` was adjusted to 20, safely splitting the 14B parameter load between the 8GB RTX 5050 GPU and Ryzen 7 CPU RAM.
+
+- **Structural Watchdog Hardening & VRAM Purge:** Completely upgraded the `_execute_vram_purge` method inside the VRAM State Machine. Integrated direct NVIDIA driver querying via `pynvml` to calculate actual reclaimed physical bytes before allocating tensors, bypassing unreliable OS cache metrics.
+
+- **FSM Panic Tuning & Hardware Ceiling:** Enforced a strict 7500MB FSM hard ceiling for display driver preservation. Lowered the VRAM purge safety threshold from 1.5GB to 200MB, preventing recursive 503 errors under the new 14B load. If the GPU fails to clear thresholds within a 2.0-second timeout, the FSM instantly trips a KERNEL PANIC.
+
+- **System Prompt Hardening:** Re-engineered `build_system_prompt` to intercept RLHF conversational tropes. Injected explicit constraints forcing the model to refuse queries outside of provided RAG contexts, neutralizing knowledge-bleed defects.
+
+
+
+### Interface & Operator UX
+
+
+
+- **Multi-Tab Notebook Migration:** Replaced the legacy single-buffer UI with a `ttk.Notebook` framework, introducing three sectors:
+
+  - CHAT MATRIX (text generation)
+
+  - KERNEL VAULT (live RAG tracker)
+
+  - SETTINGS (hardware configuration)
+
+- **Control Console UI & Live Telemetry:** Deployed an industrial, low-overhead administrative dashboard fetching from the secured `/telemetry/stability` endpoint. Displays live FSM states, dynamic system health scores, total inferences, and panic counts.
+
+- **Research Core Toggles:** Integrated UI control switches mapping to internal `/telemetry/enable` and `/research/disable` HTTP pathways, allowing operators to authorize or suspend Folding@Home cycles directly from the interface.
+
+- **Hardware-Aware Model Swapper:** Engineered a dynamic directory scanner that evaluates local `.gguf` file sizes against the 8GB RTX 5050 VRAM envelope. Assigns runtime compatibility ratings (`[HIGH]`, `[MEDIUM]`, `[LOW/CRITICAL]`) and supports GUI hot-swapping through `config.py` rewriting.
+
+- **144Hz Kinetic Scrolling:** Replaced Tkinter's default scroll behavior with a custom 5ms (200Hz) sub-pixel velocity decay loop for high  refresh rate rendering.
+
+
+
+### Ingestion & RAG Pipeline
+
+
+
+- **Standalone Command-Line Ingestion (`ingest_vault.py`):** Added an isolated CLI script to parse, chunk, embed, and commit files directly to the FAISS L2 database without touching the GUI. Embeddings are generated strictly through the CPU-bound Aether-Route.
+
+- **Binary PDF & Deep Semantic Search:** Upgraded ingestion to dynamically decode binary PDF text layers via PyPDF2. Increased FAISS retrieval depth from `top_k=3` to `top_k=6` for denser multi-document context injection.
+
+- **Sliding Window Chunking:** Replaced the legacy double-newline chunker with a strict character-clamped fragmentation system (<800 characters) to improve vector precision and reduce dilution.
+
+- **Staging Cleanup Automation:** Processed files are automatically relocated from `input/` to `input/processed/` to prevent recursive re-ingestion and maintain a clean archive.
+
+
+
+### Fixes, Optimizations & Repository Hygiene
+
+
+
+- **AVX2 Matrix Restoration:** Reverted the Python environment to a stable NumPy 1.x baseline to resolve the fatal C-extension `_ARRAY_API` crash during vector initialization.
+
+- **Live Buffer Search & UI Extraction:** Added a `Ctrl+F` real-time search overlay with highlight support and a `_copy_to_clipboard` function for instant Markdown extraction.
+
+- **Global Instantiation Fix:** Patched a catastrophic `NameError` crash loop by explicitly instantiating `PeridotProductionKernel()` in the global scope before engine boot execution.
+
+- **Git Integrity & Cleanup:** Updated `.gitignore` to block transient FAISS binary files (`aether_cold_storage.db`) from entering version control. Executed a cleanup sweep locking configuration, UI, and backend changes into the stable `origin/main` tree.
+
+"""
+
 ---
 
 ## [v1.4.0-STABLE] - 2026-05-14
