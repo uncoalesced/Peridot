@@ -1,11 +1,6 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
 #
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
@@ -16,12 +11,10 @@ import os
 import threading
 from datetime import datetime
 
-# Define Log Paths
 LOG_DIR = "logs"
 LOG_FILE = os.path.join(LOG_DIR, "system.log")
 JSON_LOG_FILE = os.path.join(LOG_DIR, "system.json")
 
-# Ensure logs directory exists
 os.makedirs(LOG_DIR, exist_ok=True)
 
 
@@ -39,19 +32,15 @@ class EnhancedLogger:
 
     def __init__(self):
         if EnhancedLogger._instance is not None:
-            # Prevent re-initialization if someone tries to instantiate directly
             return
 
-        # Setup Standard Logger
         self.logger = logging.getLogger("Peridot-Core")
         self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False  # Prevent double logging if root logger is used
+        self.logger.propagate = False
 
-        # Clear existing handlers to avoid duplicates on reload
         if self.logger.hasHandlers():
             self.logger.handlers.clear()
 
-        # 1. File Handler (Human Readable)
         fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
         fh.setFormatter(
             logging.Formatter(
@@ -61,7 +50,6 @@ class EnhancedLogger:
         )
         self.logger.addHandler(fh)
 
-        # 2. Console Handler (Standard Output)
         ch = logging.StreamHandler()
         ch.setFormatter(
             logging.Formatter(
@@ -74,7 +62,6 @@ class EnhancedLogger:
         """Internal method to handle logging to both text and JSON."""
         extra = {"source": source}
 
-        # Dispatch to standard logger
         if level == "INFO":
             self.logger.info(message, extra=extra)
         elif level == "WARNING":
@@ -85,8 +72,6 @@ class EnhancedLogger:
             self.logger.debug(message, extra=extra)
         elif level == "CRITICAL":
             self.logger.critical(message, extra=extra)
-
-        # Dispatch to JSON Log (Thread-Safe)
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "level": level,
@@ -99,7 +84,7 @@ class EnhancedLogger:
                 with open(JSON_LOG_FILE, "a", encoding="utf-8") as f:
                     f.write(json.dumps(log_entry) + "\n")
         except Exception:
-            pass  # Fail silently on JSON write errors to keep system running
+            pass
 
     # --- Public API ---
     def info(self, msg, source="SYSTEM"):
@@ -118,7 +103,6 @@ class EnhancedLogger:
         self._log("CRITICAL", msg, source)
 
 
-# Global Singleton Accessor
 logger = EnhancedLogger.get_instance()
 
 
@@ -132,7 +116,6 @@ def summarize_logs(lines=10):
         return "No logs found."
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
-            # Efficiently read last N lines
             all_lines = f.readlines()
             return "".join(all_lines[-lines:])
     except Exception as e:
