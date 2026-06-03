@@ -2,11 +2,6 @@
 # PERIDOT SOVEREIGN KERNEL | COMMAND ROUTER
 # Copyright (C) 2026 uncoalesced
 # 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -16,7 +11,6 @@ from config import SERVER_HOST, SERVER_PORT, API_KEY
 
 logger = logging.getLogger("Peridot-Router")
 
-# Construct the secure base URL and auth headers
 BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
@@ -29,7 +23,7 @@ class CommandRouter:
             "status": self.status_command,
             "research": self.research_command,
             "vault": self.vault_command,
-            "ingest": self.ingest_command,  # NEW INGEST COMMAND ADDED HERE
+            "ingest": self.ingest_command,
             "exit": self.exit_command,
         }
 
@@ -103,7 +97,6 @@ class CommandRouter:
                 f"VAULT DATA:\n{vault_context}\n\n"
                 f"USER QUERY: {args}"
             )
-            # CRITICAL FIX: Bypass chat memory to prevent context poisoning
             return self.core._ask_ai_isolated(augmented_prompt)
         else:
             return "No matching records found in the Layer 2 Vault for that query."
@@ -121,7 +114,6 @@ class CommandRouter:
             else "OFFLINE"
         )
         
-        # Ping the server securely to check the hardware state
         research_status = "UNKNOWN"
         try:
             r = requests.get(f"{BASE_URL}/research/status", headers=HEADERS, timeout=5)
