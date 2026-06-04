@@ -14,8 +14,8 @@
 ### `Sovereign Kernel Architecture & Split Tensor Allocation`
 
 [![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
-[![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/blob/main/COMMUNITY_INSTALL.md)
-[![PRIVACY](https://img.shields.io/badge/PRIVACY-AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/blob/main/SECURITY.md)
+[![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/COMMUNITY_INSTALL.md)
+[![PRIVACY](https://img.shields.io/badge/PRIVACY_AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/SECURITY.md)
 
 <br>
 
@@ -451,7 +451,7 @@ Forensic Integrity
 
 Even if the UI or inference engine experiences sustained load, GhostLogger continues operating independently to preserve a persistent forensic trail for auditing and security analysis.
 
-For full threat model documentation and disclosure policy, see `SECURITY.md`.
+For full threat model documentation and disclosure policy, see [`SECURITY.md`](docs/markdowns/SECURITY.md).
 
 ---
 
@@ -961,7 +961,7 @@ using Split Tensor Allocation.
 
 CPU only execution paths remain fully supported at reduced throughput.
 
-**Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See `COMMUNITY_INSTALL.md`(docs/markdowns/COMMUNITY_INSTALL.md).
+**Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See [`COMMUNITY_INSTALL.md`](docs/markdowns/COMMUNITY_INSTALL.md).
 
 ---
 
