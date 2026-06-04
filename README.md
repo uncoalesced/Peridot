@@ -1,15 +1,17 @@
 <div align="center">
 
+```
 ██████╗ ███████╗██████╗ ██╗██████╗  ██████╗ ████████╗
 ██╔══██╗██╔════╝██╔══██╗██║██╔══██╗██╔═══██╗╚══██╔══╝
-██████╔╝█████╗  ██████╔╝██║██║  ██║██║   ██║   ██║
-██╔═══╝ ██╔══╝  ██╔══██╗██║██║  ██║██║   ██║   ██║
-██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║
-╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝
+██████╔╝█████╗  ██████╔╝██║██║  ██║██║   ██║   ██║   
+██╔═══╝ ██╔══╝  ██╔══██╗██║██║  ██║██║   ██║   ██║   
+██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
+╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
+```
 
 ### `SOVEREIGN LOCAL AI KERNEL — v1.5.0 STABLE`
 
-### `Sovereign Kernel Architecture & Split-Tensor Allocation`
+### `Sovereign Kernel Architecture & Split Tensor Allocation`
 
 [![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/blob/main/COMMUNITY_INSTALL.md)
@@ -449,7 +451,7 @@ Forensic Integrity
 
 Even if the UI or inference engine experiences sustained load, GhostLogger continues operating independently to preserve a persistent forensic trail for auditing and security analysis.
 
-For full threat model documentation and disclosure policy, see `docs\markdowns\SECURITY.md`.
+For full threat model documentation and disclosure policy, see `SECURITY.md`.
 
 ---
 
@@ -957,9 +959,9 @@ Qwen2.5-14B-Instruct-Q4_K_M
 
 using Split Tensor Allocation.
 
-CPU-only execution paths remain fully supported at reduced throughput.
+CPU only execution paths remain fully supported at reduced throughput.
 
-**Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See `docs\markdowns\COMMUNITY_INSTALL.md`.
+**Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See `COMMUNITY_INSTALL.md`(docs/markdowns/COMMUNITY_INSTALL.md).
 
 ---
 
@@ -1147,7 +1149,7 @@ That decision belongs to the user, not the developer.
 
 **This is what AI should look like.**
 
-For our full philosophical reasoning, see [`\docs\markdowns\PHILOSOPHY.md`](PHILOSOPHY.md).
+For our full philosophical reasoning, see [`PHILOSOPHY.md`](docs/markdowns/PHILOSOPHY.md).
 
 ---
 
