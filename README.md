@@ -1,15 +1,15 @@
 <div align="center">
 
-```
 ██████╗ ███████╗██████╗ ██╗██████╗  ██████╗ ████████╗
 ██╔══██╗██╔════╝██╔══██╗██║██╔══██╗██╔═══██╗╚══██╔══╝
-██████╔╝█████╗  ██████╔╝██║██║  ██║██║   ██║   ██║   
-██╔═══╝ ██╔══╝  ██╔══██╗██║██║  ██║██║   ██║   ██║   
-██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
-╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
-```
+██████╔╝█████╗  ██████╔╝██║██║  ██║██║   ██║   ██║
+██╔═══╝ ██╔══╝  ██╔══██╗██║██║  ██║██║   ██║   ██║
+██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║
+╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝
 
 ### `SOVEREIGN LOCAL AI KERNEL — v1.5.0 STABLE`
+
+### `Sovereign Kernel Architecture & Split-Tensor Allocation`
 
 [![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/blob/main/COMMUNITY_INSTALL.md)
@@ -17,7 +17,7 @@
 
 <br>
 
-[![LICENSE](https://img.shields.io/badge/LICENSE-AGPL--3.0-ff5f25?style=for-the-badge&labelColor=0a0a0a)](LICENSE)
+[![LICENSE](https://img.shields.io/badge/LICENSE-MIT-ff5f25?style=for-the-badge&labelColor=0a0a0a)](LICENSE)
 [![Python](https://img.shields.io/badge/PYTHON-3.11-4fc3f7?style=for-the-badge&labelColor=0a0a0a)](https://python.org)
 
 <br>
@@ -33,22 +33,25 @@
 
 # `> OVERVIEW`
 
-Peridot is a sovereign local AI kernel engineered to execute entirely on user owned hardware without external dependency, cloud inference, telemetry collection, or remote orchestration.
+Peridot is a sovereign local AI kernel engineered to execute entirely on operator owned hardware without external dependency, cloud inference, telemetry collection or remote orchestration.
 
 The runtime combines:
+
 - Local LLM inference
-- Permission-gated execution
+- Permission gated execution
+- Split Tensor Allocation
 - Dynamic VRAM arbitration
-- Hardware-aware telemetry routing
-- Local Retrieval-Augmented Generation (RAG)
+- Hardware aware telemetry routing
+- Local Retrieval Augmented Generation (RAG)
 - Asynchronous forensic auditing
 - Immutable logging infrastructure
 
 Unlike cloud first AI platforms, Peridot was architected around:
+
 - Deterministic local execution
 - Transparent orchestration
 - Operator sovereignty
-- Hardware-aware optimization
+- Hardware aware optimization
 - Zero telemetry dependency
 
 Most AI assistants are surveillance infrastructure with a chat interface.
@@ -63,6 +66,7 @@ Therefore the user controls the intelligence running on it.
 ```
 
 Unlike cloud first assistants, Peridot does not:
+
 - Transmit prompts externally
 - Require external inference APIs
 - Rely on cloud orchestration
@@ -71,53 +75,54 @@ Unlike cloud first assistants, Peridot does not:
 
 Every subsystem is locally inspectable, locally auditable, and locally controllable.
 
-> **Development Note**  
-> Peridot's runtime architecture, telemetry systems, security infrastructure, inference pipeline, orchestration layers, setup wizard, VRAM state machine and kernel logic are all human engineered.
+> **Development Note**
 >
-> AI generated code is used exclusively inside the `benchmarking/` suite for telemetry automation and validation tooling.
+> Peridot's runtime architecture, telemetry systems, security infrastructure, inference pipeline, orchestration layers, setup wizard, VRAM state machine, and kernel logic are human engineered.
+>
+> AI-generated code is used exclusively inside the `benchmarking/` suite for telemetry automation and validation tooling.
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
-│  USER INPUT                                             │
-│     │                                                   │
-│     ▼                                                   │
-│  SECURITY GATE                                          │
-│  • Input Sanitization                                   │
-│  • File Access Blacklist                                │
-│  • Path Traversal Prevention                            │
-│     │                                                   │
-│     ▼                                                   │
-│  PERMISSION LAYER                                       │
-│  • constitution.json                                    │
-│  • Function Call Authorization                          │
-│     │                                                   │
-│     ▼                                                   │
-│  AETHER-ROUTE v1.4                                      │
-│  • Hardware-Aware Telemetry                             │
-│  • Semantic Routing                                     │
-│  • Dynamic VRAM Arbitration                             │
-│  • CPU-Offloaded Embedding Pipeline                     │
-│  • Local RAG Pipeline                                   │
-│     │                                                   │
-│     ▼                                                   │
-│  INFERENCE ENGINE                                       │
-│  • Llama-3-8B-Instruct (IQ3_XXS)                        │
-│  • Qwen 2.5 3B (Q4_K_M)                                 │
-│  • llama-cpp-python + cuBLAS                            │
-│  • localhost:5000 (local-only)                          │
-│  • 60.5–101.9 tokens/sec sustained inference            │
-│     │                                                   │
-│     ▼                                                   │
-│  GHOSTLOGGER                                            │
-│  • Asynchronous Security Auditing                       │
-│  • Tamper-Evident Logging                               │
-│  • Forensic Event Persistence                           │
-│     │                                                   │
-│     ▼                                                   │
-│  AUDIT LAYER                                            │
-│  • SHA-256 Verified                                     │
-│  • Append-Only Logging                                  │
-│  • Security Event Isolation                             │
+│ USER INPUT                                              │
+│    │                                                    │
+│    ▼                                                    │
+│ SECURITY GATE                                           │
+│ • Input Sanitization                                    │
+│ • File Access Blacklist                                 │
+│ • Path Traversal Prevention                             │
+│    │                                                    │
+│    ▼                                                    │
+│ PERMISSION LAYER                                        │
+│ • constitution.json                                     │
+│ • Function Call Authorization                           │
+│    │                                                    │
+│    ▼                                                    │
+│ AETHER-ROUTE v1.5                                       │
+│ • Hardware-Aware Telemetry                              │
+│ • Semantic Routing                                      │
+│ • Dynamic VRAM Arbitration                              │
+│ • CPU-Offloaded Embedding Pipeline                      │
+│ • Local RAG Pipeline                                    │
+│    │                                                    │
+│    ▼                                                    │
+│ INFERENCE ENGINE                                        │
+│ • Qwen2.5-14B-Instruct-Q4_K_M                           │
+│ • Split-Tensor Allocation                               │
+│ • llama-cpp-python + cuBLAS                             │
+│ • localhost:5000 (local-only)                           │
+│ • ~39 tokens/sec sustained inference                    │
+│    │                                                    │
+│    ▼                                                    │
+│ GHOSTLOGGER                                             │
+│ • Asynchronous Security Auditing                        │
+│ • Tamper-Evident Logging                                │
+│ • Forensic Event Persistence                            │
+│    │                                                    │
+│    ▼                                                    │
+│ AUDIT LAYER                                             │
+│ • SHA-256 Verified                                      │
+│ • Append-Only Logging                                   │
+│ • Security Event Isolation                              │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -131,62 +136,43 @@ Measured on real hardware. No overclocking. No cherry picked runs.
 
 - **GPU:** NVIDIA GeForce RTX 5050 Laptop (8GB VRAM)
 - **CPU:** AMD Ryzen 7 250 AI
-- **Runtime Profiles:** Deep Thinker / Agile Mode
+- **Model:** Qwen2.5-14B-Instruct-Q4_K_M
 
 ---
 
-## TurboQuant Runtime Profiles
+## Split-Tensor Allocation
 
-Peridot v1.4.0 STABLE introduces the:
-
-```text
-TurboQuant Architecture
-```
-
-The legacy Llama Q4_K_M baseline was deprecated due to excessive VRAM saturation on 8GB hardware.
-
-Peridot now dynamically prioritizes:
-- Importance Matrix Quants (I-Quants)
-- FP4-oriented execution paths
-- reduced VRAM pressure
-- sustained inference throughput
-- stable Folding@Home coexistence
-
-### Deep Thinker Profile
+Peridot v1.5.0 STABLE standardizes on a single production inference architecture.
 
 ```text
-Model:        Llama-3-8B-Instruct (IQ3_XXS)
-Throughput:   60.5 t/s
-VRAM Usage:   ~4.5GB
-Purpose:      Maximum reasoning depth and RAG accuracy
+Qwen2.5-14B-Instruct-Q4_K_M
 ```
 
-Deep Thinker prioritizes:
-- Semantic depth
-- Long-context reasoning
-- Grounded document citation
-- Hallucination reduction
+Instead of aggressively reducing model size to fit inside VRAM boundaries, Peridot now uses Split Tensor Allocation.
 
-This is the primary high fidelity execution path.
+Tensor weights are dynamically distributed across GPU VRAM and system RAM.
+
+This allows Peridot to deploy substantially larger reasoning models on consumer hardware while preserving:
+
+- Stable inference execution
+- RAG grounding accuracy
+- Long context consistency
+- Reduced hallucination rates
+- Improved multi-document reasoning
+
+The legacy 3B execution path was retired as the primary engine after repeated parameter-starvation failures, knowledge bleed events and degraded RAG performance under complex retrieval workloads.
 
 ---
 
-### Agile / Daily Driver Profile
+## Validated Runtime Baseline
 
 ```text
-Model:        Qwen 2.5 3B (Q4_K_M)
-Throughput:   101.9 t/s
-VRAM Usage:   ~2.7GB
-Purpose:      High-speed local interaction
+GPU:          RTX 5050 Laptop (8GB)
+CPU:          Ryzen 7 250 AI
+Model:        Qwen2.5-14B-Instruct-Q4_K_M
+Throughput:   ~39 tokens/sec
+Execution:    Fully Local
 ```
-
-Qwen trades deep reasoning for raw throughput.
-
-The Agile profile leaves substantial VRAM overhead available for:
-- Folding@Home
-- Background telemetry
-- Large OS overhead
-- Sustained multitasking
 
 ---
 
@@ -202,11 +188,7 @@ The Agile profile leaves substantial VRAM overhead available for:
 
 ## VRAM Allocation Map
 
-Peridot v1.4 aggressively minimizes VRAM pressure to preserve:
-- Inference stability
-- Folding@Home handoff responsiveness
-- CUDA reliability
-- Long session runtime integrity
+Peridot v1.5 aggressively manages memory allocation to support large-parameter inference without compromising operating system stability.
 
 <div align="center">
 
@@ -231,17 +213,69 @@ Dynamic GPU resource arbitration between Folding@Home and active inference execu
 When a user query enters the inference queue:
 
 1. Peridot dispatches a WebSocket pause signal
-2. Folding@Home releases active VRAM allocation
-3. The inference engine immediately reclaims tensor memory
-4. Generation begins without runtime restart overhead
+2. Folding@Home begins VRAM release
+3. Physical memory reclamation is validated
+4. Tensor allocation proceeds
+5. Generation begins
 
 This allows Peridot to maintain:
+
 - Uninterrupted inference responsiveness
 - Persistent distributed medical research
 - Stable VRAM reclamation
 - Deterministic hardware transitions
 
 Inference execution always takes priority.
+
+---
+
+## Structural Watchdog Hardening & FSM Tuning
+
+Peridot v1.5 introduces a hardened finite state memory controller designed specifically for large model execution on constrained VRAM hardware.
+
+The kernel now enforces:
+
+```text
+7500MB Physical VRAM Ceiling
+```
+
+to preserve display driver stability during sustained tensor workloads.
+
+Additional safeguards include:
+
+- Direct NVIDIA driver interrogation through `pynvml`
+- Physical VRAM validation
+- Reduced purge threshold (200MB)
+- FSM-controlled memory recovery
+- Phantom VRAM mitigation
+
+---
+
+## KERNEL PANIC Guarantee
+
+Peridot no longer trusts operating system cache metrics when reclaiming VRAM.
+
+The finite state machine verifies physical byte recovery directly from the NVIDIA driver.
+
+If Folding@Home fails to yield memory within a strict:
+
+```text
+2.0 Second Timeout
+```
+
+the kernel triggers:
+
+```text
+KERNEL PANIC
+```
+
+The active prompt is discarded.
+
+The allocation path is aborted.
+
+The fault is isolated.
+
+Host operating system stability is preserved.
 
 <div align="center">
 
@@ -253,15 +287,16 @@ Inference execution always takes priority.
 
 # `> SECURITY`
 
-Peridot implements a hardened defense in depth architecture engineered to protect the inference runtime from malicious prompts, unauthorized file access, unsafe subprocess execution, and privilege escalation attempts.
+Peridot implements a hardened defense in depth architecture engineered to protect the inference runtime from malicious prompts, unauthorized file access, unsafe subprocess execution, prompt injection attacks, and privilege escalation attempts.
 
-The Kernel assumes:
+The kernel assumes:
 
 ```text
 All input is potentially hostile until validated otherwise
 ```
 
 Security boundaries are enforced before the inference layer is permitted to interact with:
+
 - The filesystem
 - Subprocess execution
 - Network interfaces
@@ -296,14 +331,16 @@ logs/ghost_audit.log
 
 ## Cryptographic Handshake Architecture
 
-Peridot v1.4 abandons static credential configuration entirely.
+Peridot abandons static credential configuration entirely.
 
-The runtime now generates:
+The runtime generates:
+
 - Localized `.env` authentication
-- Ephemeral 16-byte API keys
+- Ephemeral API keys
 - Isolated environment authentication boundaries
+- Offline execution enforcement
 
-During setup initialization.
+during setup initialization.
 
 The setup wizard additionally enforces:
 
@@ -313,9 +350,43 @@ HF_HUB_OFFLINE=1
 
 to sever unauthorized HuggingFace telemetry routing at the environment level.
 
-No API key files are committed to disk repositories.
+No API key files are committed to repositories.
 
 No cloud authorization exists.
+
+No remote trust assumptions exist.
+
+---
+
+## System Prompt Hardening
+
+Peridot v1.5 introduces a redesigned system prompt architecture engineered specifically to combat knowledge bleed and context drift.
+
+The `build_system_prompt()` pathway now injects explicit contextual constraints into every generation cycle.
+
+The objective is simple:
+
+```text
+If information does not exist in retrieved context,
+the model should not invent it.
+```
+
+The hardened prompt architecture actively suppresses:
+
+- RLHF conversational drift
+- Unsupported factual extrapolation
+- Cross-document contamination
+- Retrieval bypass attempts
+- Context abandonment
+
+This substantially improves:
+
+- RAG grounding accuracy
+- Citation fidelity
+- Multi-document reasoning
+- Contextual obedience
+
+while reducing hallucination rates under heavy retrieval workloads.
 
 ---
 
@@ -324,12 +395,14 @@ No cloud authorization exists.
 The kernel actively blocks access to sensitive files and restricted directories before the inference layer is permitted to interact with the host filesystem.
 
 ### Blocked Files
+
 - `.env`
 - `.ssh/id_rsa`
 - `passwords.txt`
 - `auth.token`
 
 ### Blocked Directories
+
 - `C:\Windows\`
 - `/etc/`
 - `/root/`
@@ -352,12 +425,15 @@ GhostLogger is Peridot's asynchronous forensic auditing subsystem.
 It functions as a silent observer operating independently from the primary inference and UI execution paths.
 
 GhostLogger intercepts and records:
+
 - Authentication failures
 - Unauthorized file access attempts
 - Malicious prompt injections
 - Constitution validation failures
 - Blocked subprocess calls
 - Runtime security violations
+- Kernel panic events
+- VRAM arbitration faults
 
 without interrupting inference execution.
 
@@ -373,7 +449,165 @@ Forensic Integrity
 
 Even if the UI or inference engine experiences sustained load, GhostLogger continues operating independently to preserve a persistent forensic trail for auditing and security analysis.
 
-For full threat model documentation and disclosure policy, see [`SECURITY.md`](SECURITY.md).
+For full threat model documentation and disclosure policy, see `docs\markdowns\SECURITY.md`.
+
+---
+
+# `> GLASS BOX UI & OPERATOR INTERFACE`
+
+Peridot v1.5 introduces a redesigned operator interface engineered around transparency, observability, and separation of responsibilities.
+
+Unlike traditional chat-first interfaces, the Glass Box UI exposes runtime state directly to the operator.
+
+The objective is simple:
+
+```text
+Nothing important should happen silently.
+```
+
+---
+
+## CHAT MATRIX
+
+CHAT MATRIX serves as the primary generation environment.
+
+This workspace is responsible for:
+
+- Local inference
+- Prompt execution
+- Conversation management
+- Context rendering
+- Markdown formatting
+- Code generation
+
+The interface remains isolated from background telemetry processing to ensure UI responsiveness remains independent of inference workload.
+
+---
+
+## KERNEL VAULT
+
+KERNEL VAULT provides real-time visibility into the retrieval subsystem.
+
+Operators can observe:
+
+- Active document ingestion
+- Retrieved context chunks
+- Vector database activity
+- Retrieval performance
+- RAG state transitions
+
+This provides direct visibility into what information entered the generation pipeline.
+
+The objective is to eliminate black-box retrieval behavior.
+
+---
+
+## SETTINGS
+
+SETTINGS consolidates kernel configuration into a dedicated control surface.
+
+Operators can manage:
+
+- Model selection
+- Hardware preferences
+- Research participation
+- Runtime parameters
+- Security settings
+- Telemetry controls
+
+without modifying configuration files manually.
+
+---
+
+## Control Console & Live Telemetry
+
+The Glass Box UI includes a dedicated control console backed by:
+
+```text
+/telemetry/stability
+```
+
+The console continuously exposes:
+
+- FSM state
+- Health score
+- Active model
+- VRAM utilization
+- Memory pressure
+- Panic count
+- Research status
+
+without overwhelming the operator with unnecessary diagnostic noise.
+
+---
+
+## Hardware Aware Model Swapper
+
+Peridot dynamically scans available `.gguf` models and evaluates them against available hardware resources.
+
+The swapper can:
+
+- Detect local models
+- Estimate memory requirements
+- Validate VRAM compatibility
+- Prevent unsupported deployments
+
+before runtime initialization occurs.
+
+---
+
+## 144Hz Kinetic Scrolling
+
+The v1.5 interface introduces a custom scrolling engine designed for high refresh-rate displays.
+
+Features include:
+
+- 5ms sub pixel velocity decay
+- Smooth inertial movement
+- High refresh rate optimization
+- Reduced scroll latency
+
+for large conversations and document-heavy workloads.
+
+---
+
+## Live Search & Markdown Extraction
+
+The interface includes:
+
+```text
+CTRL + F
+```
+
+real-time search functionality.
+
+Additional tooling provides:
+
+- Instant markdown extraction
+- Code block isolation
+- Rapid content navigation
+- Search result highlighting
+
+across large conversations.
+
+---
+
+## Research Core Controls
+
+Research participation remains fully optional.
+
+Dedicated controls expose:
+
+```text
+/research/enable
+/research/disable
+```
+
+allowing operators to explicitly opt into or opt out of distributed medical research workloads.
+
+Peridot never requires Folding@Home participation.
+
+Research contribution remains voluntary.
 
 ---
 
@@ -382,6 +616,7 @@ For full threat model documentation and disclosure policy, see [`SECURITY.md`](S
 Peridot is engineered as a layered sovereign runtime composed of isolated but composable subsystems.
 
 Each module can:
+
 - Operate independently
 - Be expanded individually
 - Be disabled without collapsing the kernel
@@ -401,27 +636,34 @@ over abstraction-heavy orchestration.
 
 # `> CORE ARCHITECTURE & FEATURE MATRIX`
 
-## **1. Aether-Route RAG Topology**
+## **1. Aether Route RAG Topology**
 
-Peridot v1.4 hardcodes semantic embedding workloads away from VRAM-intensive inference execution.
+Peridot v1.5 permanently isolates semantic retrieval workloads away from tensor generation resources.
 
-The architecture intentionally isolates:
+The architecture intentionally separates:
+
 - Embedding generation
 - Semantic indexing
 - Retrieval orchestration
 
-onto:
+from active inference execution.
+
+Workloads are routed toward:
+
 - CPU resources
-- DDR5 memory
+- DDR5 system memory
 - Ryzen AI acceleration paths
 
-while preserving GPU VRAM strictly for tensor generation.
+while preserving GPU memory for inference execution.
 
-This separation prevents:
-- Out-Of-Memory failures
+This separation reduces:
+
 - VRAM starvation
-- Unstable CUDA transitions
-- Degraded Folding@Home handoffs
+- Allocation contention
+- Retrieval latency spikes
+- Inference instability
+
+during sustained workloads.
 
 <div align="center">
 
@@ -431,77 +673,173 @@ This separation prevents:
 
 ---
 
-## **2. High-Velocity RAG Pipeline**
+## **2. Aether Route RAG Pipeline**
 
-Peridot's Retrieval-Augmented Generation pipeline operates entirely within localized memory space for deterministic, zero-cloud context retrieval.
+Peridot's retrieval infrastructure was substantially redesigned for v1.5.
 
-### Vector Search Layer
+---
 
-Uses `faiss-cpu` for:
-- High-density vector indexing
-- Semantic similarity retrieval
-- RAM-resident search acceleration
+### Standalone CLI Ingestion
 
-without requiring external vector databases.
+A dedicated ingestion utility:
 
-### Semantic Embedding Layer
+```text
+ingest_vault.py
+```
 
-Powered by `sentence-transformers` to generate localized semantic embeddings directly on-device.
+allows operators to parse, chunk, embed and index content directly into the FAISS database.
 
-Embedding execution is forced strictly toward:
-- CPU
-- RAM
-- Ryzen AI resources
+All ingestion workloads remain CPU bound to protect inference resources.
 
-to preserve VRAM overhead for inference execution.
+---
 
-### Context Injection Pipeline
+### Binary PDF Extraction
 
-Relevant document chunks are dynamically injected into the active sliding context window before generation begins.
+Peridot now supports binary PDF text layer extraction using:
 
-This allows:
-- Grounded responses
-- Local document reasoning
-- Mathematically relevant context retrieval
-- Internet-independent augmentation
+```text
+PyPDF2
+```
 
-without external API routing.
+allowing direct ingestion of research papers, textbooks, manuals and technical documentation.
+
+---
+
+### Sliding Window Chunking
+
+Documents are fragmented using strict character clamped chunking.
+
+```text
+< 800 Characters
+```
+
+This prevents vector dilution while improving retrieval precision across large source documents.
+
+---
+
+### Deep Semantic Search
+
+Retrieval depth has been increased from:
+
+```text
+top_k = 3
+```
+
+to:
+
+```text
+top_k = 6
+```
+
+allowing denser context reconstruction and improved multi-document reasoning.
+
+---
+
+### Aether Cache
+
+Peridot introduces a tiered caching architecture designed to protect 16GB systems during large ingestion workloads.
+
+Tier 1:
+
+```text
+DDR5 RAM
+```
+
+Stores active retrieval context for zero-latency access.
+
+Tier 2:
+
+```text
+NVMe SQLite Persistence
+```
+
+Stores aged vectors and infrequently accessed data.
+
+This architecture minimizes:
+
+- Page faults
+- Memory thrashing
+- Retrieval latency spikes
+
+during sustained ingestion workloads.
 
 ---
 
 ## **3. Optimized Local Inference Engine**
 
 The inference layer is engineered specifically for:
+
 - Constrained VRAM systems
 - Sustained tensor workloads
 - Ryzen/NVIDIA hybrid systems
-- Low-overhead local execution
+- Low overhead local execution
+- Long session runtime stability
 - Distributed compute coexistence
 
-### GGUF Runtime
+Unlike previous releases, v1.5 standardizes on a single production inference architecture rather than multiple competing execution profiles.
 
-Built on `llama-cpp-python` with `cuBLAS` GPU acceleration, allowing heavily quantized models to remain performant within constrained VRAM budgets.
+The objective is consistency.
 
-### TurboQuant Execution
-
-Peridot v1.4 introduces:
-- IQ3_XXS support
-- Aggressive VRAM reduction
-- Reduced memory bus saturation
-- Improved tensor throughput
-- Stable low-VRAM operation
-
-while preserving reasoning quality.
+The operator should receive the same reasoning quality, retrieval fidelity and runtime behavior regardless of workload complexity.
 
 ---
 
-## `[01] — Inference Engine`
+### GGUF Runtime
+
+Built on:
+
+```text
+llama-cpp-python
+```
+
+with:
+
+```text
+cuBLAS Acceleration
+```
+
+allowing large quantized models to remain practical on consumer hardware.
+
+The runtime remains:
+
+- Fully local
+- Fully inspectable
+- Hardware aware
+- Air gapped
+
+with no external inference dependencies.
+
+---
+
+### Split Tensor Allocation
+
+The defining architectural change of v1.5 is Split Tensor Allocation.
+
+Rather than forcing the entire model into GPU memory, Peridot dynamically distributes tensor weights across:
+
+- GPU VRAM
+- System RAM
+
+This allows significantly larger reasoning models to operate on hardware that would traditionally be considered VRAM constrained.
+
+Benefits include:
+
+- Larger parameter budgets
+- Improved reasoning depth
+- Reduced hallucination frequency
+- Increased RAG fidelity
+- Greater hardware utilization efficiency
+
+without requiring cloud infrastructure.
+
+---
+
+## `[01] - Inference Engine`
 
 Core inference runtime:
 
 ```text
-Primary Model:   Llama-3-8B-Instruct (IQ3_XXS)
-Agile Model:     Qwen 2.5 3B (Q4_K_M)
+Primary Model:   Qwen2.5-14B-Instruct-Q4_K_M
 Backend:         llama-cpp-python + cuBLAS
 Endpoint:        localhost:5000 (local-only)
 Context:         8192 tokens (sliding window)
@@ -509,24 +847,46 @@ Temperature:     0.1
 Execution:       Fully Local
 ```
 
-### Why IQ3_XXS?
+### Why Qwen2.5-14B?
 
-Importance Matrix Quantization dramatically reduces VRAM pressure while preserving high-level reasoning capability.
+Peridot's previous architecture relied on smaller parameter count models to preserve VRAM overhead.
 
-Compared against the legacy Q4_K_M baseline:
-- lower VRAM saturation
-- improved sustained throughput
-- faster tensor allocation
-- better Folding@Home coexistence
-- increased runtime stability
+While performant, these models demonstrated limitations under complex retrieval workloads:
 
-on constrained hardware.
+- Knowledge bleed
+- Context drift
+- Circular reasoning failures
+- Multi-document hallucinations
+
+The transition to Qwen2.5-14B-Instruct-Q4_K_M significantly improves:
+
+- Retrieval fidelity
+- Long context reasoning
+- Citation accuracy
+- Multi-document synthesis
+- Instruction adherence
+
+while remaining deployable on validated 8GB hardware through Split Tensor Allocation.
 
 ---
 
-## `[02] — Medical Research Module (Folding@Home Integration)`
+## `[02] - Medical Research Module (Folding@Home Integration)`
 
 When idle, Peridot can allocate unused GPU resources toward distributed medical research through Folding@Home.
+
+Participation is:
+
+```text
+Optional
+Voluntary
+Operator Controlled
+```
+
+Research workloads are never mandatory.
+
+Peridot functions identically with Folding@Home disabled.
+
+---
 
 ### Idle State
 
@@ -536,15 +896,19 @@ Action:           Folding@Home activated
 Research:         Cancer, Alzheimer's, Parkinson's
 ```
 
+---
+
 ### Active State
 
 ```text
-User query detected
-Action:           WebSocket pause signal dispatched
+User Query Detected
+Action:           WebSocket Pause Signal Dispatched
 Interrupt:        ~21ms
 Full Handoff:     <510ms
-GPU Utilization:  85%+ (inference)
+Inference:        Priority
 ```
+
+---
 
 ### Runtime Characteristics
 
@@ -552,9 +916,11 @@ GPU Utilization:  85%+ (inference)
 - Fully auditable
 - Zero restart overhead
 - Dynamic VRAM arbitration
-- Inference-priority execution
-- Transparent runtime state tracking
+- Inference priority execution
+- Transparent runtime tracking
 - Aggressive idle return logic
+
+---
 
 ### Commands
 
@@ -568,23 +934,32 @@ research status
 
 # `> HARDWARE SUPPORT`
 
-| Tier | Hardware | Mode | Expected Speed |
-|:-----|:---------|:----:|:--------------:|
-| ✅ **Full Support** | NVIDIA RTX 4050+ (8GB+) | Deep Thinker | 50–65 t/s |
-| ✅ **Full Support** | NVIDIA RTX 4050+ (8GB+) | Agile | 90–110 t/s |
-| ✅ **Validated** | NVIDIA RTX 5050 (8GB) | Deep Thinker | **60.5 t/s** |
-| ✅ **Validated** | NVIDIA RTX 5050 (8GB) | Agile | **101.9 t/s** |
-| ⚙️ **CPU Fallback** | Modern x64 CPUs | CPU-Only | 10–20 t/s |
-| ⚠️ **Lite Mode** | AMD Radeon 680M/780M | Lite | 8–15 t/s |
+| Tier | Hardware | Configuration | Expected Performance |
+|:-----|:---------|:--------------|:--------------------:|
+| ✅ **Validated Baseline** | NVIDIA RTX 5050 (8GB) + Ryzen 7 250 AI | Split-Tensor Allocation | **~39 t/s** |
+| ✅ **Full Support** | NVIDIA RTX 4050+ (8GB+) | Split-Tensor Allocation | High |
+| ✅ **Full Support** | NVIDIA RTX 5060 / 5070 / 5080 | Split-Tensor Allocation | Very High |
+| ⚙️ **CPU Fallback** | Modern x64 CPUs | CPU Only | 10–20 t/s |
+| ⚠️ **Lite Mode** | AMD Radeon 680M / 780M | Lite | 8–15 t/s |
 | ⚠️ **Lite Mode** | Intel Iris Xe | Lite | 5–10 t/s |
-| 🛠️ **Community** | AMD RX 6000/7000 series | ROCm (Linux) | 35–70 t/s |
-| 🛠️ **Community** | Intel Arc A750/A770 | Vulkan | 25–42 t/s |
+| 🛠️ **Community** | AMD RX 6000 / 7000 Series | ROCm (Linux) | Experimental |
+| 🛠️ **Community** | Intel Arc A750 / A770 | Vulkan | Experimental |
 
-Peridot is optimized for modern high-performance GPUs, but aggressively engineered to remain operational on constrained hardware under 8GB VRAM.
+Peridot is optimized for modern NVIDIA hardware but remains operational across a wide range of deployment environments.
+
+The validated baseline for v1.5 is:
+
+```text
+RTX 5050 8GB
+Ryzen 7 250 AI
+Qwen2.5-14B-Instruct-Q4_K_M
+```
+
+using Split Tensor Allocation.
 
 CPU-only execution paths remain fully supported at reduced throughput.
 
-**Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See [`COMMUNITY_INSTALL.md`](COMMUNITY_INSTALL.md).
+**Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See `docs\markdowns\COMMUNITY_INSTALL.md`.
 
 ---
 
@@ -594,10 +969,10 @@ CPU-only execution paths remain fully supported at reduced throughput.
 
 ```text
 OS:      Windows 10/11 (64-bit)
-GPU:     NVIDIA RTX Series recommended
+GPU:     NVIDIA RTX Series Recommended
 Python:  3.11
-Storage: ~10GB free (SSD strongly recommended)
-RAM:     16GB recommended
+Storage: ~10GB Free (SSD Recommended)
+RAM:     16GB Recommended
 ```
 
 ---
@@ -624,63 +999,97 @@ python -m venv venv
 
 ### 3. Run Setup Wizard
 
-The v1.4 setup wizard:
-- profiles GPU VRAM automatically
-- validates hardware compatibility
-- configures the security perimeter
-- generates cryptographic authentication
-- injects offline telemetry suppression
-- presents execution-path selection
-- downloads recommended runtime weights
+Peridot includes an interactive hardware-aware setup wizard.
+
+The wizard automatically:
+
+- Detects installed hardware
+- Profiles available VRAM
+- Validates compatibility
+- Configures security boundaries
+- Generates cryptographic authentication
+- Enables offline execution controls
+- Downloads runtime weights
+- Installs runtime dependencies
 
 ```bash
 python setup.py
 ```
 
-### Engine Tuning Interface
+---
 
-The setup wizard intercepts initialization and presents two execution directives:
+### Hardware Detection
 
-#### Deep Thinker
+The setup wizard automatically detects:
 
 ```text
-Llama 3 8B (IQ3_XXS)
-~60 t/s
-~4.7GB VRAM
+Operating System
+CPU
+System RAM
+GPU Vendor
+GPU VRAM
+CUDA Availability
 ```
 
-Pros:
-- maximum reasoning depth
-- strict RAG citation behavior
-- high semantic accuracy
-
-Cons:
-- reduced VRAM overhead for Folding@Home
+and selects the most appropriate deployment pathway.
 
 ---
 
-#### Agile / Daily Driver
+### Security Initialization
+
+During setup the kernel generates:
 
 ```text
-Qwen 2.5 3B (Q4_K_M)
-~100+ t/s
-~2.7GB VRAM
+.env Authentication
+Ephemeral API Keys
+Offline Execution Controls
 ```
 
-Pros:
-- instantaneous generation
-- massive VRAM overhead
-- ideal for multitasking + research contribution
+and enforces:
 
-Cons:
-- smaller parameter count
-- weaker multi-document reasoning depth
+```text
+HF_HUB_OFFLINE=1
+```
+
+to prevent unauthorized HuggingFace telemetry routing.
 
 ---
 
-#### Manual Matrix Override
+### Runtime Weight Installation
 
-Advanced users may bypass automatic recommendations and expose all raw hardware profiles manually.
+The setup wizard manages:
+
+- Model acquisition
+- Dependency installation
+- CUDA binding
+- Runtime validation
+
+before the kernel is permitted to launch.
+
+---
+
+### Manual Matrix Override
+
+Advanced operators may bypass automatic recommendations and manually expose available deployment profiles.
+
+This mode is intended for:
+
+- Testing
+- Benchmarking
+- Development
+- Experimental hardware
+
+---
+
+### Launching The Kernel
+
+After setup completes:
+
+```bash
+python launcher.py
+```
+
+The kernel will initialize using the configured runtime environment.
 
 ---
 
@@ -690,15 +1099,15 @@ Advanced users may bypass automatic recommendations and expose all raw hardware 
 [████████████████████] v1.2 BETA      Security Hardening + Benchmarking
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
-[████░░░░░░░░░░░░░░░░] v1.5           Linux Support
-[░░░░░░░░░░░░░░░░░░░░] v1.6           AMD GPU Support (ROCm)
-[░░░░░░░░░░░░░░░░░░░░] v1.7           macOS Support (Apple Silicon)
-[░░░░░░░░░░░░░░░░░░░░] v2.0           WebUI (FastAPI + React)
+[████████████████████] v1.5           Linux Support
+[░░░░░░░░░░░░░░░░░░░░] v1.6           Updated and more efficient RAG and Ingestion system
+[░░░░░░░░░░░░░░░░░░░░] v1.7           AMD GPU Support (ROCm)
+[░░░░░░░░░░░░░░░░░░░░] v2.0           macOS Support (Apple Silicon)
 ```
 
-**Current Focus (v1.4.0 STABLE)**
+**Current Focus (v1.5.0 STABLE)**
 
-TurboQuant optimization, runtime stability, VRAM arbitration refinement, and expanded sovereign local inference infrastructure.
+Autonomous RAG degradation policies, 24-hour MTBF stress testing under Split-Tensor Allocation workloads, and expanded sovereign UI observability.
 
 ---
 
@@ -738,24 +1147,40 @@ That decision belongs to the user, not the developer.
 
 **This is what AI should look like.**
 
-For our full philosophical reasoning, see [`PHILOSOPHY.md`](PHILOSOPHY.md).
+For our full philosophical reasoning, see [`\docs\markdowns\PHILOSOPHY.md`](PHILOSOPHY.md).
 
 ---
 
 # `> LICENSE & DISCLAIMER`
 
-**License:** AGPL-3.0 — fork it, modify it, audit it, deploy it locally.
+**License:** MIT License
 
-**Disclaimer:** Peridot is experimental software. The operator assumes responsibility for all commands executed, hardware utilization, and generated content. Provided as-is without warranty of any kind.
+Clone it.
+
+Fork it.
+
+Modify it.
+
+Commercialize it.
+
+Build on it.
+
+Break it.
+
+Improve it.
+
+Peridot exists to be studied, audited, modified and expanded by its operators.
+
+**Disclaimer:** Peridot is experimental software. The operator assumes responsibility for all commands executed, hardware utilization and generated content. Provided as is without warranty of any kind.
 
 ---
 
 <div align="center">
 
-`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.4.0 STABLE`
+`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.5.0 STABLE`
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 
 *Your hardware. Your model. Your rules.*
 
-</div>
+</div> 
