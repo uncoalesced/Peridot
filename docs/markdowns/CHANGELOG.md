@@ -1,4 +1,4 @@
-# Peridot — Changelog
+# Peridot - Changelog
 > Engineered by uncoalesced
 
 
@@ -7,7 +7,7 @@
 
 ## [v1.5.0-STABLE] - 2026-06-03
 
-**Name:** Peridot v1.5.0 STABLE — Sovereign Kernel Architecture & Split-Tensor Allocation
+**Name:** Peridot v1.5.0 STABLE - Sovereign Kernel Architecture & Split Tensor Allocation
 
 
 
@@ -15,7 +15,7 @@
 
 
 
-- **14B Model Pivot & Split-Tensor Allocation:** Bypassed the planned 7B tier and transitioned the core inference weights to the high-logic Qwen2.5-14B-Instruct-Q4_K_M to permanently resolve RAG hallucinations. `GPU_LAYERS` in `config.py` was adjusted to 20, safely splitting the 14B parameter load between the 8GB RTX 5050 GPU and Ryzen 7 CPU RAM.
+- **14B Model Pivot & Split Tensor Allocation:** Bypassed the planned 7B tier and transitioned the core inference weights to the high logic Qwen2.5-14B-Instruct-Q4_K_M to permanently resolve RAG hallucinations. `GPU_LAYERS` in `config.py` was adjusted to 20, safely splitting the 14B parameter load between the 8GB RTX 5050 GPU and Ryzen 7 CPU RAM.
 
 - **Structural Watchdog Hardening & VRAM Purge:** Completely upgraded the `_execute_vram_purge` method inside the VRAM State Machine. Integrated direct NVIDIA driver querying via `pynvml` to calculate actual reclaimed physical bytes before allocating tensors, bypassing unreliable OS cache metrics.
 
