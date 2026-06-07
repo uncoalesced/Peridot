@@ -2,7 +2,7 @@
 
 # PERIDOT | MEDICAL RESEARCH INTEGRATION
 
-### Folding@Home Runtime Integration — v1.5-STABLE
+### Folding@Home Runtime Integration — v1.5.1-STABLE
 
 *Inference First. Distributed Compute Second.*
 
@@ -279,7 +279,7 @@ This gives the FAH core additional time to gracefully pause before the LLM force
 
 <div align="center">
 
-`PERIDOT MEDICAL RESEARCH MODULE` · `v1.5`
+`PERIDOT MEDICAL RESEARCH MODULE` · `v1.5.1`
 
 **Engineered by uncoalesced**
 

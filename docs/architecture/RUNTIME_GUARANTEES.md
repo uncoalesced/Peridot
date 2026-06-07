@@ -1,8 +1,8 @@
 # PERIDOT SOVEREIGN KERNEL: Runtime Guarantees
-**Version:** 1.5-STABLE  
+**Version:** 1.5.1-STABLE  
 **Target Hardware:** Constrained Consumer Architecture (8GB VRAM / 16GB RAM)
 
-This document defines the strict operational boundaries, degradation policies, and failure-isolation guarantees enforced by the Peridot v1.5 Central Nervous System (FSM). Peridot operates on the principle that inference throughput is secondary to system stability.
+This document defines the strict operational boundaries, degradation policies, and failure-isolation guarantees enforced by the Peridot v1.5.1 Central Nervous System (FSM). Peridot operates on the principle that inference throughput is secondary to system stability.
 
 ## 1. VRAM Arbitration Guarantees
 Peridot guarantees that background GPU tasks (e.g., Folding@home) will never collide with the LLM context window, resulting in a CUDA Out-Of-Memory (OOM) crash.

@@ -9,7 +9,7 @@
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 ```
 
-### `SOVEREIGN LOCAL AI KERNEL — v1.5.0 STABLE`
+### `SOVEREIGN LOCAL AI KERNEL — v1.5.1 STABLE`
 
 ### `Sovereign Kernel Architecture & Split Tensor Allocation`
 
@@ -1101,13 +1101,13 @@ The kernel will initialize using the configured runtime environment.
 [████████████████████] v1.2 BETA      Security Hardening + Benchmarking
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
-[████████████████████] v1.5           Linux Support
+[████████████████████] v1.5.4         Linux Support
 [░░░░░░░░░░░░░░░░░░░░] v1.6           Updated and more efficient RAG and Ingestion system
 [░░░░░░░░░░░░░░░░░░░░] v1.7           AMD GPU Support (ROCm)
 [░░░░░░░░░░░░░░░░░░░░] v2.0           macOS Support (Apple Silicon)
 ```
 
-**Current Focus (v1.5.0 STABLE)**
+**Current Focus (v1.5.1 STABLE)**
 
 Autonomous RAG degradation policies, 24-hour MTBF stress testing under Split-Tensor Allocation workloads, and expanded sovereign UI observability.
 
@@ -1179,7 +1179,7 @@ Peridot exists to be studied, audited, modified and expanded by its operators.
 
 <div align="center">
 
-`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.5.0 STABLE`
+`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.5.1 STABLE`
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 

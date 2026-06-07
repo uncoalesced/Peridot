@@ -2,12 +2,12 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
 """
-PERIDOT SETUP WIZARD v1.5 - TURBOQUANT
+PERIDOT SETUP WIZARD v1.5.1 - TURBOQUANT
 Intelligent hardware detection, VRAM profiling, and engine configuration
 Supports NVIDIA GPUs, AMD GPUs, and CPU-only fallback
 """
@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Dict
 import urllib.request
 
-# ANSI color codes for terminal output
 class Colors:
     HEADER = '\033[95m'
     BLUE = '\033[94m'
@@ -48,7 +47,7 @@ def print_banner():
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 {Colors.ENDC}
-{Colors.GREEN}       SETUP WIZARD v1.4 (TURBOQUANT) - SOVEREIGN AI KERNEL{Colors.ENDC}
+{Colors.GREEN}       SETUP WIZARD v1.5.1 (TURBOQUANT) - SOVEREIGN AI KERNEL{Colors.ENDC}
 {Colors.CYAN}{'='*70}{Colors.ENDC}
 
 {Colors.YELLOW}Engineered by uncoalesced{Colors.ENDC}
@@ -362,14 +361,12 @@ def main():
         profile = HardwareProfile.PROFILES[selected]
         model_id = profile['recommended_model']
         
-        # Download & Install
         clear_screen()
         print_banner()
         if not download_model(model_id, install_dir): sys.exit(1)
         if not install_dependencies(selected): sys.exit(1)
         if not create_environment(install_dir): sys.exit(1)
         
-        # Completion
         clear_screen()
         print_banner()
         print(f"{Colors.BOLD}{Colors.GREEN}SYSTEM INITIALIZATION COMPLETE{Colors.ENDC}\n")
