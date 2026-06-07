@@ -1,3 +1,10 @@
+# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL | MEMORY AUDIT
+# Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
+
 import sqlite3
 import time
 

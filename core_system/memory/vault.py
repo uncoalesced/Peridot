@@ -1,13 +1,14 @@
 # -----------------------------------------------------------------------------
 # PERIDOT VAULT | Layer 2 Retrieval-Augmented Generation
 # Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
 import os
 import sys
 import faiss
-import pickle
+import json
 import numpy as np
 import fitz  # PyMuPDF
 import shutil
@@ -33,27 +34,36 @@ class PersistentVault:
 
     def _load_vault(self):
         if self.index_file.exists() and self.meta_file.exists():
-            self.index = faiss.read_index(str(self.index_file))
-            with open(self.meta_file, 'rb') as f:
-                self.metadata = pickle.load(f)
-            ghost.info(f"VAULT | Layer 2 Online. {self.index.ntotal} sectors secured.")
+            try:
+                self.index = faiss.read_index(str(self.index_file))
+                # Enforce strict UTF-8 text reading for JSON
+                with open(self.meta_file, 'r', encoding='utf-8') as f:
+                    self.metadata = json.load(f)
+                ghost.info(f"VAULT | Layer 2 Online. {self.index.ntotal} sectors secured.")
+            except Exception as e:
+                ghost.error(f"VAULT | Corruption or Legacy format detected: {e}. Rebuilding DB.")
+                self.index = faiss.IndexFlatL2(self.dimension)
+                self.metadata = []
         else:
             self.index = faiss.IndexFlatL2(self.dimension)
             ghost.info("VAULT | Layer 2 Initialised (Empty).")
 
     def save_vault(self):
         faiss.write_index(self.index, str(self.index_file))
-        with open(self.meta_file, 'wb') as f:
-            pickle.dump(self.metadata, f)
+        # Enforce strict UTF-8 text writing for JSON
+        with open(self.meta_file, 'w', encoding='utf-8') as f:
+            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
         ghost.info("VAULT | State committed to disk.")
 
-    def chunk_text(self, text, chunk_size=400, overlap=50):
+    def chunk_and_tag_text(self, text, filename, chunk_size=400, overlap=50):
         words = text.split()
         chunks = []
         for i in range(0, len(words), chunk_size - overlap):
-            chunk = " ".join(words[i:i + chunk_size])
-            if chunk:
-                chunks.append(chunk)
+            raw_chunk = " ".join(words[i:i + chunk_size])
+            if raw_chunk.strip():
+                # INJECT METADATA: Burn the source filename into the vector
+                tagged_chunk = f"[SOURCE DOC: {filename}]\n{raw_chunk}"
+                chunks.append(tagged_chunk)
         return chunks
 
     def ingest_file(self, pdf_path: Path) -> int:
@@ -61,19 +71,25 @@ class PersistentVault:
             full_text = ""
             with fitz.open(pdf_path) as doc:
                 for page in doc:
-                    full_text += page.get_text("text") + "\n"
+                    # Layout preservation for accounting tables
+                    full_text += page.get_text("text", sort=True) + "\n"
             
-            chunks = self.chunk_text(full_text)
+            chunks = self.chunk_and_tag_text(full_text, pdf_path.name)
             if not chunks: return 0
             
             embeddings = embedder.embed_documents(chunks)
-            self.index.add(embeddings)
+            # Enforce strict float32 typing for FAISS C++ backend
+            emb_matrix = np.array(embeddings).astype('float32')
+            if len(emb_matrix.shape) == 1:
+                emb_matrix = np.expand_dims(emb_matrix, axis=0)
+                
+            self.index.add(emb_matrix)
             self.metadata.extend(chunks)
             
             gc.collect()
             PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
             shutil.move(str(pdf_path), str(PROCESSED_PATH / pdf_path.name))
-            ghost.info(f"VAULT | Ingested: {pdf_path.name}")
+            ghost.info(f"VAULT | Ingested & Tagged: {pdf_path.name}")
             return len(chunks)
         except Exception as e:
             ghost.error(f"VAULT | Ingestion failed for {pdf_path.name}: {e}")
@@ -100,7 +116,12 @@ class PersistentVault:
         if self.index is None or self.index.ntotal == 0:
             return None
             
-        distances, indices = self.index.search(query_vector, top_k)
+        # Ensure query is float32 and 2D for FAISS
+        q_vec = np.array(query_vector).astype('float32')
+        if len(q_vec.shape) == 1:
+            q_vec = np.expand_dims(q_vec, axis=0)
+            
+        distances, indices = self.index.search(q_vec, top_k)
         if distances[0][0] > 1.85:  
             return None
 

@@ -1,3 +1,10 @@
+# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL | NLP TRANSLATOR
+# Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
+
 """
 Module: NLP Translator
 Routes ingested text payloads directly to the Peridot Neural Engine.

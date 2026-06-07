@@ -1,30 +1,22 @@
+# -----------------------------------------------------------------------------
+# PERIDOT SOVEREIGN KERNEL | FILE PROCESSOR
+# Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
+# Engineered by uncoalesced.
+# -----------------------------------------------------------------------------
+
 """
 Module: File Processor (RAG Ingestion)
 Handles high-fidelity text extraction strictly from the authorized input directory.
 # Engineered by uncoalesced
 """
 
-import os
-import sys
 from pathlib import Path
 
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    print("[ERROR] PyMuPDF is missing. Run: pip install PyMuPDF")
-    sys.exit(1)
+import fitz  # PyMuPDF
 
-try:
-    from core_system.enhancedlogger import logger
-except ImportError:
-    import logging
-    logger = logging.getLogger("file_processor")
-
-# -----------------------------------------------------------------------------
-# SECURITY MANDATE: All ingestion must occur inside this isolated zone.
-# -----------------------------------------------------------------------------
-INPUT_DIR = Path(r"E:\Peridot\input")
-INPUT_DIR.mkdir(parents=True, exist_ok=True)
+from config import INPUT_PATH
+from core_system.enhancedlogger import logger
 
 
 def _secure_resolve(filename: str) -> Path:
@@ -36,12 +28,11 @@ def _secure_resolve(filename: str) -> Path:
     if Path(filename).is_absolute():
         filename = Path(filename).name
 
-    target_path = (INPUT_DIR / filename).resolve()
+    target_path = (INPUT_PATH / filename).resolve()
     
-    # Verify the resolved path is still inside the INPUT_DIR boundary
-    if not str(target_path).startswith(str(INPUT_DIR.resolve())):
+    if not str(target_path).startswith(str(INPUT_PATH.resolve())):
         logger.error(f"SECURITY BLOCK: Attempted path traversal -> {filename}", source="FILE_IO")
-        raise PermissionError(f"Access denied. All ingestion must occur within {INPUT_DIR}")
+        raise PermissionError(f"Access denied. All ingestion must occur within {INPUT_PATH}")
         
     if not target_path.exists():
         raise FileNotFoundError(f"File not found in input directory: {target_path}")
@@ -68,13 +59,14 @@ def read_pdf_file(filename: str) -> str:
         safe_path = _secure_resolve(filename)
         text = ""
         doc = fitz.open(safe_path)
+        num_pages = len(doc)
         
-        for page_num in range(len(doc)):
+        for page_num in range(num_pages):
             page = doc.load_page(page_num)
             text += page.get_text("text") + "\n\n"
             
         doc.close()
-        logger.info(f"Ingested PDF ({len(doc)} pages): {safe_path.name}", source="FILE_IO")
+        logger.info(f"Ingested PDF ({num_pages} pages): {safe_path.name}", source="FILE_IO")
         return text.strip()
     except Exception as e:
         logger.error(f"Error reading PDF {filename}: {e}", source="FILE_IO")
@@ -84,4 +76,7 @@ def read_pdf_file(filename: str) -> str:
 def get_all_ingestible_files() -> list:
     """Returns a list of all valid files currently in the input directory."""
     valid_extensions = {".txt", ".md", ".pdf"}
-    return [f.name for f in INPUT_DIR.iterdir() if f.is_file() and f.suffix.lower() in valid_extensions]
+    try:
+        return [f.name for f in INPUT_PATH.iterdir() if f.is_file() and f.suffix.lower() in valid_extensions]
+    except FileNotFoundError:
+        return []
