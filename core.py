@@ -6,7 +6,6 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
-import collections
 import requests
 import sys
 import time
@@ -20,6 +19,8 @@ from core_system.research import MedicalResearchModule
 from core_system.security import sanitize_input, load_constitution
 from core_system.memory.vault import PersistentVault
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
+
+from core_system.memory.chat_ledger import get_chat_ledger
 
 ACTIVE_API_KEY = API_KEY
 
@@ -41,8 +42,8 @@ class PeridotCore:
         self.ears = None
 
         # Identity & State
-        self.chat_memory = []
         self.last_interaction_time = time.time()
+        self.current_session_id = None
         
         # Load Security Configuration
         self.constitution = load_constitution()
@@ -54,7 +55,57 @@ class PeridotCore:
         # [v2.0] Layer 2 Persistent PDF Vault
         self.vault = PersistentVault()
         
+        # Phase 4: Chat Ledger for persistent multi-session memory
+        self.chat_ledger = get_chat_ledger()
+        self._ensure_active_session()
+        
         self.logger.info("Kernel logic initialised.", source="CORE")
+
+    def _ensure_active_session(self):
+        """Ensure there's an active session, create one if needed."""
+        if self.current_session_id is None:
+            sessions = self.chat_ledger.list_sessions(limit=1)
+            if sessions:
+                self.current_session_id = sessions[0]["session_id"]
+                self.logger.info(f"Resumed session: {self.current_session_id[:8]}", source="CORE")
+            else:
+                self.current_session_id = self.chat_ledger.create_session("New Session")
+                self.logger.info(f"Created new session: {self.current_session_id[:8]}", source="CORE")
+
+    def create_new_session(self, title: str = "New Session") -> str:
+        """Create a new chat session and switch to it."""
+        self.current_session_id = self.chat_ledger.create_session(title)
+        self.logger.info(f"Created new session: {self.current_session_id[:8]} - {title}", source="CORE")
+        return self.current_session_id
+
+    def switch_session(self, session_id: str) -> bool:
+        """Switch to an existing session."""
+        session = self.chat_ledger.get_session(session_id)
+        if session:
+            self.current_session_id = session_id
+            self.logger.info(f"Switched to session: {session_id[:8]}", source="CORE")
+            return True
+        return False
+
+    def list_sessions(self, limit: int = 50):
+        """List recent sessions."""
+        return self.chat_ledger.list_sessions(limit)
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session."""
+        result = self.chat_ledger.delete_session(session_id)
+        if result and session_id == self.current_session_id:
+            self._ensure_active_session()
+        return result
+
+    def get_session_history(self, session_id: str = None, full: bool = False):
+        """Get conversation history for a session."""
+        sid = session_id or self.current_session_id
+        if not sid:
+            return []
+        if full:
+            return self.chat_ledger.get_full_history(sid)
+        return self.chat_ledger.get_history(sid, limit=6)
 
     def start(self):
         if self.ui:
@@ -124,26 +175,27 @@ class PeridotCore:
         return response
 
     def _ask_ai_with_memory(self, user_text):
-        self.chat_memory.append({"role": "user", "content": user_text})
-
-        # Memory leak fix: retain only last 10 messages (5 turns)
-        if len(self.chat_memory) > 10:
-            self.chat_memory = self.chat_memory[-10:]
-
-        # CRITICAL FIX: Build neutral context block without ChatML/Llama tags.
-        # server.py will wrap this safely based on the detected model architecture.
+        self._ensure_active_session()
+        
+        # Save user message to ledger
+        self.chat_ledger.add_message(self.current_session_id, "user", user_text)
+        
+        # Fetch recent history (sliding window: last 6 turns = 12 messages)
+        history = self.chat_ledger.get_history(self.current_session_id, limit=6)
+        
+        # Build prompt from history (neutral format, server will apply model-specific template)
         prompt_segments = []
-        for msg in self.chat_memory:
+        for msg in history:
             role_header = "[USER]" if msg['role'] == 'user' else "[PERIDOT]"
             prompt_segments.append(f"{role_header}\n{msg['content']}\n")
             
         full_prompt = "\n".join(prompt_segments)
 
-        response = self._send_to_server(query=user_text, prompt=full_prompt)
+        response = self._send_to_server(query=user_text, prompt=full_prompt, session_id=self.current_session_id)
         
-        # Ensure we only append successful responses to the memory matrix
+        # Save assistant response to ledger
         if "[SYSTEM ERROR]" not in response and "[HTTP ERROR]" not in response:
-            self.chat_memory.append({"role": "assistant", "content": response})
+            self.chat_ledger.add_message(self.current_session_id, "assistant", response)
             
         return response
 
@@ -151,7 +203,7 @@ class PeridotCore:
         """Bypasses conversational memory for sterile RAG extraction."""
         return self._send_to_server(query=prompt, prompt=prompt)
 
-    def _send_to_server(self, query, prompt):
+    def _send_to_server(self, query, prompt, session_id=None):
         try:
             headers = {
                 "Content-Type": "application/json",
@@ -160,7 +212,9 @@ class PeridotCore:
             
             # Timeout extended to 180s to account for heavy contextual processing
             payload = {"query": query, "prompt": prompt}
-            r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=180)
+            if session_id:
+                payload["session_id"] = session_id
+            r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=900)
             r.raise_for_status()
             
             return r.json().get("response", "No response from brain.")

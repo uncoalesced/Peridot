@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------
 # PERIDOT CLIENT | Main Entry Point (Synchronized Ignition)
 # Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -82,6 +83,8 @@ def main():
         
     except Exception as e:
         ghost.error(f"CLIENT | CRITICAL FAILURE: {e}")
+        import traceback
+        traceback.print_exc()
         time.sleep(3)
         sys.exit(1)
         

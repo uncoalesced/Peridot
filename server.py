@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5 | NEURAL ENGINE & INGESTION CORE
+# PERIDOT SOVEREIGN KERNEL v1.5.1 | NEURAL ENGINE & INGESTION CORE
 # Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -27,68 +28,11 @@ from config import (
     RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE, INPUT_PATH, PROCESSED_PATH
 )
 
-# --- DYNAMIC TRANSLATION LAYER ---
-def get_model_format():
-    model_name = MODEL_PATH.name.lower()
-    if "llama" in model_name: return "llama3"
-    elif "qwen" in model_name: return "chatml"
-    else: return "chatml" 
+# --- CENTRALIZED PROMPT ENGINE ---
+from core_system.prompting.constitution import get_model_format
+from core_system.prompting.builder import build_full_context
 
-# --- CONSTITUTION BOOTSTRAP ---
-CONSTITUTION_PATH = Path("constitution.json")
-CONSTITUTION = {}
-if CONSTITUTION_PATH.exists():
-    try:
-        with open(CONSTITUTION_PATH, "r") as f:
-            CONSTITUTION = json.load(f)
-        print("[KERNEL] Sovereign Constitution Loaded.")
-    except Exception as e:
-        print(f"[FATAL] Constitution parsing failed: {e}")
-        sys.exit(1)
-else:
-    print("[WARN] constitution.json not found. Operating without identity bounds.")
-
-def build_system_prompt(context_str="", model_format="chatml"):
-    p = CONSTITUTION.get("personality", {})
-    rules = CONSTITUTION.get("hard_rules", [])
-    anti_patterns = p.get("anti_patterns", [])
-
-    if model_format == "llama3":
-        sys_start = "<|start_header_id|>system<|end_header_id|>\n\n"
-        sys_end = "<|eot_id|>\n"
-        user_start = "<|start_header_id|>user<|end_header_id|>\n\n"
-    else:
-        sys_start = "<|im_start|>system\n"
-        sys_end = "<|im_end|>\n"
-        user_start = "<|im_start|>user\n"
-
-    sys_prompt = sys_start
-    sys_prompt += "SYSTEM DIRECTIVE: You are Peridot, a sovereign local AI kernel.\n"
-    sys_prompt += "CRITICAL OPERATIONAL CONSTRAINT: Avoid roleplay, conversational filler, or asterisks (e.g., *sigh*, *rolls eyes*). Be stark, brief, direct, and elite.\n\n"
-    
-    sys_prompt += f"IDENTITY: {p.get('identity_enforcement', 'You are Peridot.')}\n"
-    sys_prompt += f"TONE & VOICE: {p.get('tone', 'Direct and analytical.')} {p.get('voice', 'Stark.')}\n"
-    sys_prompt += f"EXPLANATION STYLE: {p.get('explanation_style', 'Highly concise and technical.')}\n"
-    sys_prompt += f"REFUSAL STYLE: {p.get('refusal_style', 'State lack of context explicitly.')}\n\n"
-
-    if rules:
-        sys_prompt += "HARD RULES:\n- " + "\n- ".join(rules) + "\n\n"
-
-    if anti_patterns:
-        sys_prompt += "ANTI-PATTERNS (CRITICAL - DO NOT DO THESE):\n- " + "\n- ".join(anti_patterns) + "\n\n"
-
-    if context_str:
-        sys_prompt += (
-            "RAG DIRECTIVE: You have access to secure local file context.\n"
-            "CRITICAL: Ground your logic purely in the provided context below. "
-            "If the context contains the data, answer with high precision. If not relevant, state it directly.\n\n"
-            f"RETRIEVED CONTEXT:\n{context_str}\n"
-        )
-
-    sys_prompt += sys_end + user_start
-    return sys_prompt
-
-# --- RAG SUBSYSTEM AND v1.5 CACHE IMPORTS ---
+# --- RAG SUBSYSTEM AND v1.5.1 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
 except ImportError:
@@ -98,6 +42,13 @@ try:
     from core_system.telemetry import ledger
 except ImportError:
     ledger = None
+
+try:
+    from core_system.memory.chat_ledger import get_chat_ledger
+    chat_ledger = get_chat_ledger()
+except ImportError as e:
+    print(f"[WARN] Chat Ledger offline. Session persistence disabled. Error: {e}")
+    chat_ledger = None
 
 try:
     from core_system.memory.ephemeral_cache import EphemeralCache
@@ -122,7 +73,7 @@ from core_system.kernel import SovereignKernel, KernelState
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://127.0.0.1:5000", "http://localhost:5000"])
 
 # --- RESOURCE ORCHESTRATION (FAH v8) ---
 def get_vram_free() -> int:
@@ -143,7 +94,7 @@ def send_fah_command(cmd_state: str) -> bool:
     except Exception:
         return False
 
-# --- v1.5 KERNEL INTEGRATION (Delta Watchdog) ---
+# --- v1.5.1 KERNEL INTEGRATION (Delta Watchdog) ---
 class PeridotProductionKernel(SovereignKernel):
     def _execute_vram_purge(self):
         if self.state == KernelState.PANIC:
@@ -211,14 +162,14 @@ def idle_monitor():
 def boot_engine():
     global llm
     print(f"\n{'='*50}")
-    print("   PERIDOT NEURAL ENGINE (v1.5 SOVEREIGN KERNEL)")
+    print("   PERIDOT NEURAL ENGINE (v1.5.1 SOVEREIGN KERNEL)")
     print(f"{'='*50}")
     
     if not MODEL_PATH.exists():
         print(f"[FATAL] Model not found at {MODEL_PATH}")
         sys.exit(1)
         
-    model_mode = get_model_format().upper()
+    model_mode = get_model_format(MODEL_PATH).upper()
     print(f"[SYSTEM] Engine architecture auto-detected: {model_mode}")
 
     kernel.start()
@@ -261,86 +212,15 @@ def health_check():
 @app.route("/ingest", methods=["POST"])
 @require_auth
 def ingest_vault_nodes():
-    """Upgraded vector ingestion loop with forced character-clamped sliding window chunking."""
-    if vault is None or embedder is None:
-        return jsonify({"error": "RAG vector systems are currently unmapped or offline."}), 500
-        
+    if vault is None:
+        return jsonify({"error": "RAG Vault offline."}), 500
     try:
-        input_path = Path(INPUT_PATH)
-        processed_path = Path(PROCESSED_PATH)
-        processed_count = 0
-        
-        for file_path in input_path.iterdir():
-            if not file_path.is_file():
-                continue
-                
-            content = ""
-            ext = file_path.suffix.lower()
-            
-            if ext == ".txt":
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read().strip()
-                    
-            elif ext == ".pdf":
-                try:
-                    import PyPDF2
-                    with open(file_path, "rb") as f:
-                        pdf_reader = PyPDF2.PdfReader(f)
-                        for page in pdf_reader.pages:
-                            page_text = page.extract_text()
-                            if page_text:
-                                content += page_text + "\n"
-                except ImportError:
-                    print(f"[WARN] PyPDF2 missing. Bypassing {file_path.name}. Run: pip install PyPDF2")
-                    continue
-                except Exception as e:
-                    print(f"[ERROR] Failed to parse PDF matrix {file_path.name}: {e}")
-                    continue
-            else:
-                continue
-            
-            if not content.strip():
-                continue
-                
-            # Sliding Window Token Optimization (Clamped boundaries near ~800-1000 characters)
-            raw_paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
-            chunks = []
-            current_chunk = ""
-            
-            for para in raw_paragraphs:
-                if len(current_chunk) + len(para) < 800:
-                    current_chunk += para + " "
-                else:
-                    if current_chunk.strip():
-                        chunks.append(current_chunk.strip())
-                    current_chunk = para + " "
-            if current_chunk.strip():
-                chunks.append(current_chunk.strip())
-                
-            # Vector allocation processing cycles
-            for chunk in chunks:
-                if not chunk: continue
-                vector = embedder.embed_query(chunk)
-                if hasattr(vault, 'add'):
-                    vault.add(chunk, vector)
-                elif hasattr(vault, 'add_document'):
-                    vault.add_document(chunk, vector)
-                    
-            try:
-                os.rename(file_path, processed_path / file_path.name)
-            except Exception as e:
-                print(f"[WARN] Failed to relocate processed node {file_path.name}: {e}")
-                pass
-            
-            processed_count += 1
-            print(f">> [INGESTED SECURE NODE] {file_path.name}")
-            
-        return jsonify({"status": "SUCCESS", "processed_files": processed_count}), 200
-        
+        vault.ingest_directory()
+        return jsonify({"status": "SUCCESS", "message": "Check engine console for ingestion telemetry."}), 200
     except Exception as e:
-        print(f"[FATAL] Ingestion Routine Disrupted: {e}")
+        print(f"[FATAL] Ingestion Disrupted: {e}")
         return jsonify({"error": str(e)}), 500
-
+    
 @app.route("/ask", methods=["POST"])
 @require_auth
 def ask():
@@ -350,6 +230,7 @@ def ask():
     data = request.json
     user_query = data.get("query", "")
     full_prompt = data.get("prompt", "")
+    session_id = data.get("session_id", None)
     
     if not user_query or not full_prompt:
         user_query = data.get("command", "")
@@ -357,6 +238,20 @@ def ask():
         
     if not user_query:
         return jsonify({"response": "Empty prompt received."}), 400
+
+    # 1. Initialize or load session
+    if chat_ledger is not None:
+        if not session_id:
+            title = " ".join(user_query.split()[:5]) + ("..." if len(user_query.split()) > 5 else "")
+            session_id = chat_ledger.create_session(title=title)
+        
+        # 2. Fetch history BEFORE saving current message (avoids duplication in prompt)
+        history = chat_ledger.get_history(session_id, limit=6)
+        
+        # 3. Save User Input
+        chat_ledger.add_message(session_id, "user", user_query)
+    else:
+        history = []
 
     print(f"\n[API] Received payload. Requesting hardware clearance...")
     kernel.event_queue.put("PROMPT_RECEIVED")
@@ -383,7 +278,9 @@ def ask():
                     try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
                     except: pass
                 kernel.event_queue.put("INFERENCE_COMPLETE")
-                return jsonify({"response": cached_response})
+                if chat_ledger and session_id:
+                    chat_ledger.add_message(session_id, "assistant", cached_response)
+                return jsonify({"response": cached_response, "session_id": session_id})
 
         context_str = ""
         if vault is not None and embedder is not None:
@@ -412,16 +309,19 @@ def ask():
                     try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
                     except: pass
 
-        model_format = get_model_format()
-        
+        model_format = get_model_format(MODEL_PATH)
+
         if model_format == "llama3":
-            assistant_start = "<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n"
             target_stops = ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"]
         else:
-            assistant_start = "<|im_end|>\n<|im_start|>assistant\n"
             target_stops = ["<|im_end|>", "<|im_start|>"]
 
-        final_prompt = build_system_prompt(context_str, model_format) + full_prompt + assistant_start
+        final_prompt = build_full_context(
+            rag_context=context_str,
+            chat_history=history,
+            current_prompt=user_query,
+            model_format=model_format
+        )
 
         start_time = time.time()
         output = llm(
@@ -448,8 +348,12 @@ def ask():
             l1_cache.add(user_query, final_response)
             
         if ledger: ledger.log_inference()
-            
-        return jsonify({"response": final_response})
+             
+        # 6. Save AI Response
+        if chat_ledger and session_id:
+            chat_ledger.add_message(session_id, "assistant", final_response)
+             
+        return jsonify({"response": final_response, "session_id": session_id})
         
     except Exception as e:
         error_msg = str(e)

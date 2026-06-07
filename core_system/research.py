@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL | MEDICAL RESEARCH MODULE
 # Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 

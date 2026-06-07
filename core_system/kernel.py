@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5 (FSM + WATCHDOG)
+# PERIDOT SOVEREIGN KERNEL v1.5.1 (FSM + WATCHDOG)
 # Copyright (C) 2026 uncoalesced
+# Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
@@ -38,7 +39,7 @@ class SovereignKernel:
             print(f"[FATAL] NVML Initialization failed: {e}")
             sys.exit(1)
             
-        print("[KERNEL] v1.5 State Machine Initialized.")
+        print("[KERNEL] v1.5.1 State Machine Initialized.")
 
     def request_state_change(self, new_state: KernelState, reason: str = ""):
         with self.state_lock:
