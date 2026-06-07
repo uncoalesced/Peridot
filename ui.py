@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 import tkinter as tk
-from tkinter import scrolledtext, font, ttk, messagebox
+from tkinter import font, ttk, messagebox
 import threading
 import psutil
 import time
@@ -17,9 +17,10 @@ import ctypes
 import requests
 import re
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
-from config import SERVER_HOST, SERVER_PORT, API_KEY, MODEL_PATH
+from config import SERVER_HOST, SERVER_PORT, API_KEY, MODEL_PATH, TOTAL_VRAM_GB
 
 # --- UK ENGLISH DICTIONARY ENGINE ---
 try:
@@ -69,7 +70,7 @@ ASCII_LOGO = """
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 """
-VERSION_TEXT = "SOVEREIGN KERNEL v1.5 [STABLE]\nENGINEERED BY UNCOALESCED"
+VERSION_TEXT = "SOVEREIGN KERNEL v1.5.1 [STABLE]\nENGINEERED BY UNCOALESCED"
 
 
 class TechProgressBar(tk.Canvas):
@@ -107,6 +108,10 @@ class PeridotUI:
         self.is_processing = False
         self.research_active = False
         
+        # Session State
+        self.sessions = []
+        self._current_session_menu_index = None
+
         # Kinetic Scroll State Variables
         self.chat_scroll_velocity = 0.0
         self.chat_scroll_animating = False
@@ -163,11 +168,11 @@ class PeridotUI:
     def _configure_notebook_styles(self):
         """Injects custom terminal aesthetics into the tab engine and Comboboxes."""
         style = ttk.Style()
-        style.theme_use("default")
+        style.theme_use("clam")
         
-        # Notebook Tab Styling
-        style.configure("TNotebook", background=COLOR_BG, borderwidth=0, highlightthickness=0)
-        style.configure("TNotebook.Tab", background=COLOR_DIM, foreground="#888888", font=FONT_UI, padding=[15, 5], borderwidth=0)
+        # Notebook Tab Styling (Overriding light/dark colors kills the white outline)
+        style.configure("TNotebook", background=COLOR_BG, borderwidth=0, lightcolor=COLOR_BG, darkcolor=COLOR_BG)
+        style.configure("TNotebook.Tab", background=COLOR_DIM, foreground="#888888", font=FONT_UI, padding=[15, 5], borderwidth=0, lightcolor=COLOR_BG, darkcolor=COLOR_BG)
         style.map("TNotebook.Tab", background=[("selected", COLOR_INPUT)], foreground=[("selected", COLOR_ACCENT)])
 
         # Modern Deep-Theme Combobox Styling
@@ -193,6 +198,21 @@ class PeridotUI:
         self.root.option_add('*TCombobox*Listbox.selectForeground', COLOR_ACCENT)
         self.root.option_add('*TCombobox*Listbox.font', FONT_CODE)
 
+        # Dark-themed Scrollbar (rejects native Win32 white artifacts entirely)
+        style.configure("Vertical.TScrollbar",
+            background=COLOR_DIM,
+            troughcolor=COLOR_BG,
+            bordercolor=COLOR_BG,
+            arrowcolor=COLOR_ACCENT,
+            lightcolor=COLOR_DIM,
+            darkcolor=COLOR_DIM,
+            gripcount=0
+        )
+        style.map("Vertical.TScrollbar",
+            background=[("active", "#2A2A2A")],
+            arrowcolor=[("active", "#FFFFFF")]
+        )
+
     def _create_widgets(self):
         # Search Bar Overlay (Hidden by default)
         self.search_frame = tk.Frame(self.root, bg=COLOR_DIM, height=30)
@@ -208,17 +228,89 @@ class PeridotUI:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 10))
 
-        # Tab 1: Chat Buffer Matrix
+        # Tab 1: Chat Buffer Matrix (PanedWindow with session sidebar)
         self.tab_chat = tk.Frame(self.notebook, bg=COLOR_BG)
         self.notebook.add(self.tab_chat, text="[01] CHAT MATRIX")
 
-        self.chat = scrolledtext.ScrolledText(
-            self.tab_chat, wrap=tk.WORD, bg=COLOR_BG, fg=COLOR_TEXT,
+        # Toggle button row above chat pane
+        self.chat_toolbar = tk.Frame(self.tab_chat, bg=COLOR_BG, height=28)
+        self.chat_toolbar.pack(fill=tk.X, before=None)
+        self.chat_toolbar.pack_propagate(False)
+
+        self.btn_toggle_sessions = tk.Button(self.chat_toolbar, text="[>] SESSIONS",
+                                              bg=COLOR_DIM, fg=COLOR_ACCENT,
+                                              font=FONT_UI, relief=tk.FLAT,
+                                              cursor="hand2",
+                                              command=self._toggle_session_drawer)
+        self.btn_toggle_sessions.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Re-enforced borderless PanedWindow
+        self.chat_pane = tk.PanedWindow(self.tab_chat, orient=tk.HORIZONTAL,
+                                         sashrelief=tk.FLAT, bg=COLOR_BG, bd=0)
+        self.chat_pane.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+
+        # Left pane: Session sidebar (hidden by default, managed via toggle)
+        self.session_frame = tk.Frame(self.chat_pane, bg=COLOR_BG, width=250)
+        self.session_header = tk.Label(self.session_frame, text="SESSIONS",
+                                        bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w")
+        self.session_header.pack(fill=tk.X, padx=5, pady=(5, 2))
+
+        self.btn_new_session = tk.Button(self.session_frame, text="[+] NEW SESSION",
+                                          bg=COLOR_DIM, fg=COLOR_TEXT, font=FONT_UI,
+                                          relief=tk.FLAT, cursor="hand2",
+                                          command=self._new_session)
+        self.btn_new_session.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        session_scroll_frame = tk.Frame(self.session_frame, bg=COLOR_BG)
+        session_scroll_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
+
+        self.session_listbox = tk.Listbox(
+            session_scroll_frame, bg=COLOR_INPUT, fg=COLOR_TEXT,
+            font=FONT_CODE, relief=tk.FLAT, highlightthickness=0,
+            selectbackground=COLOR_DIM, selectforeground=COLOR_ACCENT,
+            activestyle="none"
+        )
+        self.session_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Apply the dark ttk scrollbar style to the sidebar
+        session_scroll = ttk.Scrollbar(session_scroll_frame, orient=tk.VERTICAL,
+                                       command=self.session_listbox.yview,
+                                       style="Vertical.TScrollbar")
+        session_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.session_listbox.config(yscrollcommand=session_scroll.set)
+
+        self.session_listbox.bind("<ButtonRelease-1>", self._on_session_select)
+
+        # Right-click context menu for session delete
+        self.session_menu = tk.Menu(self.tab_chat, tearoff=0, bg=COLOR_DIM,
+                                     fg=COLOR_TEXT, activebackground=COLOR_ACCENT,
+                                     activeforeground="black", font=FONT_UI)
+        self.session_menu.add_command(label="Delete Session", command=self._delete_session)
+        self.session_listbox.bind("<Button-3>", self._show_session_menu)
+
+        self.session_drawer_open = False
+
+        # --- RIGHT PANE: CUSTOM CHAT WIDGET ---
+        # Replacing the legacy 'scrolledtext' module to eradicate the white scrollbar artifact
+        self.chat_frame = tk.Frame(self.chat_pane, bg=COLOR_BG, bd=0, highlightthickness=0)
+        
+        self.chat = tk.Text(
+            self.chat_frame, wrap=tk.WORD, bg=COLOR_BG, fg=COLOR_TEXT,
             font=FONT_MAIN, insertbackground=COLOR_ACCENT, bd=0,
             highlightthickness=0, padx=10, pady=10, state=tk.DISABLED
         )
-        self.chat.pack(fill=tk.BOTH, expand=True)
         self.chat.bind("<MouseWheel>", self._on_kinetic_scroll)
+
+        # Build our custom dark scrollbar and link it to the text widget
+        self.chat_scroll = ttk.Scrollbar(self.chat_frame, orient=tk.VERTICAL, command=self.chat.yview, style="Vertical.TScrollbar")
+        self.chat.config(yscrollcommand=self.chat_scroll.set)
+        
+        # Pack the custom bar to the right, and the text area to the left
+        self.chat_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.chat.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Add the entire custom frame to the pane (hiding the drawer by default)
+        self.chat_pane.add(self.chat_frame, minsize=400)
 
         # Tab 2: Secured Document Storage Matrix
         self.tab_vault = tk.Frame(self.notebook, bg=COLOR_BG)
@@ -297,7 +389,6 @@ class PeridotUI:
 
         tk.Label(config_frame, text=">> CURRENT ACTIVE MODEL:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
         
-        # Read exact current model dynamically from python context
         try:
             current_model = os.path.basename(str(MODEL_PATH))
         except Exception:
@@ -314,14 +405,8 @@ class PeridotUI:
         )
         self.model_dropdown.pack(fill=tk.X, pady=(0, 10))
 
-        # Dynamically calculate VRAM limit - Calibrated for RTX 5050 8GB architectures
-        total_vram_gb = 8.0 
-        try:
-            c = "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits"
-            o = subprocess.check_output(c, shell=True, creationflags=0x08000000).decode().strip()
-            total_vram_gb = int(o) / 1024
-        except Exception:
-            pass
+        # Use dynamic VRAM detection from config (Phase 2: Hardware Auto-Scaling)
+        total_vram_gb = TOTAL_VRAM_GB if TOTAL_VRAM_GB > 0 else 8.0
 
         models_dir = r"E:\Peridot\models"
         self.available_models_map = {}
@@ -332,7 +417,6 @@ class PeridotUI:
                 if f.endswith(".gguf"):
                     file_size_gb = os.path.getsize(os.path.join(models_dir, f)) / (1024**3)
                     
-                    # Heuristics constraint checks
                     if file_size_gb < (total_vram_gb * 0.6):
                         rating = "[HIGH COMPATIBILITY]"
                     elif file_size_gb < (total_vram_gb * 0.9):
@@ -393,7 +477,6 @@ class PeridotUI:
             with open("config.py", "r") as f:
                 content = f.read()
             
-            # Robust regex to rewrite regardless of Path() formatting
             new_content = re.sub(r'MODEL_PATH\s*=\s*(?:Path\()?[\'"].*?[\'"]\)?', f'MODEL_PATH = Path("{new_path}")', content)
             
             with open("config.py", "w") as f:
@@ -527,6 +610,115 @@ class PeridotUI:
         else:
             self.vault_list.insert(tk.END, " [ERROR] Physical storage path roots are missing.")
 
+    # --- SESSION SIDEBAR HANDLERS ---
+    def _toggle_session_drawer(self):
+        """Toggle the collapsible session sidebar drawer."""
+        if self.session_drawer_open:
+            # Hide the sidebar and reset the window layout
+            self.chat_pane.forget(self.session_frame)
+            self.btn_toggle_sessions.config(text="[>] SESSIONS")
+            self.session_drawer_open = False
+        else:
+            self._refresh_session_list()
+            # The critical fix: We must add the frame *before* the chat matrix frame
+            self.chat_pane.add(self.session_frame, before=self.chat_frame, minsize=200, width=250)
+            self.btn_toggle_sessions.config(text="[<] CLOSE SESSIONS")
+            self.session_drawer_open = True
+
+    def _new_session(self):
+        """Create a new chat session and refresh the sidebar."""
+        try:
+            self.core.create_new_session()
+            self._refresh_session_list()
+            self.chat.config(state=tk.NORMAL)
+            self.chat.delete("1.0", tk.END)
+            self.chat.config(state=tk.DISABLED)
+            self.display_system_message(f"New session created.")
+        except Exception as e:
+            self.display_system_message(f"Session creation failed: {e}")
+
+    def _delete_session(self):
+        """Delete the right-clicked session."""
+        if self._current_session_menu_index is None:
+            return
+        try:
+            sid = self.sessions[self._current_session_menu_index]["session_id"]
+            if self.core.current_session_id == sid:
+                self.chat.config(state=tk.NORMAL)
+                self.chat.delete("1.0", tk.END)
+                self.chat.config(state=tk.DISABLED)
+            self.core.delete_session(sid)
+            self._refresh_session_list()
+        except Exception as e:
+            self.display_system_message(f"Session deletion failed: {e}")
+        finally:
+            self._current_session_menu_index = None
+
+    def _show_session_menu(self, event):
+        """Show right-click context menu on session list."""
+        try:
+            index = self.session_listbox.nearest(event.y)
+            if index >= 0:
+                self._current_session_menu_index = index
+                self.session_listbox.selection_clear(0, tk.END)
+                self.session_listbox.selection_set(index)
+                self.session_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.session_menu.grab_release()
+
+    def _on_session_select(self, event):
+        """Handle session selection from sidebar Listbox."""
+        try:
+            index = self.session_listbox.curselection()
+            if not index:
+                return
+            idx = index[0]
+            if idx < 0 or idx >= len(self.sessions):
+                return
+            session_id = self.sessions[idx]["session_id"]
+            if session_id == self.core.current_session_id:
+                return
+            self.core.switch_session(session_id)
+            full_history = self.core.get_session_history(session_id, full=True)
+            self._replay_history(full_history)
+            self.display_system_message(f"Switched to session: {self.sessions[idx].get('title', 'Untitled')[:40]}")
+        except Exception as e:
+            self.display_system_message(f"Session switch failed: {e}")
+
+    def _replay_history(self, history):
+        """Clear chat widget and replay full session history."""
+        self.chat.config(state=tk.NORMAL)
+        self.chat.delete("1.0", tk.END)
+        self.chat.config(state=tk.DISABLED)
+        if not history:
+            return
+        for msg in history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                self.write(f"\n> {content}\n", "user")
+            elif role == "assistant":
+                self._parse_and_write_ai(content)
+        self.chat.see(tk.END)
+
+    def _refresh_session_list(self):
+        """Refresh the session Listbox from core."""
+        try:
+            self.sessions = self.core.list_sessions(50)
+            self.session_listbox.delete(0, tk.END)
+            for s in self.sessions:
+                title = s.get("title", "Untitled")[:40]
+                stamp = ""
+                try:
+                    ts = s.get("updated_at", 0)
+                    stamp = datetime.fromtimestamp(ts).strftime("%H:%M")
+                except Exception:
+                    pass
+                display = f"{'●' if s['session_id'] == self.core.current_session_id else '○'} {title} • {stamp}"
+                self.session_listbox.insert(tk.END, display)
+        except Exception as e:
+            print(f"[UI] Session list refresh failed: {e}")
+
     # --- SPELLCHECK ARBITRATION ---
     def _run_spellcheck(self):
         if not SPELLCHECK_AVAILABLE:
@@ -650,7 +842,57 @@ class PeridotUI:
 
     def _parse_and_write_ai(self, text):
         self.chat.config(state=tk.NORMAL)
-        blocks = text.split("```")
+        
+        # Dual-Phase Data Extraction Protocol
+        analysis_text = ""
+        main_text = text
+
+        if "[ANALYSIS]" in main_text:
+            parts = main_text.split("[KERNEL_RESPONSE]")
+            if len(parts) > 1:
+                analysis_text = parts[0].replace("[ANALYSIS]", "").strip()
+                main_text = parts[1].strip()
+            else:
+                analysis_text = parts[0].replace("[ANALYSIS]", "").strip()
+                main_text = ""
+        else:
+            main_text = main_text.replace("[KERNEL_RESPONSE]", "").strip()
+            
+        # Stealth UI Render: Cognitive Analysis Dropdown
+        if analysis_text:
+            self.chat.insert(tk.END, "\n")
+            
+            a_frame = tk.Frame(self.chat, bg=COLOR_BG)
+            content_frame = tk.Frame(a_frame, bg=COLOR_BG)
+            
+            lbl = tk.Label(content_frame, text=analysis_text, justify=tk.LEFT,
+                           bg=COLOR_BG, fg="#555555", font=("Consolas", 8), anchor="w")
+            lbl.pack(fill=tk.BOTH, padx=2, pady=0)
+            
+            state = {"open": False}
+            btn_text = tk.StringVar(value="[+] trace_cognition")
+            
+            def toggle_analysis(event=None, c_frame=content_frame, b_var=btn_text, s=state):
+                if s["open"]:
+                    c_frame.pack_forget()
+                    b_var.set("[+] trace_cognition")
+                    s["open"] = False
+                else:
+                    c_frame.pack(fill=tk.X, pady=(2, 0))
+                    b_var.set("[-] trace_cognition")
+                    s["open"] = True
+
+            # Use a flat Label mapped as a hyperlink instead of a bulky Tkinter Button
+            btn = tk.Label(a_frame, textvariable=btn_text, bg=COLOR_BG, fg="#555555",
+                           font=("Consolas", 8, "italic"), cursor="hand2", anchor="w")
+            btn.bind("<Button-1>", toggle_analysis)
+            btn.pack(fill=tk.X)
+            
+            self.chat.window_create(tk.END, window=a_frame)
+            self.chat.insert(tk.END, "\n\n")
+
+        # Core Text Rendering and Code Block Mapping
+        blocks = main_text.split("```")
         
         for i, block in enumerate(blocks):
             if i % 2 == 0:
@@ -730,8 +972,8 @@ class PeridotUI:
             self.bar_cpu.update_value(psutil.cpu_percent())
             self.bar_ram.update_value(psutil.virtual_memory().percent)
             
-            c = "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits"
-            o = subprocess.check_output(c, shell=True, creationflags=0x08000000).decode().strip().split(",")
+            c = ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"]
+            o = subprocess.check_output(c, creationflags=0x08000000).decode().strip().split(",")
             self.bar_vram.update_value((int(o[0]) / int(o[1])) * 100)
             
             threading.Thread(target=self._poll_backend_telemetry, daemon=True).start()
@@ -741,6 +983,7 @@ class PeridotUI:
 
     def run(self):
         self.print_logo()
+        self._refresh_session_list()
         self._update_stats()
         threading.Thread(target=self.core.start, daemon=True).start()
         self.root.mainloop()
