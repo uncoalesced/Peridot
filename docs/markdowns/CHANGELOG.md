@@ -8,7 +8,20 @@ Peridot v1.5.2 is the biggest update yet! A major step forward in Peridot’s se
 
 ## [v1.5.2-STABLE] - 2026-06-08
 
-**Name:** Peridot v1.5.2 STABLE - Security Hardening, Hardware Auto-Scaling & Multi-Session Memory
+**Name:** Peridot v1.5.2 STABLE - Sanity & Polish Milestone
+
+### Bug Fixes & Stability
+
+- **Dynamic VRAM Splitting Heuristics:** Rewrote the `_calculate_gpu_layers` logic in `config.py` to allow partial tensor splitting into system RAM when the model exceeds 75% of total VRAM, preventing catastrophic OOM crashes on borderline 8GB hardware.
+- **FAISS ABI C-Extension Crash:** Upgraded `faiss-cpu` to a newer binary wheel to resolve a fatal `ValueError: input not a numpy array` mismatch between Numpy 2.x and the older SWIG wrappers on Windows.
+- **Context Window Overflow (400 Bad Request):** Engineered an Auto-Truncation Engine in `server.py` that clamps Semantic Memory blocks to 8000 characters and dynamically purges older chat history if the required generation headroom falls below 128 tokens, permanently eliminating Llama.cpp crashes from dense RAG retrievals.
+- **Kinetic Scrolling Polish:** Overhauled `ui.py` to calculate text box heights dynamically and applied 144Hz sub-pixel smooth scrolling for the chat matrix.
+
+---
+
+## [v1.5.1-STABLE] - 2026-06-08
+
+**Name:** Peridot v1.5.1 STABLE - Security Hardening, Hardware Auto-Scaling & Multi-Session Memory
 
 ### Security & Compliance (Phase 1: Critical Hotfixes)
 
@@ -29,11 +42,6 @@ Peridot v1.5.2 is the biggest update yet! A major step forward in Peridot’s se
 
 - **Layout-Preserving PDF Extraction:** `core_system/memory/vault.py` - Replaced `fitz.get_text("text")` with `fitz.get_text("text", sort=True)` to preserve visual layout geometry of multi-column tables (e.g., Balance Sheets).
 - **Provenance Tagging:** `core_system/memory/vault.py`  Every text chunk now strictly prepends `[SOURCE DOC: {filename}]` before embedding, enabling the LLM to cite exact documentary sources during generation.
-
-### Bug Fixes & Stability
-
-- **FAISS ABI C-Extension Crash:** Upgraded `faiss-cpu` to a newer binary wheel to resolve a fatal `ValueError: input not a numpy array` mismatch between Numpy 2.x and the older SWIG wrappers on Windows.
-- **Context Window Overflow (400 Bad Request):** Engineered an Auto-Truncation Engine in `server.py` that clamps Semantic Memory blocks to 8000 characters and dynamically purges older chat history if the required generation headroom falls below 128 tokens, permanently eliminating Llama.cpp crashes from dense RAG retrievals.
 
 ---
 
