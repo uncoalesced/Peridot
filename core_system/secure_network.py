@@ -23,7 +23,7 @@ def fetch_url_content(url):
     try:
         logger.info(f"Fetching URL: {url}", source="NETWORK")
 
-        headers = {"User-Agent": "iCould-Sovereign-OS/1.0"}
+        headers = {"User-Agent": "Peridot-Sovereign-OS/1.0"}
 
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()

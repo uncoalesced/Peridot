@@ -30,12 +30,9 @@ def load_constitution() -> dict:
         try:
             with open(CONSTITUTION_PATH, "r", encoding="utf-8") as f:
                 _CONSTITUTION_CACHE = json.load(f)
-            print("[KERNEL] Sovereign Constitution Loaded (v1.5.1 Dual-Phase).")
-        except Exception as e:
-            print(f"[FATAL] Constitution parsing failed: {e}")
-            raise
+        except Exception:
+            _CONSTITUTION_CACHE = {}
     else:
-        print("[WARN] constitution.json not found. Operating without identity bounds.")
         _CONSTITUTION_CACHE = {}
 
     return _CONSTITUTION_CACHE
@@ -82,7 +79,7 @@ def build_system_prompt(
     exec_proto = constitution.get("execution_protocol", {})
     rules = constitution.get("hard_rules", [])
 
-    identity = perimeter.get("identity", "Peridot Sovereign Kernel v1.5.1")
+    identity = perimeter.get("identity", "Peridot Sovereign Kernel v1.5.2")
     lang_guard = perimeter.get("language_guardrail", "Output must be 100% English only.")
     protocol = exec_proto.get("structure", "Output must follow [ANALYSIS] and [KERNEL_RESPONSE] blocks strictly.")
     constraints = exec_proto.get("behavioral_constraints", [])

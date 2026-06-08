@@ -133,8 +133,15 @@ class ChatLedger:
                 (session_id, limit * 2)
             )
             rows = cursor.fetchall()
-            # Reverse to chronological order
-            return [dict(row) for row in reversed(rows)]
+            
+            # De-duplicate consecutive identical messages
+            deduped = []
+            for row in reversed(rows):
+                msg = dict(row)
+                if deduped and deduped[-1]['role'] == msg['role'] and deduped[-1]['content'] == msg['content']:
+                    continue
+                deduped.append(msg)
+            return deduped
 
     def get_full_history(self, session_id: str) -> List[Dict[str, Any]]:
         """Get complete conversation history for a session."""
@@ -144,7 +151,16 @@ class ChatLedger:
                 "SELECT role, content, timestamp FROM messages WHERE session_id = ? ORDER BY timestamp",
                 (session_id,)
             )
-            return [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+            
+            # De-duplicate consecutive identical messages
+            deduped = []
+            for row in rows:
+                msg = dict(row)
+                if deduped and deduped[-1]['role'] == msg['role'] and deduped[-1]['content'] == msg['content']:
+                    continue
+                deduped.append(msg)
+            return deduped
 
 
 # Global singleton instance

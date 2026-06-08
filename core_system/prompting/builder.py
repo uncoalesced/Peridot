@@ -1,10 +1,10 @@
-# -----------------------------------------------------------------------------
+1# -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL | CONVERSATIONAL PROMPT BUILDER
 # Copyright (C) 2026 uncoalesced
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
-from .constitution import build_system_prompt
+from core_system.prompting.constitution import build_system_prompt
 
 def build_full_context(rag_context, chat_history, current_prompt, model_format):
     """

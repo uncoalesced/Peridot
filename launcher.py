@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.1 | IGNITION LAUNCHER
+# PERIDOT SOVEREIGN KERNEL v1.5.2 | IGNITION LAUNCHER
 # Copyright (C) 2026 uncoalesced
 # 
 # Licensed under the MIT License.
@@ -37,7 +37,7 @@ def kill_proc_tree(pid, including_parent=True):
 
 def main():
     print("==================================================")
-    print("  PERIDOT SOVEREIGN KERNEL v1.5.1 | INITIATING BOOT ")
+    print("  PERIDOT SOVEREIGN KERNEL v1.5.2 | INITIATING BOOT ")
     print("==================================================")
 
     # Pass the fully locked-down, air-gapped environment variables to child processes

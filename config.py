@@ -49,14 +49,25 @@ def _get_model_size_mb(model_path: Path) -> int:
 def _calculate_gpu_layers(model_size_mb: int, total_vram_mb: int) -> int:
     """
     Calculate optimal GPU layers.
-    If model fits in < 75% of VRAM, offload all layers (99).
-    Otherwise, use conservative default (20).
+    Accounts for context window size to ensure proper tensor splitting 
+    where the remainder bleeds into system RAM.
     """
     if total_vram_mb == 0:
         return 0  # CPU-only mode
-    if model_size_mb > 0 and model_size_mb < (total_vram_mb * 0.75):
+        
+    context_reserve_mb = 1024
+    safe_vram_mb = total_vram_mb - 256 # 256MB OS buffer
+    
+    # If the whole model PLUS context fits, offload everything
+    if model_size_mb > 0 and (model_size_mb + context_reserve_mb) < safe_vram_mb:
         return 99  # Full GPU offload
-    return 20  # Partial offload
+    
+    if model_size_mb > 0:
+        # Otherwise, fill available VRAM (minus context) and let the rest tensor split to RAM
+        available_for_layers = safe_vram_mb - context_reserve_mb
+        ratio = available_for_layers / model_size_mb
+        return max(20, min(int(ratio * 35), 99))
+    return 20
 
 def _calculate_context_length(total_vram_mb: int) -> int:
     """
@@ -94,8 +105,8 @@ MODEL_DIR: Path = ROOT_PATH / "models"
 for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH):
     directory.mkdir(parents=True, exist_ok=True)
 
-# --- ENGINE CONFIGURATION (v1.5.1 TurboQuant) ---
-ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen2.5-14B-Instruct-Q4_K_M.gguf")
+# --- ENGINE CONFIGURATION (v1.5.2 TurboQuant) ---
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf")
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
 # Dynamic hardware-aware configuration

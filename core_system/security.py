@@ -34,6 +34,7 @@ if not security_logger.handlers:
     formatter = logging.Formatter('%(asctime)s - [%(levelname)s] - %(message)s')
     handler.setFormatter(formatter)
     security_logger.addHandler(handler)
+    security_logger.propagate = False
 
 def log_event(event_type: str, details: str, severity: str = "INFO"):
     message = f"[{event_type}] {details}"
@@ -74,10 +75,16 @@ def is_file_safe(filepath: str) -> tuple[bool, str]:
             
     return True, "OK"
 
-def load_constitution(path: str = "constitution.json") -> dict:
+def load_constitution(path: str = None) -> dict:
     """Task 5: Constitution Validation"""
+    if path is None:
+        project_root = Path(__file__).resolve().parent.parent
+        resolved_path = project_root / "config" / "constitution.json"
+    else:
+        resolved_path = Path(path)
+
     try:
-        with open(path, "r") as f:
+        with open(resolved_path, "r", encoding="utf-8") as f:
             config = json.load(f)
         # Ensure all default keys exist
         for key, value in DEFAULT_CONSTITUTION.items():
@@ -85,5 +92,5 @@ def load_constitution(path: str = "constitution.json") -> dict:
                 config[key] = value
         return config
     except (FileNotFoundError, json.JSONDecodeError):
-        log_event("CONFIG_WARN", "Using default constitution (missing or corrupt)", "WARNING")
+        # Fallback completely silently
         return DEFAULT_CONSTITUTION.copy()

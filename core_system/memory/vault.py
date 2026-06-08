@@ -7,6 +7,9 @@
 
 import os
 import sys
+import logging
+logging.getLogger("faiss").setLevel(logging.ERROR)
+logging.getLogger("faiss.loader").setLevel(logging.ERROR)
 import faiss
 import json
 import numpy as np

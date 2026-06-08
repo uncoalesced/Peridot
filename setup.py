@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 """
-PERIDOT SETUP WIZARD v1.5.1 - TURBOQUANT
+PERIDOT SETUP WIZARD v1.5.2 - TURBOQUANT
 Intelligent hardware detection, VRAM profiling, and engine configuration
 Supports NVIDIA GPUs, AMD GPUs, and CPU-only fallback
 """
@@ -47,7 +47,7 @@ def print_banner():
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 {Colors.ENDC}
-{Colors.GREEN}       SETUP WIZARD v1.5.1 (TURBOQUANT) - SOVEREIGN AI KERNEL{Colors.ENDC}
+{Colors.GREEN}       SETUP WIZARD v1.5.2 (TURBOQUANT) - SOVEREIGN AI KERNEL{Colors.ENDC}
 {Colors.CYAN}{'='*70}{Colors.ENDC}
 
 {Colors.YELLOW}Engineered by uncoalesced{Colors.ENDC}
@@ -273,7 +273,7 @@ def create_environment(install_dir: Path) -> bool:
         print(f"{Colors.GREEN}[✓] Security perimeter (.env) already exists.{Colors.ENDC}")
         return True
         
-    api_key = secrets.token_hex(16)
+    api_key = secrets.token_hex(32)
     env_content = f"""# PERIDOT SOVEREIGN KERNEL - SECURITY PERIMETER
 HF_HUB_OFFLINE=1
 API_KEY={api_key}

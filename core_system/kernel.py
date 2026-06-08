@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.1 (FSM + WATCHDOG)
+# PERIDOT SOVEREIGN KERNEL v1.5.2 (FSM + WATCHDOG)
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
@@ -39,7 +39,7 @@ class SovereignKernel:
             print(f"[FATAL] NVML Initialization failed: {e}")
             sys.exit(1)
             
-        print("[KERNEL] v1.5.1 State Machine Initialized.")
+        print("[KERNEL] v1.5.2 State Machine Initialized.")
 
     def request_state_change(self, new_state: KernelState, reason: str = ""):
         with self.state_lock:
@@ -56,8 +56,10 @@ class SovereignKernel:
         """Dedicated thread polling RTX 5050 VRAM registers every 100ms."""
         print("[WATCHDOG] VRAM Telemetry Online.")
         
-        # Hard limit for 8GB card (leaving buffer for OS)
-        CRITICAL_VRAM_MB = 7500 
+        # Hard limit based on actual VRAM (leaving a 100MB buffer for OS to allow RAM bleed/tensor split)
+        info_total = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+        total_vram = info_total.total / (1024 ** 2)
+        CRITICAL_VRAM_MB = total_vram - 100 
         
         while self.is_running:
             try:
@@ -68,7 +70,7 @@ class SovereignKernel:
                     current_state = self.state
                 
                 # OOM Protection: If we aren't explicitly generating text and VRAM spikes, PANIC.
-                if used_vram_mb > CRITICAL_VRAM_MB and current_state not in [KernelState.INFERENCE]:
+                if used_vram_mb > CRITICAL_VRAM_MB and current_state not in [KernelState.INFERENCE, KernelState.FAH_ACTIVE]:
                     print(f"\n[WATCHDOG ALARM] Unmanaged VRAM spike detected: {used_vram_mb:.0f} MB!")
                     self.event_queue.put("OOM_WARNING")
                     

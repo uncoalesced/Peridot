@@ -5,6 +5,9 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
+import logging
+logging.getLogger("faiss").setLevel(logging.ERROR)
+logging.getLogger("faiss.loader").setLevel(logging.ERROR)
 import faiss
 import numpy as np
 import logging
@@ -29,7 +32,7 @@ class EphemeralCache:
         norm = np.linalg.norm(emb)
         if norm > 0:
             emb = emb / norm
-        return np.array([emb], dtype=np.float32)
+        return np.ascontiguousarray([emb], dtype=np.float32)
 
     def add(self, query: str, response: str):
         emb = self._get_normalized_embedding(query)

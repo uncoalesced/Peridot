@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 import tkinter as tk
-from tkinter import font, ttk, messagebox
+from tkinter import font, ttk, messagebox, simpledialog
 import threading
 import psutil
 import time
@@ -70,7 +70,7 @@ ASCII_LOGO = """
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 """
-VERSION_TEXT = "SOVEREIGN KERNEL v1.5.1 [STABLE]\nENGINEERED BY UNCOALESCED"
+VERSION_TEXT = "SOVEREIGN KERNEL v1.5.2 [STABLE]\nENGINEERED BY UNCOALESCED"
 
 
 class TechProgressBar(tk.Canvas):
@@ -244,9 +244,9 @@ class PeridotUI:
                                               command=self._toggle_session_drawer)
         self.btn_toggle_sessions.pack(side=tk.LEFT, padx=(5, 0))
 
-        # Re-enforced borderless PanedWindow
+        # Re-enforced resizable PanedWindow
         self.chat_pane = tk.PanedWindow(self.tab_chat, orient=tk.HORIZONTAL,
-                                         sashrelief=tk.FLAT, bg=COLOR_BG, bd=0)
+                                         sashrelief=tk.RAISED, sashwidth=6, sashcursor="sb_h_double_arrow", bg=COLOR_BG, bd=0)
         self.chat_pane.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
         # Left pane: Session sidebar (hidden by default, managed via toggle)
@@ -281,10 +281,11 @@ class PeridotUI:
 
         self.session_listbox.bind("<ButtonRelease-1>", self._on_session_select)
 
-        # Right-click context menu for session delete
+        # Right-click context menu for session delete and rename
         self.session_menu = tk.Menu(self.tab_chat, tearoff=0, bg=COLOR_DIM,
                                      fg=COLOR_TEXT, activebackground=COLOR_ACCENT,
                                      activeforeground="black", font=FONT_UI)
+        self.session_menu.add_command(label="Rename Session", command=self._rename_session)
         self.session_menu.add_command(label="Delete Session", command=self._delete_session)
         self.session_listbox.bind("<Button-3>", self._show_session_menu)
 
@@ -441,6 +442,16 @@ class PeridotUI:
         )
         btn_swap.pack(anchor="w", pady=(0, 20))
 
+        tk.Frame(config_frame, bg=COLOR_DIM, height=1).pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(config_frame, text=">> HARDWARE MEMORY MANAGEMENT:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
+        
+        btn_reclaim = tk.Button(
+            config_frame, text="FORCE-RECLAIM VRAM", bg=COLOR_DIM, fg=COLOR_ERROR,
+            font=FONT_UI, relief=tk.FLAT, cursor="hand2", command=self._force_reclaim_vram
+        )
+        btn_reclaim.pack(anchor="w", pady=(0, 20))
+
         # Footer Navigation Links
         footer_frame = tk.Frame(self.tab_settings, bg=COLOR_BG)
         footer_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=20)
@@ -486,6 +497,17 @@ class PeridotUI:
             self.lbl_current_model.config(text=f"   {selected_model}")
         except Exception as e:
             messagebox.showerror("Write Fault", f"Failed to rewrite config.py: {str(e)}")
+
+    def _force_reclaim_vram(self):
+        """Sends a signal to the engine to manually flush GC and VRAM."""
+        try:
+            resp = requests.post(f"{SERVER_URL}/vram/reclaim", headers=HEADERS, timeout=10)
+            if resp.status_code == 200:
+                self.display_system_message("HARDWARE | Manual VRAM reclaim triggered successfully.")
+            else:
+                self.display_system_message(f"HARDWARE | VRAM reclaim failed: {resp.text}")
+        except Exception as e:
+            self.display_system_message(f"HARDWARE | Could not reach neural engine: {e}")
 
     def _bind_shortcuts(self):
         """Global key bindings for UX navigation."""
@@ -642,7 +664,9 @@ class PeridotUI:
         if self._current_session_menu_index is None:
             return
         try:
-            sid = self.sessions[self._current_session_menu_index]["session_id"]
+            session = self.display_mapping[self._current_session_menu_index]
+            if not session: return
+            sid = session["session_id"]
             if self.core.current_session_id == sid:
                 self.chat.config(state=tk.NORMAL)
                 self.chat.delete("1.0", tk.END)
@@ -654,11 +678,66 @@ class PeridotUI:
         finally:
             self._current_session_menu_index = None
 
+    def _rename_session(self):
+        if self._current_session_menu_index is None: return
+        try:
+            session = self.display_mapping[self._current_session_menu_index]
+            if not session: return
+            sid = session["session_id"]
+            current_title = session.get("title", "Untitled")
+            
+            # Custom stylized modal dialog
+            dialog = tk.Toplevel(self.root)
+            dialog.title("RENAME SESSION")
+            dialog.configure(bg="#000000")
+            dialog.geometry("350x120")
+            dialog.resizable(False, False)
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            # Center relative to root window
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 175
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 60
+            dialog.geometry(f"+{x}+{y}")
+
+            lbl = tk.Label(dialog, text="[ ENTER NEW SESSION TITLE ]", font=("Courier", 10, "bold"), fg="#00FF00", bg="#000000")
+            lbl.pack(pady=(15, 5))
+
+            entry = tk.Entry(dialog, font=("Courier", 12), bg="#111111", fg="#00FF00", insertbackground="#00FF00", relief=tk.FLAT)
+            entry.insert(0, current_title)
+            entry.pack(fill=tk.X, padx=20, pady=5)
+            entry.focus_set()
+            entry.select_range(0, tk.END)
+
+            new_title = [None]
+            
+            def on_submit(event=None):
+                new_title[0] = entry.get()
+                dialog.destroy()
+
+            def on_cancel(event=None):
+                dialog.destroy()
+
+            entry.bind("<Return>", on_submit)
+            dialog.bind("<Escape>", on_cancel)
+
+            self.root.wait_window(dialog)
+
+            if new_title[0] and new_title[0].strip() and new_title[0].strip() != current_title:
+                self.core.chat_ledger.update_session_title(sid, new_title[0].strip())
+                self._refresh_session_list()
+        except Exception as e:
+            self.display_system_message(f"Session rename failed: {e}")
+        finally:
+            self._current_session_menu_index = None
+
     def _show_session_menu(self, event):
         """Show right-click context menu on session list."""
         try:
             index = self.session_listbox.nearest(event.y)
-            if index >= 0:
+            if index >= 0 and hasattr(self, 'display_mapping') and index < len(self.display_mapping):
+                if self.display_mapping[index] is None:
+                    return
                 self._current_session_menu_index = index
                 self.session_listbox.selection_clear(0, tk.END)
                 self.session_listbox.selection_set(index)
@@ -673,15 +752,20 @@ class PeridotUI:
             if not index:
                 return
             idx = index[0]
-            if idx < 0 or idx >= len(self.sessions):
+            if not hasattr(self, 'display_mapping') or idx < 0 or idx >= len(self.display_mapping):
                 return
-            session_id = self.sessions[idx]["session_id"]
+            session = self.display_mapping[idx]
+            if not session:
+                self.session_listbox.selection_clear(idx)
+                return
+            session_id = session["session_id"]
             if session_id == self.core.current_session_id:
                 return
             self.core.switch_session(session_id)
             full_history = self.core.get_session_history(session_id, full=True)
             self._replay_history(full_history)
-            self.display_system_message(f"Switched to session: {self.sessions[idx].get('title', 'Untitled')[:40]}")
+            self._refresh_session_list()
+            self.display_system_message(f"Switched to session: {session.get('title', 'Untitled')[:40]}")
         except Exception as e:
             self.display_system_message(f"Session switch failed: {e}")
 
@@ -704,18 +788,43 @@ class PeridotUI:
     def _refresh_session_list(self):
         """Refresh the session Listbox from core."""
         try:
-            self.sessions = self.core.list_sessions(50)
+            self.sessions = self.core.list_sessions(100)
             self.session_listbox.delete(0, tk.END)
+            self.display_mapping = []
+            
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            today = now.date()
+            yesterday = today - timedelta(days=1)
+            last_week = today - timedelta(days=7)
+            
+            categories = {"TODAY": [], "YESTERDAY": [], "LAST WEEK": [], "OLDER": []}
+            
             for s in self.sessions:
-                title = s.get("title", "Untitled")[:40]
-                stamp = ""
                 try:
                     ts = s.get("updated_at", 0)
-                    stamp = datetime.fromtimestamp(ts).strftime("%H:%M")
+                    dt = datetime.fromtimestamp(ts).date()
+                    if dt == today:
+                        categories["TODAY"].append(s)
+                    elif dt == yesterday:
+                        categories["YESTERDAY"].append(s)
+                    elif dt > last_week:
+                        categories["LAST WEEK"].append(s)
+                    else:
+                        categories["OLDER"].append(s)
                 except Exception:
-                    pass
-                display = f"{'●' if s['session_id'] == self.core.current_session_id else '○'} {title} • {stamp}"
-                self.session_listbox.insert(tk.END, display)
+                    categories["OLDER"].append(s)
+                    
+            for cat, items in categories.items():
+                if not items: continue
+                self.session_listbox.insert(tk.END, f" --- {cat} --- ")
+                self.display_mapping.append(None)
+                
+                for s in items:
+                    title = s.get("title", "Untitled")[:40]
+                    display = f"{'●' if s['session_id'] == self.core.current_session_id else '○'} {title}"
+                    self.session_listbox.insert(tk.END, display)
+                    self.display_mapping.append(s)
         except Exception as e:
             print(f"[UI] Session list refresh failed: {e}")
 
@@ -794,9 +903,12 @@ class PeridotUI:
             self._spellcheck_timer = self.root.after(500, self._run_spellcheck)
 
     def _adjust_input_height(self, event=None):
-        num_lines = int(self.entry.index('end-1c').split('.')[0])
+        self.entry.update_idletasks()
+        dl = self.entry.count("1.0", "end-1c", "displaylines")
+        num_lines = (dl[0] if dl else 0) + 1
         new_height = min(max(1, num_lines), 8)
         self.entry.config(height=new_height)
+        self.entry.see(tk.INSERT)
 
     def handle_input(self):
         if self.is_processing: return

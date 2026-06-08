@@ -1,35 +1,37 @@
 # Peridot - Changelog
 > Engineered by uncoalesced
 
+Peridot v1.5.2 is the biggest update yet! A major step forward in Peridot’s security posture, hardware adaptability and long term usability. This release hardens the local perimeter (removing high risk deserialization and injection paths), introduces intelligent VRAM aware auto-scaling for smoother performance across GPUs, and delivers persistent multi-session conversational memory so Peridot can support real workflows without losing context between runs. Really delighted with how this update has come together and the stability achieved across this version.
 
 ---
 
 
-## [v1.5.1-STABLE] - 2026-06-08
+## [v1.5.2-STABLE] - 2026-06-08
 
-**Name:** Peridot v1.5.1 STABLE - Security Hardening, Hardware Auto-Scaling & Multi-Session Memory
+**Name:** Peridot v1.5.2 STABLE - Security Hardening, Hardware Auto-Scaling & Multi-Session Memory
 
 ### Security & Compliance (Phase 1: Critical Hotfixes)
 
 - **API Key Rotation:** Eliminated hardcoded default key (`08101954`). `config.py` now generates a cryptographically secure `secrets.token_hex(32)` on first boot and persists to `.env` via `python-dotenv`. Each deployment receives a unique 256-bit key.
-- **Pickle RCE Remediation:** `core_system/memory/vault.py` — Replaced `pickle.load()/dump()` with `json.load()/dump()` for metadata serialization (`.meta` file). Removes arbitrary code execution vector via malicious serialized metadata.
-- **Shell Injection Hardening:** `ui.py` — Removed `shell=True` from all `subprocess.check_output()` calls to `nvidia-smi`. Arguments now passed as safe arrays (`creationflags=0x08000000` preserved for window suppression).
-- **CORS Restriction:** `server.py` — Restricted `CORS(app)` to exclusively allow `http://127.0.0.1:5000` and `http://localhost:5000`. Blocks cross-origin requests from external origins.
-- **Multi-Session Conversational Memory:** New `core_system/chat_ledger.py` — SQLite-backed chat ledger with session CRUD, message logging, and sliding-window history retrieval (`get_history(session_id, limit=6)`). Integrated into `/ask` route: accepts optional `session_id`, auto-creates titled sessions, persists user/assistant turns, injects last 6 turns into prompt context, returns `session_id` for client continuity.
+- **Pickle RCE Remediation:** `core_system/memory/vault.py` - Replaced `pickle.load()/dump()` with `json.load()/dump()` for metadata serialization (`.meta` file). Removes arbitrary code execution vector via malicious serialized metadata.
+- **Shell Injection Hardening:** `ui.py` - Removed `shell=True` from all `subprocess.check_output()` calls to `nvidia-smi`. Arguments now passed as safe arrays (`creationflags=0x08000000` preserved for window suppression).
+- **CORS Restriction:** `server.py` - Restricted `CORS(app)` to exclusively allow `http://127.0.0.1:5000` and `http://localhost:5000`. Blocks cross-origin requests from external origins.
+- **Multi-Session Conversational Memory:** New `core_system/chat_ledger.py` - SQLite-backed chat ledger with session CRUD, message logging, and sliding-window history retrieval (`get_history(session_id, limit=6)`). Integrated into `/ask` route: accepts optional `session_id`, auto-creates titled sessions, persists user/assistant turns, injects last 6 turns into prompt context, returns `session_id` for client continuity.
 
 ### Hardware Auto-Scaling (Phase 2: VRAM Detection)
 
-- **Dynamic VRAM Detection:** `config.py` — Added `_detect_total_vram_mb()` using `nvidia-smi --query-gpu=memory.total` (safe subprocess, no shell). Detects total GPU VRAM at module load.
+- **Dynamic VRAM Detection:** `config.py` - Added `_detect_total_vram_mb()` using `nvidia-smi --query-gpu=memory.total` (safe subprocess, no shell). Detects total GPU VRAM at module load.
 - **Auto GPU_LAYERS Calculation:** If model size < 75% of total VRAM -> `GPU_LAYERS=99` (full offload). Else -> `GPU_LAYERS=20` (partial). CPU-only fallback: `GPU_LAYERS=0`.
 - **Auto CONTEXT_LENGTH Calculation:** >10GB VRAM -> 8192 tokens. <=10GB VRAM -> 4096 tokens. CPU-only -> 2048 tokens.
 - **UI Integration:** `ui.py` now imports `TOTAL_VRAM_GB` from `config` instead of hardcoded `8.0` or duplicate `nvidia-smi` call. Model compatibility ratings in dropdown use dynamic VRAM envelope.
 
 ### RAG Ingestion Overhaul (Phase 3: PyMuPDF & Metadata Tagging)
 
-- **Layout-Preserving PDF Extraction:** `core_system/memory/vault.py` — Replaced `fitz.get_text("text")` with `fitz.get_text("text", sort=True)` to preserve visual layout geometry of multi-column tables (e.g., Balance Sheets).
-- **Provenance Tagging:** `core_system/memory/vault.py` — Every text chunk now strictly prepends `[SOURCE DOC: {filename}]
+- **Layout-Preserving PDF Extraction:** `core_system/memory/vault.py` - Replaced `fitz.get_text("text")` with `fitz.get_text("text", sort=True)` to preserve visual layout geometry of multi-column tables (e.g., Balance Sheets).
+- **Provenance Tagging:** `core_system/memory/vault.py`  Every text chunk now strictly prepends `[SOURCE DOC: {filename}]
 ` before embedding, enabling the LLM to cite exact documentary sources during generation.
 
+---
 
 ## [v1.5.0-STABLE] - 2026-06-03
 

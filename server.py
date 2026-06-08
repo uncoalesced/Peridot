@@ -1,11 +1,12 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.1 | NEURAL ENGINE & INGESTION CORE
+# PERIDOT SOVEREIGN KERNEL v1.5.2 | NEURAL ENGINE & INGESTION CORE
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
 import sys
+import gc
 import logging
 import threading
 import time
@@ -32,7 +33,7 @@ from config import (
 from core_system.prompting.constitution import get_model_format
 from core_system.prompting.builder import build_full_context
 
-# --- RAG SUBSYSTEM AND v1.5.1 CACHE IMPORTS ---
+# --- RAG SUBSYSTEM AND v1.5.2 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
 except ImportError:
@@ -47,7 +48,9 @@ try:
     from core_system.memory.chat_ledger import get_chat_ledger
     chat_ledger = get_chat_ledger()
 except ImportError as e:
-    print(f"[WARN] Chat Ledger offline. Session persistence disabled. Error: {e}")
+    if ghost:
+        try: ghost.warning(f"Chat Ledger offline. Session persistence disabled. Error: {e}")
+        except: pass
     chat_ledger = None
 
 try:
@@ -59,9 +62,13 @@ try:
     l1_cache = EphemeralCache()
     vault = PersistentVault()
     rag_cache = AetherCache(max_ram_items=50)
-    print("[SYSTEM] RAG Subsystem Online.")
+    if ghost:
+        try: ghost.info("RAG Subsystem Online.")
+        except: pass
 except ImportError as e:
-    print(f"[WARN] RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
+    if ghost:
+        try: ghost.warning(f"RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
+        except: pass
     l1_cache = None
     vault = None
     rag_cache = None
@@ -94,13 +101,15 @@ def send_fah_command(cmd_state: str) -> bool:
     except Exception:
         return False
 
-# --- v1.5.1 KERNEL INTEGRATION (Delta Watchdog) ---
+# --- v1.5.2 KERNEL INTEGRATION (Delta Watchdog) ---
 class PeridotProductionKernel(SovereignKernel):
     def _execute_vram_purge(self):
         if self.state == KernelState.PANIC:
             return
             
-        print("[HARDWARE] Firing WebSocket SIGSTOP to FAH v8...")
+        if ghost:
+            try: ghost.info("HARDWARE | Firing WebSocket SIGSTOP to FAH v8...")
+            except: pass
         start_time = time.time()
         
         initial_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
@@ -130,12 +139,16 @@ class PeridotProductionKernel(SovereignKernel):
         
         if cleared:
             log_msg = f"Hardware yielded. Free VRAM: {free_vram_mb:.0f}MB. Latency: {latency_ms:.0f}ms."
-            print(f">> {log_msg}")
+            if ghost:
+                try: ghost.info(f">> {log_msg}")
+                except: pass
             if ledger: ledger.log_handoff(latency_ms, success=True)
             self.request_state_change(KernelState.INFERENCE, log_msg)
         else:
             fail_msg = f"VRAM LOCKOUT: Free VRAM critical at {free_vram_mb:.0f}MB. Threshold: 200MB."
-            print(f"[KERNEL PANIC] {fail_msg}")
+            if ghost:
+                try: ghost.error(f"[KERNEL PANIC] {fail_msg}")
+                except: pass
             if ledger: ledger.log_handoff(latency_ms, success=False)
             self.event_queue.put("FAH_HANG_DETECTED")
             self.state = KernelState.PANIC
@@ -156,13 +169,15 @@ def idle_monitor():
                 if kernel.state == KernelState.IDLE:
                     if send_fah_command("fold"):
                         kernel.state = KernelState.FAH_ACTIVE
-                        print(f"\n[Peridot-Research] Idle threshold met. VRAM allocated to FAH. (Free: {get_vram_free()}MB)")
+                        if ghost:
+                            try: ghost.info(f"RESEARCH | Idle threshold met. VRAM allocated to FAH. (Free: {get_vram_free()}MB)")
+                            except: pass
         time.sleep(1)
 
 def boot_engine():
     global llm
     print(f"\n{'='*50}")
-    print("   PERIDOT NEURAL ENGINE (v1.5.1 SOVEREIGN KERNEL)")
+    print("   PERIDOT NEURAL ENGINE (v1.5.2 SOVEREIGN KERNEL)")
     print(f"{'='*50}")
     
     if not MODEL_PATH.exists():
@@ -192,13 +207,23 @@ def boot_engine():
         print(f"\n[FATAL ERROR] {e}")
         sys.exit(1)
 
-# --- SECURITY ---
+# --- SECURITY & CONCURRENCY ---
+inference_lock = threading.Lock()
+
 def require_auth(f):
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
         if not auth_header or auth_header != f"Bearer {API_KEY}":
             return jsonify({"error": "Unauthorized. Invalid or missing API Key."}), 403
         return f(*args, **kwargs)
+    decorated.__name__ = f.__name__
+    return decorated
+
+def queue_requests(f):
+    """Forces concurrent API requests to wait in line, preventing C++ segfaults."""
+    def decorated(*args, **kwargs):
+        with inference_lock:
+            return f(*args, **kwargs)
     decorated.__name__ = f.__name__
     return decorated
 
@@ -218,11 +243,14 @@ def ingest_vault_nodes():
         vault.ingest_directory()
         return jsonify({"status": "SUCCESS", "message": "Check engine console for ingestion telemetry."}), 200
     except Exception as e:
-        print(f"[FATAL] Ingestion Disrupted: {e}")
+        if ghost:
+            try: ghost.error(f"Ingestion Disrupted: {e}")
+            except: pass
         return jsonify({"error": str(e)}), 500
     
 @app.route("/ask", methods=["POST"])
 @require_auth
+@queue_requests
 def ask():
     global last_activity_time
     last_activity_time = time.time()
@@ -241,19 +269,13 @@ def ask():
 
     # 1. Initialize or load session
     if chat_ledger is not None:
-        if not session_id:
-            title = " ".join(user_query.split()[:5]) + ("..." if len(user_query.split()) > 5 else "")
-            session_id = chat_ledger.create_session(title=title)
-        
-        # 2. Fetch history BEFORE saving current message (avoids duplication in prompt)
         history = chat_ledger.get_history(session_id, limit=6)
-        
-        # 3. Save User Input
-        chat_ledger.add_message(session_id, "user", user_query)
     else:
         history = []
 
-    print(f"\n[API] Received payload. Requesting hardware clearance...")
+    if ghost:
+        try: ghost.info("API | Received payload. Requesting hardware clearance...")
+        except: pass
     kernel.event_queue.put("PROMPT_RECEIVED")
     
     timeout = 100
@@ -277,9 +299,6 @@ def ask():
                 if ghost:
                     try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
                     except: pass
-                kernel.event_queue.put("INFERENCE_COMPLETE")
-                if chat_ledger and session_id:
-                    chat_ledger.add_message(session_id, "assistant", cached_response)
                 return jsonify({"response": cached_response, "session_id": session_id})
 
         context_str = ""
@@ -288,26 +307,35 @@ def ask():
                 try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
                 except: pass
             
-            query_vector = embedder.embed_query(user_query)
-            # Scaled retrieval lookup vector from top_k=3 to top_k=6
-            relevant_context = vault.search(query_vector, top_k=6)
-            
-            if relevant_context:
-                context_segments = []
-                for idx, chunk in enumerate(relevant_context):
-                    source_id = f"Vault_Chunk_{idx}"
-                    context_segments.append(f"[SOURCE: {source_id}]: {chunk}")
-                    if rag_cache is not None:
-                        rag_cache.put(source_id, [1.0, 0.0])
+            try:
+                query_vector = embedder.embed_query(user_query)
+                # Scaled retrieval lookup vector from top_k=3 to top_k=6
+                relevant_context = vault.search(query_vector, top_k=6)
                 
-                context_str = "\n---\n".join(context_segments)
+                if relevant_context:
+                    context_segments = []
+                    for idx, chunk in enumerate(relevant_context):
+                        source_id = f"Vault_Chunk_{idx}"
+                        context_segments.append(f"[SOURCE: {source_id}]: {chunk}")
+                        if rag_cache is not None:
+                            rag_cache.put(source_id, [1.0, 0.0])
+                    
+                    context_str = "\n---\n".join(context_segments)
+                    if len(context_str) > 8000:
+                        context_str = context_str[:8000] + "\n...[CONTEXT TRUNCATED DUE TO MEMORY LIMITS]..."
+                        
+                    if ghost:
+                        try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks.")
+                        except: pass
+                else:
+                    if ghost:
+                        try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
+                        except: pass
+            except Exception as e:
                 if ghost:
-                    try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks.")
+                    try: ghost.warning(f"ROUTER | RAG DEGRADATION: Semantic Memory Retrieval Failed ({e}). Bypassing injection.")
                     except: pass
-            else:
-                if ghost:
-                    try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
-                    except: pass
+                context_str = ""
 
         model_format = get_model_format(MODEL_PATH)
 
@@ -324,9 +352,33 @@ def ask():
         )
 
         start_time = time.time()
+        
+        # Calculate safe max_tokens to prevent llama_cpp from crashing
+        try:
+            prompt_tokens = len(llm.tokenize(final_prompt.encode("utf-8")))
+            safe_max_tokens = CONTEXT_LENGTH - prompt_tokens - 10
+            
+            # If the context is still too large even with RAG truncation, aggressively drop history
+            while safe_max_tokens < 128 and len(history) > 0:
+                history.pop(0)
+                final_prompt = build_full_context(
+                    rag_context=context_str,
+                    chat_history=history,
+                    current_prompt=user_query,
+                    model_format=model_format
+                )
+                prompt_tokens = len(llm.tokenize(final_prompt.encode("utf-8")))
+                safe_max_tokens = CONTEXT_LENGTH - prompt_tokens - 10
+                
+        except Exception:
+            safe_max_tokens = MAX_TOKENS
+            
+        if safe_max_tokens < 128:
+            return jsonify({"response": "[SYSTEM ERROR] The conversation history and context have exceeded the AI's memory window, and could not be truncated safely. Please clear memory and start a new session."}), 400
+            
         output = llm(
             final_prompt, 
-            max_tokens=MAX_TOKENS, 
+            max_tokens=min(MAX_TOKENS, safe_max_tokens), 
             stop=target_stops, 
             temperature=TEMPERATURE,
             top_p=TOP_P,
@@ -336,6 +388,10 @@ def ask():
         elapsed_s = time.time() - start_time
         
         final_response = output["choices"][0]["text"].strip()
+        
+        # Constitutional Dual-Phase Safety Net
+        if "[ANALYSIS]" not in final_response or "[KERNEL_RESPONSE]" not in final_response:
+            final_response = f"[ANALYSIS]\nEnforced kernel formatting fallback.\n\n[KERNEL_RESPONSE]\n{final_response}"
         
         tokens_generated = output.get("usage", {}).get("completion_tokens", len(final_response.split()) * 1.3)
         tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
@@ -350,22 +406,59 @@ def ask():
         if ledger: ledger.log_inference()
              
         # 6. Save AI Response
-        if chat_ledger and session_id:
-            chat_ledger.add_message(session_id, "assistant", final_response)
-             
         return jsonify({"response": final_response, "session_id": session_id})
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         error_msg = str(e)
-        print(f"[FATAL] Internal Inference Error - {error_msg}")
         if ghost:
             try: ghost.error(f"CRITICAL    | Component: server_ask_route | Error: {error_msg}")
             except: pass
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
         
     finally:
-        print("[API] Payload delivered. Releasing hardware lock...")
+        if ghost:
+            try: ghost.info("API | Payload delivered. Releasing hardware lock...")
+            except: pass
+        try:
+            if 'llm' in globals() and llm:
+                llm.reset()
+        except Exception:
+            pass
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
         kernel.event_queue.put("INFERENCE_COMPLETE")
+
+@app.route("/vram/reclaim", methods=["POST"])
+@require_auth
+def reclaim_vram():
+    try:
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+        if 'llm' in globals() and llm:
+            try: llm.reset()
+            except: pass
+        if ghost:
+            try: ghost.info("HARDWARE | Manual VRAM Force-Reclaim triggered via UI.")
+            except: pass
+        return jsonify({"status": "SUCCESS", "message": "VRAM successfully reclaimed."}), 200
+    except Exception as e:
+        if ghost:
+            try: ghost.error(f"VRAM Reclaim Failed: {e}")
+            except: pass
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/telemetry/stability", methods=["GET"])
 @require_auth
