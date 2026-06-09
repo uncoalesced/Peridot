@@ -27,3 +27,6 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["."]
 exclude = ["assets*", "docs*", "input*", ".github*"]
+
+[tool.pytest.ini_options]
+python_files = ["*_tests.py", "test_*.py"]
