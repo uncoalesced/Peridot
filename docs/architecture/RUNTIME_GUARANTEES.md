@@ -1,5 +1,5 @@
 # PERIDOT SOVEREIGN KERNEL: Runtime Guarantees
-**Version:** 1.5.1-STABLE  
+**Version:** 1.5.2-STABLE  
 **Target Hardware:** Constrained Consumer Architecture (8GB VRAM / 16GB RAM)
 
 This document defines the strict operational boundaries, degradation policies, and failure-isolation guarantees enforced by the Peridot v1.5.2 Central Nervous System (FSM). Peridot operates on the principle that inference throughput is secondary to system stability.

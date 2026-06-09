@@ -20,7 +20,7 @@
 
 ## [v1.5.1-STABLE] - 2026-06-08
 
-Peridot v1.5.2 is the biggest update yet! A major step forward in Peridot’s security posture, hardware adaptability and long term usability. This release hardens the local perimeter (removing high risk deserialization and injection paths), introduces intelligent VRAM aware auto-scaling for smoother performance across GPUs, and delivers persistent multi-session conversational memory so Peridot can support real workflows without losing context between runs. Really delighted with how this update has come together and the stability achieved across this version.
+Peridot v1.5.1 is the biggest update yet! A major step forward in Peridot’s security posture, hardware adaptability and long term usability. This release hardens the local perimeter (removing high risk deserialization and injection paths), introduces intelligent VRAM aware auto-scaling for smoother performance across GPUs, and delivers persistent multi-session conversational memory so Peridot can support real workflows without losing context between runs. Really delighted with how this update has come together and the stability achieved across this version.
 
 
 **Name:** Peridot v1.5.1 STABLE - Security Hardening, Hardware Auto-Scaling & Multi-Session Memory

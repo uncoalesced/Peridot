@@ -144,7 +144,7 @@ Measured on real hardware. No overclocking. No cherry picked runs.
 
 ## Split-Tensor Allocation
 
-Peridot v1.5.0 STABLE standardizes on a single production inference architecture.
+Peridot v1.5.2 STABLE standardizes on a single production inference architecture.
 
 ```text
 Qwen2.5-14B-Instruct-Q4_K_M
