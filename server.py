@@ -17,6 +17,8 @@ import pynvml
 from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from llama_cpp import Llama
 from dotenv import load_dotenv
 
@@ -81,6 +83,7 @@ log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 app = Flask(__name__)
 CORS(app, origins=["http://127.0.0.1:5000", "http://localhost:5000"])
+limiter = Limiter(get_remote_address, app=app, default_limits=["60 per minute"])
 
 # --- RESOURCE ORCHESTRATION (FAH v8) ---
 def get_vram_free() -> int:
@@ -236,6 +239,7 @@ def health_check():
 
 @app.route("/ingest", methods=["POST"])
 @require_auth
+@limiter.limit("60 per minute")
 def ingest_vault_nodes():
     if vault is None:
         return jsonify({"error": "RAG Vault offline."}), 500
@@ -251,6 +255,7 @@ def ingest_vault_nodes():
 @app.route("/ask", methods=["POST"])
 @require_auth
 @queue_requests
+@limiter.limit("60 per minute")
 def ask():
     global last_activity_time
     last_activity_time = time.time()
