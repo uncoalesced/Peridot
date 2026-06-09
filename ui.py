@@ -8,6 +8,7 @@
 
 import tkinter as tk
 from tkinter import font, ttk, messagebox, simpledialog
+from PIL import Image, ImageTk
 import threading
 import psutil
 import time
@@ -354,16 +355,34 @@ class PeridotUI:
         self.entry.bind("<KeyRelease>", self._on_key_release)
         self.entry.bind("<Button-3>", self._show_spellcheck_menu)
 
-        self.btn_mic = tk.Button(
-            self.in_frame, text="MIC", command=self.handle_voice, bg=COLOR_DIM, fg="white",
-            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
-        )
+        mic_img_path = os.path.join(os.path.dirname(__file__), "assets", "icons", "peridot_mic.ico")
+        if os.path.exists(mic_img_path):
+            mic_img = Image.open(mic_img_path).resize((24, 24), Image.LANCZOS)
+            self.mic_photo = ImageTk.PhotoImage(mic_img)
+            self.btn_mic = tk.Button(
+                self.in_frame, image=self.mic_photo, command=self.handle_voice, bg=COLOR_DIM,
+                relief=tk.FLAT, padx=10, pady=5, cursor="hand2"
+            )
+        else:
+            self.btn_mic = tk.Button(
+                self.in_frame, text="MIC", command=self.handle_voice, bg=COLOR_DIM, fg="white",
+                font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
+            )
         self.btn_mic.grid(row=1, column=1, padx=(10, 5), sticky="ns")
 
-        self.btn_run = tk.Button(
-            self.in_frame, text="EXECUTE", command=self.handle_input, bg=COLOR_ACCENT, fg="black",
-            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
-        )
+        send_img_path = os.path.join(os.path.dirname(__file__), "assets", "icons", "peridot_send.ico")
+        if os.path.exists(send_img_path):
+            send_img = Image.open(send_img_path).resize((36, 24), Image.LANCZOS)
+            self.run_photo = ImageTk.PhotoImage(send_img)
+            self.btn_run = tk.Button(
+                self.in_frame, image=self.run_photo, command=self.handle_input, bg=COLOR_ACCENT,
+                relief=tk.FLAT, padx=10, pady=5, cursor="hand2"
+            )
+        else:
+            self.btn_run = tk.Button(
+                self.in_frame, text="EXECUTE", command=self.handle_input, bg=COLOR_ACCENT, fg="black",
+                font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
+            )
         self.btn_run.grid(row=1, column=2, padx=5, sticky="ns")
 
         # Fixed Status Telemetry Panel
@@ -415,7 +434,7 @@ class PeridotUI:
 
         if os.path.exists(models_dir):
             for f in os.listdir(models_dir):
-                if f.endswith(".gguf"):
+                if f.endswith(".gguf") or f.endswith(".safetensors"):
                     file_size_gb = os.path.getsize(os.path.join(models_dir, f)) / (1024**3)
                     
                     if file_size_gb < (total_vram_gb * 0.6):
