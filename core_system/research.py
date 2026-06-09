@@ -90,7 +90,7 @@ class MedicalResearchModule:
 
         if not self.check_installation(): return False
         try:
-            subprocess.Popen(
+            subprocess.Popen(  # nosec B603
                 [self.fah_path, f"--send-{cmd}"],
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 stdout=subprocess.DEVNULL,

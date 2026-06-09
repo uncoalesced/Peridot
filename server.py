@@ -164,7 +164,6 @@ last_activity_time = time.time()
 research_allowed = False
 
 def idle_monitor():
-    global last_activity_time
     while True:
         elapsed = time.time() - last_activity_time
         if elapsed > RESEARCH_IDLE_THRESHOLD and research_allowed:
@@ -485,7 +484,6 @@ def shutdown():
 @app.route("/research/status", methods=["GET"])
 @require_auth
 def get_research_status():
-    global research_allowed
     return jsonify({
         "enabled": research_allowed, 
         "active": kernel.state == KernelState.FAH_ACTIVE,
