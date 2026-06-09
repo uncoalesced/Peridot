@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
+#
 # Licensed under the MIT License.
 #
 # Engineered by uncoalesced.
@@ -31,6 +31,7 @@ try:
     from benchmark_utils import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger("hardware_info")
 
 try:
@@ -46,14 +47,21 @@ def _get_cpu_info():
     try:
         if platform.system() == "Windows":
             # WMIC provides the most accurate model string for Ryzen AI processors
-            cpu_name = subprocess.check_output(
-                "wmic cpu get name", shell=True
-            ).decode().split("\n")[1].strip()
+            cpu_name = (
+                subprocess.check_output("wmic cpu get name", shell=True)
+                .decode()
+                .split("\n")[1]
+                .strip()
+            )
         elif platform.system() == "Linux":
-            cpu_name = subprocess.check_output(
-                "cat /proc/cpuinfo | grep 'model name' | head -1",
-                shell=True
-            ).decode().split(":")[1].strip()
+            cpu_name = (
+                subprocess.check_output(
+                    "cat /proc/cpuinfo | grep 'model name' | head -1", shell=True
+                )
+                .decode()
+                .split(":")[1]
+                .strip()
+            )
     except Exception as e:
         logger.debug(f"Extended CPU discovery failed: {e}")
 
@@ -62,24 +70,22 @@ def _get_cpu_info():
 
 def _get_gpu_info():
     """Telemetry for NVIDIA GPUs via NVML. Bypasses Torch to save VRAM."""
-    gpu_info = {
-        "gpu_name": "Unknown",
-        "gpu_memory_total_gb": 0,
-        "gpu_count": 0
-    }
+    gpu_info = {"gpu_name": "Unknown", "gpu_memory_total_gb": 0, "gpu_count": 0}
 
     if pynvml:
         try:
             pynvml.nvmlInit()
             device_count = pynvml.nvmlDeviceGetCount()
             gpu_info["gpu_count"] = device_count
-            
+
             if device_count > 0:
                 handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                 name = pynvml.nvmlDeviceGetName(handle)
                 mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
 
-                gpu_info["gpu_name"] = name.decode() if isinstance(name, bytes) else name
+                gpu_info["gpu_name"] = (
+                    name.decode() if isinstance(name, bytes) else name
+                )
                 gpu_info["gpu_memory_total_gb"] = round(mem.total / (1024**3), 2)
 
             pynvml.nvmlShutdown()
@@ -113,5 +119,6 @@ def get_specs():
 
 if __name__ == "__main__":
     import json
+
     # Direct execution provides a clean JSON dump of the hardware profile
     print(json.dumps(get_specs(), indent=2))

@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
+#
 # Licensed under the MIT License.
 #
 # Engineered by uncoalesced.
@@ -32,8 +32,11 @@ try:
     import pynvml
     from benchmark_utils import logger, BenchmarkResult
 except ImportError:
-    print("[ERROR] Missing dependencies. Ensure pynvml and benchmark_utils are available.")
+    print(
+        "[ERROR] Missing dependencies. Ensure pynvml and benchmark_utils are available."
+    )
     sys.exit(1)
+
 
 def get_vram_used():
     pynvml.nvmlInit()
@@ -42,18 +45,18 @@ def get_vram_used():
     pynvml.nvmlShutdown()
     return info.used / (1024 * 1024)  # Convert to MB
 
+
 def run_hammer_test():
-    logger.info("\n" + "="*60)
+    logger.info("\n" + "=" * 60)
     logger.info("PERIDOT VRAM HAMMER DIAGNOSTIC")
-    logger.info("="*60 + "\n")
+    logger.info("=" * 60 + "\n")
 
     if not torch.cuda.is_available():
         logger.error("CUDA not detected. Synthetic stress test aborted.")
         return
 
     result = BenchmarkResult(
-        name="vram_hammer",
-        description="Synthetic 4GB VRAM allocation and purge cycle."
+        name="vram_hammer", description="Synthetic 4GB VRAM allocation and purge cycle."
     )
 
     # 1. Baseline
@@ -78,15 +81,15 @@ def run_hammer_test():
     # Manual context flush
     del dummy_tensor
     torch.cuda.empty_cache()
-    torch.cuda.synchronize() # Ensure the GPU has actually finished the flush
+    torch.cuda.synchronize()  # Ensure the GPU has actually finished the flush
 
     end_time = time.perf_counter()
     latency = (end_time - start_time) * 1000
-    
+
     # 4. Final Telemetry
     final_vram = get_vram_used()
     result.add_measurement(latency)
-    
+
     logger.info(f"[4/4] Purge Complete.")
     logger.info(f"      Hardware Latency: {latency:.2f} ms")
     logger.info(f"      Final Residual VRAM: {final_vram:.2f} MB")
@@ -95,9 +98,12 @@ def run_hammer_test():
     if final_vram <= (baseline + 150):
         logger.info(f"\n[RESULT] PASS: RTX 5050 flushed 4GB in {latency:.2f}ms.")
     else:
-        logger.warning("\n[RESULT] WARN: Residual VRAM detected. Potential driver fragmentation.")
+        logger.warning(
+            "\n[RESULT] WARN: Residual VRAM detected. Potential driver fragmentation."
+        )
 
     result.save(benchmarking_dir / "results")
+
 
 if __name__ == "__main__":
     run_hammer_test()

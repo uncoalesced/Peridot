@@ -56,7 +56,7 @@ def run_script(script_name: str) -> bool:
         result = subprocess.run(
             [sys.executable, str(script_path)],
             cwd=str(BASE_DIR),
-            timeout=1800  # 30 min max per benchmark
+            timeout=1800,  # 30 min max per benchmark
         )
 
         if result.returncode == 0:
@@ -85,9 +85,7 @@ def generate_report():
 
     try:
         subprocess.run(
-            [sys.executable, str(REPORT_SCRIPT)],
-            cwd=str(BASE_DIR),
-            timeout=120
+            [sys.executable, str(REPORT_SCRIPT)], cwd=str(BASE_DIR), timeout=120
         )
         logger.info("[SUCCESS] Report generated")
     except Exception as e:
@@ -116,14 +114,12 @@ def main():
 
     for i, (name, script) in enumerate(BENCHMARKS, 1):
         logger.info(f"\n[{i}/{len(BENCHMARKS)}] {name.upper()}")
-        
+
         success = run_script(script)
 
-        results.append({
-            "name": name,
-            "success": success,
-            "time": datetime.now().isoformat()
-        })
+        results.append(
+            {"name": name, "success": success, "time": datetime.now().isoformat()}
+        )
 
         # Small cooldown (important for GPU stabilization)
         if i < len(BENCHMARKS):

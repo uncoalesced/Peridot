@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL
 # Copyright (C) 2026 uncoalesced
-# 
+#
 # Licensed under the MIT License.
 #
 # Engineered by uncoalesced.
@@ -24,38 +24,48 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from benchmark_utils import (
-    BenchmarkResult, get_system_info, format_duration, format_throughput, logger
+    BenchmarkResult,
+    get_system_info,
+    format_duration,
+    format_throughput,
+    logger,
 )
 import api_client
 
 RESULTS_DIR = Path(__file__).parent / "results"
 SERVER_PATH = Path(__file__).parent.parent / "server.py"
 
+
 def kill_existing_peridot():
     """Kill any existing Peridot processes safely."""
     import psutil
-    
+
     killed_count = 0
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
-            cmdline = proc.info.get('cmdline')
-            if cmdline and any(name in str(cmd).lower() for cmd in cmdline for name in ['server.py', 'launcher.py', 'main.py']):
+            cmdline = proc.info.get("cmdline")
+            if cmdline and any(
+                name in str(cmd).lower()
+                for cmd in cmdline
+                for name in ["server.py", "launcher.py", "main.py"]
+            ):
                 logger.info(f"Killing existing process: PID {proc.info['pid']}")
                 proc.kill()
                 killed_count += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
-    
+
     if killed_count > 0:
         logger.info(f"Killed {killed_count} existing Peridot process(es)")
         time.sleep(4)
-    
+
     return killed_count
+
 
 def wait_for_health(timeout=200):
     """Wait for Peridot to respond to health check via api_client."""
     start = time.time()
-    
+
     while time.time() - start < timeout:
         try:
             response = api_client.get_health()
@@ -64,8 +74,9 @@ def wait_for_health(timeout=200):
         except RuntimeError:
             pass
         time.sleep(2)
-    
+
     return False
+
 
 def generate_context(target_tokens: int) -> str:
     """Generate a repetitive string to simulate a large context window."""
@@ -74,17 +85,19 @@ def generate_context(target_tokens: int) -> str:
     their performance on a specific task through experience. Deep learning, a specialized 
     branch of machine learning, uses neural networks with multiple layers to automatically 
     learn hierarchical representations of data. """
-    
+
     tokens_per_chunk = 78
     repetitions = max(1, target_tokens // tokens_per_chunk)
     context = (base_text * repetitions).strip()
-    
+
     return context
+
 
 def count_tokens_rough(text: str) -> int:
     """Rough approximation of token count based on word count."""
     words = text.split()
     return int(len(words) * 1.3)
+
 
 def measure_with_context(context_tokens: int, runs: int = 3) -> dict:
     """Measure inference performance given a specific context size."""
@@ -112,7 +125,9 @@ def measure_with_context(context_tokens: int, runs: int = 3) -> dict:
     for i in range(runs):
         try:
             start = time.time()
-            response = api_client.post_chat(message=full_prompt, max_tokens=50, timeout=300)
+            response = api_client.post_chat(
+                message=full_prompt, max_tokens=50, timeout=300
+            )
             elapsed = time.time() - start
 
             response_text = response.get("response", "")
@@ -136,15 +151,16 @@ def measure_with_context(context_tokens: int, runs: int = 3) -> dict:
             "median_throughput": statistics.median(throughputs),
             "avg_response_time": statistics.mean(response_times),
             "throughputs": throughputs,
-            "successful_runs": len(throughputs)
+            "successful_runs": len(throughputs),
         }
     else:
         return None
 
+
 def main():
-    logger.info("\n" + "="*60)
+    logger.info("\n" + "=" * 60)
     logger.info("PERIDOT CONTEXT WINDOW SCALING BENCHMARK")
-    logger.info("="*60 + "\n")
+    logger.info("=" * 60 + "\n")
 
     system_info = get_system_info()
     logger.info("System Information:")
@@ -154,31 +170,30 @@ def main():
 
     logger.info("Autonomously booting Peridot Kernel for testing...")
     kill_existing_peridot()
-    
+
     # Inherit environment and inject API key to prevent 403 Forbidden
     env = os.environ.copy()
     if api_client.API_KEY:
         env["API_KEY"] = api_client.API_KEY
         env["PERIDOT_AUTH_TOKEN"] = api_client.API_KEY
-        
+
     proc = subprocess.Popen(
-        [sys.executable, str(SERVER_PATH)],
-        cwd=SERVER_PATH.parent,
-        env=env
+        [sys.executable, str(SERVER_PATH)], cwd=SERVER_PATH.parent, env=env
     )
-    
+
     logger.info("Waiting for VRAM allocation...")
     if not wait_for_health(timeout=200):
-        logger.error("Kernel offline: Failed to establish health check within 200 seconds.")
+        logger.error(
+            "Kernel offline: Failed to establish health check within 200 seconds."
+        )
         proc.kill()
         sys.exit(1)
-        
+
     logger.info("Kernel Online. Commencing Context Scaling Tests.")
 
     try:
         result = BenchmarkResult(
-            name="context_scaling",
-            description="Performance vs context window size"
+            name="context_scaling", description="Performance vs context window size"
         )
 
         context_sizes = [512, 1024, 2048, 4096]
@@ -189,17 +204,21 @@ def main():
         results_by_size = []
 
         for size in context_sizes:
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info(f"Context Size: {size} tokens")
-            logger.info("="*60)
+            logger.info("=" * 60)
 
             measurement = measure_with_context(size, runs=3)
 
             if measurement:
                 results_by_size.append(measurement)
-                logger.info(f"Average throughput: {measurement['avg_throughput']:.2f} t/s")
-                logger.info(f"Average total time: {format_duration(measurement['avg_response_time'])}")
-                result.add_measurement(measurement['median_throughput'])
+                logger.info(
+                    f"Average throughput: {measurement['avg_throughput']:.2f} t/s"
+                )
+                logger.info(
+                    f"Average total time: {format_duration(measurement['avg_response_time'])}"
+                )
+                result.add_measurement(measurement["median_throughput"])
             else:
                 logger.error(f"Failed to measure context size {size}")
 
@@ -211,9 +230,9 @@ def main():
 
         result.save(RESULTS_DIR)
 
-        logger.info("\n" + "="*60)
+        logger.info("\n" + "=" * 60)
         logger.info("CONTEXT SCALING SUMMARY")
-        logger.info("="*60 + "\n")
+        logger.info("=" * 60 + "\n")
 
         logger.info(f"{'Context Size':<15} {'Avg Throughput':<20} {'Total Time':<15}")
         logger.info("-" * 50)
@@ -228,32 +247,41 @@ def main():
         logger.info("")
 
         if len(results_by_size) >= 2:
-            baseline = results_by_size[0]['avg_throughput']
-            largest = results_by_size[-1]['avg_throughput']
-            
+            baseline = results_by_size[0]["avg_throughput"]
+            largest = results_by_size[-1]["avg_throughput"]
+
             if baseline > 0:
                 degradation_pct = ((baseline - largest) / baseline) * 100
                 logger.info("Performance degradation from smallest to largest context:")
-                logger.info(f"  {results_by_size[0]['context_tokens']} tokens: {baseline:.2f} t/s")
-                logger.info(f"  {results_by_size[-1]['context_tokens']} tokens: {largest:.2f} t/s")
+                logger.info(
+                    f"  {results_by_size[0]['context_tokens']} tokens: {baseline:.2f} t/s"
+                )
+                logger.info(
+                    f"  {results_by_size[-1]['context_tokens']} tokens: {largest:.2f} t/s"
+                )
                 logger.info(f"  Degradation: {degradation_pct:.1f}%\n")
 
                 if degradation_pct < 20:
-                    logger.info("[SUCCESS] Minimal throughput degradation across context sizes")
+                    logger.info(
+                        "[SUCCESS] Minimal throughput degradation across context sizes"
+                    )
                 elif degradation_pct < 40:
                     logger.info("[SUCCESS] Moderate throughput degradation")
                 else:
-                    logger.warning("[WARNING] Significant throughput degradation with large contexts")
+                    logger.warning(
+                        "[WARNING] Significant throughput degradation with large contexts"
+                    )
 
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("Benchmark complete! Results saved to:")
         logger.info(f"  {RESULTS_DIR.absolute()}")
-        logger.info("="*60 + "\n")
+        logger.info("=" * 60 + "\n")
 
     finally:
         # Tear down the server once the benchmark finishes or if it crashes mid-run
         logger.info("\nBenchmark sequence complete. Tearing down Neural Engine...")
         kill_existing_peridot()
+
 
 if __name__ == "__main__":
     main()
