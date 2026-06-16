@@ -82,7 +82,7 @@ websocket-client==1.9.0
 Werkzeug==3.1.6
 
 # Platform-isolated Deep Learning Matrix
-torch==2.8.0 ; sys_platform == 'win32'
+torch==2.12.0 ; sys_platform == 'win32'
 torchaudio==2.6.0 ; sys_platform == 'win32'
 torchvision==0.21.0 ; sys_platform == 'win32'
 Flask-Limiter
