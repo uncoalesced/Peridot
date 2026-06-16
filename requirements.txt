@@ -55,7 +55,7 @@ Pygments==2.20.0
 PyMuPDF==1.27.2.3
 pyparsing==3.3.2
 PyPDF2==3.0.1
-pyspellchecker==0.8.1
+pyspellchecker==0.9.0
 python-dotenv==1.2.2
 PyYAML==6.0.3
 regex==2026.5.9
