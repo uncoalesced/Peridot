@@ -67,7 +67,7 @@ scipy==1.17.1
 sentence-transformers==5.3.0
 sortedcontainers==2.4.0
 sounddevice==0.5.5
-SpeechRecognition==3.16.1
+SpeechRecognition==3.17.0
 sympy==1.13.1
 threadpoolctl==3.6.0
 tiktoken==0.13.0
