@@ -64,7 +64,7 @@ class ChatLedger:
         if ghost:
             try:
                 ghost.info(f"CHAT_LEDGER | Created session {session_id[:8]}: {title}")
-            except:
+            except Exception as e:
                 pass
         return session_id
 
