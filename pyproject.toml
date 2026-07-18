@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peridot-local"
-version = "1.5.2"
+version = "1.5.3"
 description = "A sovereign local kernel with dynamic hardware scaling."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,4 +29,16 @@ where = ["."]
 exclude = ["assets*", "docs*", "input*", ".github*"]
 
 [tool.pytest.ini_options]
-python_files = ["*_tests.py", "test_*.py"]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_tests.py"]
+norecursedirs = [
+    ".git",
+    ".pytest_cache",
+    "__pycache__",
+    "llama.cpp",
+    "venv",
+    ".venv",
+    "storage",
+    "models",
+    "logs",
+]
