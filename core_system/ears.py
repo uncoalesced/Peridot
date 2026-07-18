@@ -69,7 +69,7 @@ class PeridotEars:
 
             try:
                 os.remove("temp.wav")
-            except:
+            except Exception as e:
                 pass
 
             return text
