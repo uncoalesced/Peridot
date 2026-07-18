@@ -28,7 +28,7 @@ class IntegrityChecker:
         try:
             with open(HASH_FILE, "r") as f:
                 return json.load(f)
-        except:
+        except Exception as e:
             return {}
 
     def calculate_file_hash(self, filepath):
