@@ -43,7 +43,7 @@ class PermissionManager:
         try:
             parsed = urlparse(url)
             return parsed.netloc
-        except:
+        except Exception as e:
             return None
 
     def is_approved(self, url):

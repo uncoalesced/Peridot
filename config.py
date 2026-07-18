@@ -25,11 +25,17 @@ def _detect_total_vram_mb() -> int:
     """
     Detect total GPU VRAM in MB using nvidia-smi.
     Returns 0 if detection fails (CPU-only or no NVIDIA GPU).
+    Cross-platform: works on Windows NT and Linux/Unix.
     """
+    import sys
     try:
         # Safe subprocess call without shell=True
         cmd = ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"]
-        output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, creationflags=0x08000000).decode().strip()
+        kwargs = {"stderr": subprocess.DEVNULL}
+        # Windows NT only: use CREATE_NO_WINDOW to suppress console window
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        output = subprocess.check_output(cmd, **kwargs).decode().strip()
         if output:
             # Take the first GPU's VRAM (in MB)
             return int(output.split('\n')[0])
@@ -105,7 +111,7 @@ MODEL_DIR: Path = ROOT_PATH / "models"
 for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH):
     directory.mkdir(parents=True, exist_ok=True)
 
-# --- ENGINE CONFIGURATION (v1.5.2 TurboQuant) ---
+# --- ENGINE CONFIGURATION (v1.5.3 ZAT-SCS) ---
 ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf")
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 

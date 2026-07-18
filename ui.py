@@ -18,6 +18,9 @@ import ctypes
 import requests
 import re
 import webbrowser
+import sys
+import tkinter as tk 
+from tkinter import scrolledtext, font, ttk, messagebox
 from datetime import datetime
 from pathlib import Path
 
@@ -32,14 +35,16 @@ except ImportError:
     print("[WARN] pyspellchecker module missing. Run: pip install pyspellchecker")
 
 # --- OS-LEVEL OVERRIDES ---
-try:
-    # High DPI Awareness
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    # Taskbar Icon Separation
-    myappid = 'uncoalesced.peridot.sovereign.1_5'
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-except Exception:
-    pass
+# Windows NT only: High DPI Awareness and Taskbar Icon
+if sys.platform == "win32":
+    try:
+        # High DPI Awareness
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        # Taskbar Icon Separation
+        myappid = 'uncoalesced.peridot.sovereign.1_5'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception:
+        pass
 
 # --- THEME & CONFIGURATION ---
 COLOR_BG = "#050505"
@@ -71,7 +76,7 @@ ASCII_LOGO = """
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 """
-VERSION_TEXT = "SOVEREIGN KERNEL v1.5.2 [STABLE]\nENGINEERED BY UNCOALESCED"
+VERSION_TEXT = "SOVEREIGN KERNEL v1.5.3 [STABLE]\nENGINEERED BY UNCOALESCED"
 
 
 class TechProgressBar(tk.Canvas):
@@ -137,6 +142,7 @@ class PeridotUI:
         
         self._setup_main_window()
         self._configure_notebook_styles()
+        self._load_icons()
         self._create_widgets()
         self._configure_styles()
         self._bind_shortcuts()
@@ -146,25 +152,48 @@ class PeridotUI:
         self.root.title("Peridot | Sovereign OS")
         self.root.geometry("1150x800")
         self.root.configure(bg=COLOR_BG)
-        
-        try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            icon_path = os.path.join(base_dir, "assets", "ui", "logo", "peridot.ico")
-            self.root.iconbitmap(icon_path)
-            
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            if hwnd:
-                hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010 | 0x00000020)
-                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
-                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
-        except Exception:
-            pass
 
-        try:
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(2)), 4)
-        except:
-            pass
+        # Windows NT only: Icon loading via win32 APIs
+        if sys.platform == "win32":
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                icon_path = os.path.join(base_dir, "assets", "ui", "logo", "peridot.ico")
+                self.root.iconbitmap(icon_path)
+
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                if hwnd:
+                    hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010 | 0x00000020)
+                    ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
+                    ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
+            except Exception:
+                pass
+
+            try:
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(2)), 4)
+            except Exception:
+                pass
+
+    def _load_icons(self):
+        self.icons = {}
+        base_dir = Path(__file__).parent.resolve() / "assets" / "ui" / "icons"
+        icons_to_load = {
+            "mic": ("[MIC]", "mic.png"),
+            "run": ("[EXEC]", "execute.png"),
+            "settings": ("[SET]", "settings.png"),
+            "vault": ("[DIR]", "vault.png")
+        }
+        for key, (fallback, filename) in icons_to_load.items():
+            icon_path = base_dir / filename
+            try:
+                if icon_path.exists():
+                    img = Image.open(icon_path)
+                    img = img.resize((16, 16), Image.LANCZOS)
+                    self.icons[key] = ImageTk.PhotoImage(img)
+                else:
+                    self.icons[key] = fallback
+            except Exception:
+                self.icons[key] = fallback
 
     def _configure_notebook_styles(self):
         """Injects custom terminal aesthetics into the tab engine and Comboboxes."""
@@ -316,7 +345,8 @@ class PeridotUI:
 
         # Tab 2: Secured Document Storage Matrix
         self.tab_vault = tk.Frame(self.notebook, bg=COLOR_BG)
-        self.notebook.add(self.tab_vault, text="[02] KERNEL VAULT")
+        vault_kw = {"image": self.icons["vault"], "compound": tk.LEFT, "text": " KERNEL VAULT"} if isinstance(self.icons.get("vault"), ImageTk.PhotoImage) else {"text": f"{self.icons.get('vault', '[DIR]')} KERNEL VAULT"}
+        self.notebook.add(self.tab_vault, **vault_kw)
 
         self.vault_label = tk.Label(self.tab_vault, text=">> DATA-INGEST SECURE CONSOLE VECTOR DIRECTORY:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w")
         self.vault_label.pack(fill=tk.X, padx=15, pady=(15, 5))
@@ -330,7 +360,8 @@ class PeridotUI:
 
         # Tab 3: Settings & Hardware Configuration
         self.tab_settings = tk.Frame(self.notebook, bg=COLOR_BG)
-        self.notebook.add(self.tab_settings, text="[03] SETTINGS")
+        set_kw = {"image": self.icons["settings"], "compound": tk.LEFT, "text": " SETTINGS"} if isinstance(self.icons.get("settings"), ImageTk.PhotoImage) else {"text": f"{self.icons.get('settings', '[SET]')} SETTINGS"}
+        self.notebook.add(self.tab_settings, **set_kw)
         self._build_settings_tab()
 
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
@@ -355,15 +386,17 @@ class PeridotUI:
         self.entry.bind("<KeyRelease>", self._on_key_release)
         self.entry.bind("<Button-3>", self._show_spellcheck_menu)
 
+        mic_kw = {"image": self.icons["mic"], "compound": tk.LEFT, "text": " MIC"} if isinstance(self.icons.get("mic"), ImageTk.PhotoImage) else {"text": self.icons.get("mic", "[MIC]")}
         self.btn_mic = tk.Button(
-            self.in_frame, text="MIC", command=self.handle_voice, bg=COLOR_DIM, fg="white",
-            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
+            self.in_frame, command=self.handle_voice, bg=COLOR_DIM, fg="white",
+            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2", **mic_kw
         )
         self.btn_mic.grid(row=1, column=1, padx=(10, 5), sticky="ns")
 
+        run_kw = {"image": self.icons["run"], "compound": tk.LEFT, "text": " EXECUTE"} if isinstance(self.icons.get("run"), ImageTk.PhotoImage) else {"text": self.icons.get("run", "[EXEC]")}
         self.btn_run = tk.Button(
-            self.in_frame, text="EXECUTE", command=self.handle_input, bg=COLOR_ACCENT, fg="black",
-            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2"
+            self.in_frame, command=self.handle_input, bg=COLOR_ACCENT, fg="black",
+            font=("Consolas", 10, "bold"), relief=tk.FLAT, padx=15, pady=5, cursor="hand2", **run_kw
         )
         self.btn_run.grid(row=1, column=2, padx=5, sticky="ns")
 
@@ -399,7 +432,7 @@ class PeridotUI:
         self.lbl_current_model = tk.Label(config_frame, text=f"   {current_model}", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_MAIN, anchor="w")
         self.lbl_current_model.pack(fill=tk.X, pady=(0, 20))
 
-        tk.Label(config_frame, text=">> HARDWARE-AWARE MODEL SWAP (E:\\Peridot\\models):", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
+        tk.Label(config_frame, text=">> HARDWARE-AWARE MODEL SWAP (models/):", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
 
         self.model_var = tk.StringVar()
         self.model_dropdown = ttk.Combobox(
@@ -410,31 +443,32 @@ class PeridotUI:
         # Use dynamic VRAM detection from config (Phase 2: Hardware Auto-Scaling)
         total_vram_gb = TOTAL_VRAM_GB if TOTAL_VRAM_GB > 0 else 8.0
 
-        models_dir = r"E:\Peridot\models"
+        # OS-agnostic path resolution using pathlib
+        models_dir = Path(__file__).parent.resolve() / "models"
         self.available_models_map = {}
         dropdown_values = []
 
-        if os.path.exists(models_dir):
-            for f in os.listdir(models_dir):
-                if f.endswith(".gguf") or f.endswith(".safetensors"):
-                    file_size_gb = os.path.getsize(os.path.join(models_dir, f)) / (1024**3)
-                    
-                    if file_size_gb < (total_vram_gb * 0.6):
-                        rating = "[HIGH COMPATIBILITY]"
-                    elif file_size_gb < (total_vram_gb * 0.9):
-                        rating = "[MEDIUM COMPATIBILITY]"
+        if models_dir.exists():
+            for f in models_dir.iterdir():
+                if f.is_file() and (f.suffix == ".gguf" or f.suffix == ".safetensors"):
+                    file_size_gb = f.stat().st_size / (1024**3)
+
+                    if file_size_gb < 4.5:
+                        rating = "[HIGH]"
+                    elif file_size_gb < 7.0:
+                        rating = "[MEDIUM]"
                     else:
-                        rating = "[LOW COMPATIBILITY / OVERLOAD RISK]"
-                    
-                    display_str = f"{rating.ljust(35)} : {f}"
-                    self.available_models_map[display_str] = f
+                        rating = "[LOW/CRITICAL]"
+
+                    display_str = f"{rating.ljust(35)} : {f.name}"
+                    self.available_models_map[display_str] = f.name
                     dropdown_values.append(display_str)
-                    
+
             self.model_dropdown['values'] = dropdown_values
             if dropdown_values:
                 self.model_dropdown.current(0)
         else:
-            self.model_dropdown['values'] = [" [ERROR] E:\\Peridot\\models directory not found."]
+            self.model_dropdown['values'] = [" [ERROR] models/ directory not found."]
             self.model_dropdown.current(0)
 
         btn_swap = tk.Button(
@@ -444,14 +478,51 @@ class PeridotUI:
         btn_swap.pack(anchor="w", pady=(0, 20))
 
         tk.Frame(config_frame, bg=COLOR_DIM, height=1).pack(fill=tk.X, pady=(0, 20))
-        
+
         tk.Label(config_frame, text=">> HARDWARE MEMORY MANAGEMENT:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
-        
+
         btn_reclaim = tk.Button(
             config_frame, text="FORCE-RECLAIM VRAM", bg=COLOR_DIM, fg=COLOR_ERROR,
             font=FONT_UI, relief=tk.FLAT, cursor="hand2", command=self._force_reclaim_vram
         )
         btn_reclaim.pack(anchor="w", pady=(0, 20))
+
+        # KERNEL TELEMETRY DASHBOARD
+        tk.Frame(config_frame, bg=COLOR_DIM, height=1).pack(fill=tk.X, pady=(10, 20))
+
+        tk.Label(config_frame, text=">> KERNEL TELEMETRY DASHBOARD:", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, 5))
+
+        # Telemetry metrics frame
+        telemetry_frame = tk.Frame(config_frame, bg=COLOR_BG)
+        telemetry_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # FSM State
+        fsm_frame = tk.Frame(telemetry_frame, bg=COLOR_BG)
+        fsm_frame.pack(fill=tk.X, pady=2)
+        tk.Label(fsm_frame, text="FSM State:", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_UI, anchor="w").pack(side=tk.LEFT)
+        self.lbl_fsm_state = tk.Label(fsm_frame, text="BOOTING...", bg=COLOR_BG, fg=COLOR_ACCENT, font=FONT_BOLD, anchor="w")
+        self.lbl_fsm_state.pack(side=tk.LEFT, padx=(10, 0))
+
+        # System Health Score
+        health_frame = tk.Frame(telemetry_frame, bg=COLOR_BG)
+        health_frame.pack(fill=tk.X, pady=2)
+        tk.Label(health_frame, text="System Health:", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_UI, anchor="w").pack(side=tk.LEFT)
+        self.lbl_health_score = tk.Label(health_frame, text="0%", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_BOLD, anchor="w")
+        self.lbl_health_score.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Average Handoff Latency
+        latency_frame = tk.Frame(telemetry_frame, bg=COLOR_BG)
+        latency_frame.pack(fill=tk.X, pady=2)
+        tk.Label(latency_frame, text="Avg Handoff Latency:", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_UI, anchor="w").pack(side=tk.LEFT)
+        self.lbl_avg_latency = tk.Label(latency_frame, text="0ms", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_BOLD, anchor="w")
+        self.lbl_avg_latency.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Kernel Panic Count
+        panic_frame = tk.Frame(telemetry_frame, bg=COLOR_BG)
+        panic_frame.pack(fill=tk.X, pady=2)
+        tk.Label(panic_frame, text="Kernel Panics:", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_UI, anchor="w").pack(side=tk.LEFT)
+        self.lbl_panic_count = tk.Label(panic_frame, text="0", bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_BOLD, anchor="w")
+        self.lbl_panic_count.pack(side=tk.LEFT, padx=(10, 0))
 
         # Footer Navigation Links
         footer_frame = tk.Frame(self.tab_settings, bg=COLOR_BG)
@@ -478,22 +549,23 @@ class PeridotUI:
         if not selection_str or "[ERROR]" in selection_str:
             messagebox.showwarning("Warning", "Select a valid model from the dropdown matrix to apply.")
             return
-            
+
         selected_model = self.available_models_map.get(selection_str)
         if not selected_model:
             return
-            
-        new_path = f"E:/Peridot/models/{selected_model}"
-        
+
+        # Use pathlib for OS-agnostic path construction
+        new_path = f"models/{selected_model}"
+
         try:
             with open("config.py", "r") as f:
                 content = f.read()
-            
+
             new_content = re.sub(r'MODEL_PATH\s*=\s*(?:Path\()?[\'"].*?[\'"]\)?', f'MODEL_PATH = Path("{new_path}")', content)
-            
+
             with open("config.py", "w") as f:
                 f.write(new_content)
-                
+
             messagebox.showinfo("Kernel Update", "Neural weights mapped. Shut down the engine and restart launcher.py to load the new architecture into VRAM.")
             self.lbl_current_model.config(text=f"   {selected_model}")
         except Exception as e:
@@ -597,7 +669,7 @@ class PeridotUI:
             
         try:
             self.chat.yview_scroll(pixel_step, "pixels")
-        except:
+        except Exception:
             self.chat.yview_scroll(1 if pixel_step > 0 else -1, "units")
             self.chat_scroll_velocity = 0
             self.chat_scroll_animating = False
@@ -823,7 +895,7 @@ class PeridotUI:
                 
                 for s in items:
                     title = s.get("title", "Untitled")[:40]
-                    display = f"{'●' if s['session_id'] == self.core.current_session_id else '○'} {title}"
+                    display = f"{'[*]' if s['session_id'] == self.core.current_session_id else '[ ]'} {title}"
                     self.session_listbox.insert(tk.END, display)
                     self.display_mapping.append(s)
         except Exception as e:
@@ -1070,27 +1142,59 @@ class PeridotUI:
 
     def _poll_backend_telemetry(self):
         try:
+            # Research status
             r = requests.get(SERVER_URL + "/research/status", headers=HEADERS, timeout=0.5)
             if r.status_code == 200:
                 data = r.json()
                 state = "FAH_ACTIVE (IDLE)" if data.get('active') else "INFERENCE / STANDBY"
                 color = "#FFD700" if data.get('active') else COLOR_ACCENT
                 self.lbl_status.config(text=f"FSM: {state}", fg=color)
-        except Exception:
-            self.lbl_status.config(text="FSM: KERNEL UNREACHABLE", fg=COLOR_ERROR)
+
+            # Stability metrics
+            r = requests.get(SERVER_URL + "/telemetry/stability", headers=HEADERS, timeout=0.5)
+            if r.status_code == 200:
+                data = r.json()
+                # Update FSM state
+                fsm_state = data.get('current_fsm_state', 'UNKNOWN')
+                # Format the state for better readability
+                state_display = fsm_state.replace('_', ' ').title()
+                self.lbl_fsm_state.config(text=state_display, fg=COLOR_ACCENT)
+
+                # Update health score
+                health_score = data.get('hardware_reliability_score', '0%')
+                self.lbl_health_score.config(text=health_score, fg=COLOR_ACCENT)
+
+                # Update average latency
+                avg_latency = data.get('metrics', {}).get('average_handoff_latency_ms', 0)
+                self.lbl_avg_latency.config(text=f"{avg_latency}ms", fg=COLOR_ACCENT)
+
+                # Update panic count
+                panic_count = data.get('metrics', {}).get('panics_triggered', 0)
+                self.lbl_panic_count.config(text=str(panic_count),
+                                          fg=COLOR_ERROR if panic_count > 0 else COLOR_ACCENT)
+        except Exception as e:
+            # If we can't get telemetry, show offline status
+            self.lbl_fsm_state.config(text="OFFLINE", fg=COLOR_ERROR)
+            self.lbl_health_score.config(text="0%", fg=COLOR_ERROR)
+            self.lbl_avg_latency.config(text="0ms", fg=COLOR_ERROR)
+            self.lbl_panic_count.config(text="0", fg=COLOR_ERROR)
 
     def _update_stats(self):
         if not self.root.winfo_exists(): return
         try:
             self.bar_cpu.update_value(psutil.cpu_percent())
             self.bar_ram.update_value(psutil.virtual_memory().percent)
-            
+
+            # Cross-platform nvidia-smi call - only use CREATE_NO_WINDOW on Windows
             c = ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"]
-            o = subprocess.check_output(c, creationflags=0x08000000).decode().strip().split(",")
+            kwargs = {}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            o = subprocess.check_output(c, **kwargs).decode().strip().split(",")
             self.bar_vram.update_value((int(o[0]) / int(o[1])) * 100)
-            
+
             threading.Thread(target=self._poll_backend_telemetry, daemon=True).start()
-        except:
+        except Exception:
             pass
         self.root.after(1500, self._update_stats)
 

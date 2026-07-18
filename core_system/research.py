@@ -10,7 +10,9 @@ import subprocess
 import threading
 import time
 import logging
+import shutil
 import pynvml
+import sys
 from config import RESEARCH_IDLE_THRESHOLD, RESEARCH_CHECK_INTERVAL
 
 logger = logging.getLogger("Peridot-Research")
@@ -24,8 +26,14 @@ class MedicalResearchModule:
         self.status = "DISABLED"
         self.lock = threading.Lock()
 
-        self.fah_path = r"C:\Program Files (x86)\FAHClient\FAHClient.exe"
-        
+        # Cross-platform FAH path detection
+        # Default Windows path (user can override via config)
+        if sys.platform == "win32":
+            self.fah_path = r"C:\Program Files (x86)\FAHClient\FAHClient.exe"
+        else:
+            # Linux: FAHClient is typically installed in system paths
+            self.fah_path = "FAHClient"  # Will be found via PATH
+
         # Initialise NVML once to prevent handle leaking
         try:
             pynvml.nvmlInit()
@@ -39,11 +47,16 @@ class MedicalResearchModule:
         try:
             info = pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
             return info.free // 1024 // 1024
-        except:
+        except Exception as e:
             return 0
 
     def check_installation(self) -> bool:
-        return os.path.exists(self.fah_path)
+        """Check if FAHClient is installed. Cross-platform."""
+        if sys.platform == "win32":
+            return os.path.exists(self.fah_path)
+        else:
+            # Linux: check if executable exists in PATH
+            return shutil.which(self.fah_path) is not None
 
     def enable(self) -> bool:
         if not self.check_installation():
@@ -90,12 +103,17 @@ class MedicalResearchModule:
 
         if not self.check_installation(): return False
         try:
-            subprocess.Popen(  # nosec B603
-                [self.fah_path, f"--send-{cmd}"],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            # Cross-platform subprocess call
+            kwargs = {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                subprocess.Popen([self.fah_path, f"--send-{cmd}"], **kwargs)  # nosec B603
+            else:
+                # Linux: use shell=False with PATH lookup
+                subprocess.Popen([self.fah_path, f"--send-{cmd}"], **kwargs)  # nosec B603
             return True
         except Exception as e:
             logger.error(f"Command '{cmd}' failed: {e}")

@@ -203,7 +203,7 @@ def check_peridot_running(base_url: str = AI_SERVER_URL) -> bool:
         health_url = base_url.replace("/ask", "") + "/health"
         response = requests.get(health_url, timeout=2)
         return response.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -272,7 +272,7 @@ def get_ephemeral_key() -> str:
         from config import API_KEY
 
         return API_KEY
-    except:
+    except Exception:
         return ""
 
 

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.2 | INTEGRITY & CONCURRENCY HARNESS
+# PERIDOT SOVEREIGN KERNEL v1.5.3 | INTEGRITY & CONCURRENCY HARNESS
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
@@ -41,7 +41,7 @@ except ImportError:
                 elif line.startswith("SERVER_PORT="):
                     try:
                         SERVER_PORT = int(line.strip().split("=", 1)[1])
-                    except:
+                    except Exception:
                         pass
 
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"

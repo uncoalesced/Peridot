@@ -193,9 +193,9 @@ def main():
         )
 
         if abs(growth) < 50:
-            logger.info("✅ Memory stable (growth < 50 MB)")
+            logger.info("[OK] Memory stable (growth < 50 MB)")
         else:
-            logger.warning(f"⚠️  Significant memory growth detected!")
+            logger.warning(f"[WARN] Significant memory growth detected!")
 
     logger.info("")
 

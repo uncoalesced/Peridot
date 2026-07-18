@@ -31,14 +31,14 @@ def test_file_blacklist():
     assert not is_file_safe(".ssh/id_rsa")[0], "FAIL: SSH key bypass allowed!"
     assert not is_file_safe("C:\\Windows\\System32\\cmd.exe")[0], "FAIL: System directory bypass allowed!"
     assert is_file_safe("research_paper.pdf")[0], "FAIL: Safe file falsely blocked!"
-    print("  ✅ PASS: Directory traversal and sensitive files blocked.")
+    print("  [PASS] Directory traversal and sensitive files blocked.")
 
 def test_input_sanitization():
     print("[TEST] Input Sanitization...")
     assert not sanitize_input("<script>alert('xss')</script>")[1], "FAIL: XSS payload allowed!"
     assert not sanitize_input("import os; os.system('rm -rf /')")[1], "FAIL: OS execution payload allowed!"
     assert sanitize_input("What is the capital of France?")[1], "FAIL: Normal query falsely blocked!"
-    print("  ✅ PASS: Malicious code injection destroyed.")
+    print("  [PASS] Malicious code injection destroyed.")
 
 def test_api_auth_bypass():
     print("[TEST] API Authentication Bypass...")
@@ -46,9 +46,9 @@ def test_api_auth_bypass():
         # We purposely send a request WITHOUT the Bearer token
         r = requests.post(f"{BASE_URL}/ask", json={"command": "Wake up"}, timeout=2)
         assert r.status_code in [401, 403], f"FAIL: Expected 401/403, got {r.status_code}. The API is exposed!"
-        print("  ✅ PASS: Unauthorized local API requests blocked.")
+        print("  [PASS] Unauthorized local API requests blocked.")
     except requests.exceptions.ConnectionError:
-        print("  ⚠️ SKIP: Inference Server offline. Boot `python launcher.py` in another terminal to test the API.")
+        print("  [SKIP] Inference Server offline. Boot `python launcher.py` in another terminal to test the API.")
 
 if __name__ == "__main__":
     print("=====================================")

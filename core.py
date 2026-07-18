@@ -40,12 +40,9 @@ class PeridotCore:
         self.running = False
         self.ui = None
         self.ears = None
-
-        # Identity & State
         self.last_interaction_time = time.time()
         self.current_session_id = None
         
-        # Load Security Configuration
         self.constitution = load_constitution()
 
         # Core Modules
@@ -62,7 +59,6 @@ class PeridotCore:
         self.logger.info("Kernel logic initialised.", source="CORE")
 
     def _ensure_active_session(self):
-        """Ensure there's an active session, create one if needed."""
         if self.current_session_id is None:
             sessions = self.chat_ledger.list_sessions(limit=1)
             if sessions:
@@ -73,13 +69,11 @@ class PeridotCore:
                 self.logger.info(f"Created new session: {self.current_session_id[:8]}", source="CORE")
 
     def create_new_session(self, title: str = "New Session") -> str:
-        """Create a new chat session and switch to it."""
         self.current_session_id = self.chat_ledger.create_session(title)
         self.logger.info(f"Created new session: {self.current_session_id[:8]} - {title}", source="CORE")
         return self.current_session_id
 
     def switch_session(self, session_id: str) -> bool:
-        """Switch to an existing session."""
         session = self.chat_ledger.get_session(session_id)
         if session:
             self.current_session_id = session_id
@@ -88,18 +82,15 @@ class PeridotCore:
         return False
 
     def list_sessions(self, limit: int = 50):
-        """List recent sessions."""
         return self.chat_ledger.list_sessions(limit)
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session."""
         result = self.chat_ledger.delete_session(session_id)
         if result and session_id == self.current_session_id:
             self._ensure_active_session()
         return result
 
     def get_session_history(self, session_id: str = None, full: bool = False):
-        """Get conversation history for a session."""
         sid = session_id or self.current_session_id
         if not sid:
             return []
@@ -144,7 +135,6 @@ class PeridotCore:
 
         self.last_interaction_time = time.time()
         
-        # 1. Security Gate - Sanitize Input BEFORE processing
         clean_text, is_safe = sanitize_input(text)
         if not is_safe:
             self.logger.warning("Malicious input intercepted and destroyed.", source="SECURITY")
@@ -152,7 +142,6 @@ class PeridotCore:
 
         clean_text = clean_text.strip()
         
-        # 2. Vault Ingestion Intercept
         if clean_text.lower() == "/ingest":
             self.logger.info("Manual ingestion sequence triggered.", source="CORE")
             try:
@@ -161,7 +150,6 @@ class PeridotCore:
             except Exception as e:
                 return f"[SYSTEM FAULT] Ingestion failed: {e}"
 
-        # 3. System Command Routing
         parts = clean_text.split(maxsplit=1)
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
@@ -169,7 +157,6 @@ class PeridotCore:
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        # 4. Query the LLM
         response = self._ask_ai_with_memory(clean_text)
         
         return response
@@ -177,13 +164,10 @@ class PeridotCore:
     def _ask_ai_with_memory(self, user_text):
         self._ensure_active_session()
         
-        # Save user message to ledger
         self.chat_ledger.add_message(self.current_session_id, "user", user_text)
         
-        # Fetch recent history (sliding window: last 6 turns = 12 messages)
         history = self.chat_ledger.get_history(self.current_session_id, limit=6)
         
-        # Build prompt from history (neutral format, server will apply model-specific template)
         prompt_segments = []
         for msg in history:
             role_header = "[USER]" if msg['role'] == 'user' else "[PERIDOT]"
@@ -193,14 +177,12 @@ class PeridotCore:
 
         response = self._send_to_server(query=user_text, prompt=full_prompt, session_id=self.current_session_id)
         
-        # Save assistant response to ledger
         if "[SYSTEM ERROR]" not in response and "[HTTP ERROR]" not in response:
             self.chat_ledger.add_message(self.current_session_id, "assistant", response)
             
         return response
 
     def _ask_ai_isolated(self, prompt):
-        """Bypasses conversational memory for sterile RAG extraction."""
         return self._send_to_server(query=prompt, prompt=prompt)
 
     def _send_to_server(self, query, prompt, session_id=None):
@@ -210,7 +192,6 @@ class PeridotCore:
                 "Authorization": f"Bearer {ACTIVE_API_KEY}"
             }
             
-            # Timeout extended to 180s to account for heavy contextual processing
             payload = {"query": query, "prompt": prompt}
             if session_id:
                 payload["session_id"] = session_id
@@ -240,7 +221,7 @@ class PeridotCore:
                 "Authorization": f"Bearer {ACTIVE_API_KEY}"
             }
             requests.post(SHUTDOWN_URL, headers=headers, timeout=2)
-        except:
+        except Exception as e:
             pass
 
         sys.exit(0)
