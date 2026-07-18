@@ -90,7 +90,7 @@ class GPUMonitor:
                 try:
                     power = self.pynvml.nvmlDeviceGetPowerUsage(self.handle)
                     self.power_usage.append(power / 1000.0)
-                except:
+                except Exception:
                     pass
 
                 time.sleep(0.5)
@@ -151,7 +151,7 @@ class GPUMonitor:
     def cleanup(self):
         try:
             self.pynvml.nvmlShutdown()
-        except:
+        except Exception:
             pass
 
 
@@ -298,11 +298,11 @@ def main():
     logger.info("")
 
     if active_stats["utilization"]["mean"] > 70:
-        logger.info("✅ Excellent GPU utilization (>70%)")
+        logger.info("[OK] Excellent GPU utilization (>70%)")
     elif active_stats["utilization"]["mean"] > 50:
-        logger.info("✅ Good GPU utilization (>50%)")
+        logger.info("[OK] Good GPU utilization (>50%)")
     else:
-        logger.warning(f"⚠️  Low GPU utilization (<50%)")
+        logger.warning(f"[WARN] Low GPU utilization (<50%)")
 
     logger.info("")
 
