@@ -12,6 +12,7 @@ import os
 from collections import OrderedDict
 from typing import List, Optional
 from config import STORAGE_PATH
+from core_system.audit import ghost
 
 class AetherCache:
     def __init__(self, max_ram_items=50):
@@ -19,7 +20,7 @@ class AetherCache:
         self.max_ram_items = max_ram_items
         self.ram_cache = OrderedDict() 
         self._init_db()
-        print(f"[AETHER-ROUTE] Tiered LRU Cache Online. RAM Limit: {self.max_ram_items} chunks.")
+        ghost.info(f"[AETHER-ROUTE] Tiered LRU Cache Online. RAM Limit: {self.max_ram_items} chunks.")
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
