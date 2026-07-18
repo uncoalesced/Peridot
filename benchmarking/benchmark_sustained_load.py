@@ -113,8 +113,8 @@ def main():
     logger.info(f"  Initial memory: {initial_mem:.2f} MB")
     logger.info("")
 
-    logger.warning("⚠️  This benchmark will run for 10 minutes!")
-    logger.warning("⚠️  Press Ctrl+C to stop early (results will still be saved)\n")
+    logger.warning("[WARN] This benchmark will run for 10 minutes!")
+    logger.warning("[WARN] Press Ctrl+C to stop early (results will still be saved)\n")
 
     result = BenchmarkResult(
         name="sustained_load",
@@ -278,9 +278,9 @@ def main():
             )
 
             if abs(growth) < 100:
-                logger.info("  ✅ Memory stable")
+                logger.info("  [OK] Memory stable")
             else:
-                logger.warning("  ⚠️  Significant memory growth")
+                logger.warning("  [WARN] Significant memory growth")
         logger.info("")
 
     if len(throughputs) > 20:
@@ -294,9 +294,9 @@ def main():
         logger.info(f"  Change: {degradation:+.1f}%")
 
         if abs(degradation) < 10:
-            logger.info("  ✅ Stable performance")
+            logger.info("  [OK] Stable performance")
         else:
-            logger.warning(f"  ⚠️  Performance changed by {abs(degradation):.1f}%")
+            logger.warning(f"  [WARN] Performance changed by {abs(degradation):.1f}%")
         logger.info("")
 
     logger.info("=" * 60)
