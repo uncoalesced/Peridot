@@ -51,8 +51,25 @@ input/*
 !input/.gitkeep
 storage/
 logs/
+
+# Legacy FAISS artifacts (v1.5.x and earlier)
+*.index
+*.faiss
+*.pkl
+*.bin
+
+# TurboVec index files (excluded from version control)
+storage/vector_db/
 aether_cold_storage.db
 
 # Extra ignored directories
 llama.cpp/
 models/
+
+# Metadata and documentation files to ignore
+CLAUDE.md
+AGENTS.md
+AUDIT.MD
+MASTER_CONTEXT.md
+ROUTINES.md
+SKILL.md
