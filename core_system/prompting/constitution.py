@@ -79,7 +79,7 @@ def build_system_prompt(
     exec_proto = constitution.get("execution_protocol", {})
     rules = constitution.get("hard_rules", [])
 
-    identity = perimeter.get("identity", "Peridot Sovereign Kernel v1.5.2")
+    identity = perimeter.get("identity", "Peridot Sovereign Kernel v1.5.3")
     lang_guard = perimeter.get("language_guardrail", "Output must be 100% English only.")
     protocol = exec_proto.get("structure", "Output must follow [ANALYSIS] and [KERNEL_RESPONSE] blocks strictly.")
     constraints = exec_proto.get("behavioral_constraints", [])
