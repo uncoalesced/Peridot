@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 """
-PERIDOT SETUP WIZARD v1.5.2 - TURBOQUANT
+PERIDOT SETUP WIZARD v1.5.3 - ZAT-SCS
 Intelligent hardware detection, VRAM profiling, and engine configuration
 Supports NVIDIA GPUs, AMD GPUs, and CPU-only fallback
 """
@@ -47,7 +47,7 @@ def print_banner():
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 {Colors.ENDC}
-{Colors.GREEN}       SETUP WIZARD v1.5.2 (TURBOQUANT) - SOVEREIGN AI KERNEL{Colors.ENDC}
+{Colors.GREEN}       SETUP WIZARD v1.5.3 (ZAT-SCS) - SOVEREIGN AI KERNEL{Colors.ENDC}
 {Colors.CYAN}{'='*70}{Colors.ENDC}
 
 {Colors.YELLOW}Engineered by uncoalesced{Colors.ENDC}
@@ -123,18 +123,18 @@ class HardwareDetector:
                 self.system_info['cuda_available'] = True
                 pynvml.nvmlShutdown()
                 return True
-        except: pass
+        except Exception: pass
         return False
     
     def detect_hardware(self) -> Dict:
-        print(f"\n{Colors.CYAN}[→] Detecting system hardware...{Colors.ENDC}")
+        print(f"\n{Colors.CYAN}[SYS] Detecting system hardware...{Colors.ENDC}")
         self.detect_system_ram()
-        print(f"{Colors.GREEN}[✓] RAM: {self.system_info['ram_gb']} GB{Colors.ENDC}")
+        print(f"{Colors.GREEN}[OK] RAM: {self.system_info['ram_gb']} GB{Colors.ENDC}")
         
         if self.detect_nvidia_gpu():
-            print(f"{Colors.GREEN}[✓] GPU: {self.system_info['gpu_name']} ({self.system_info['gpu_memory_gb']} GB){Colors.ENDC}")
+            print(f"{Colors.GREEN}[OK] GPU: {self.system_info['gpu_name']} ({self.system_info['gpu_memory_gb']} GB){Colors.ENDC}")
         else:
-            print(f"{Colors.YELLOW}[!] No NVIDIA GPU detected - Falling back to CPU mode{Colors.ENDC}")
+            print(f"{Colors.YELLOW}[WARN] No NVIDIA GPU detected - Falling back to CPU mode{Colors.ENDC}")
             self.system_info['gpu_vendor'] = 'CPU'
             self.system_info['gpu_name'] = 'CPU Only'
         return self.system_info
@@ -225,7 +225,7 @@ def download_model(model_id: str, install_dir: Path) -> bool:
     model_path = models_dir / model_info['file']
     
     if model_path.exists():
-        print(f"{Colors.GREEN}[✓] Model already exists: {model_info['name']}{Colors.ENDC}")
+        print(f"{Colors.GREEN}[OK] Model already exists: {model_info['name']}{Colors.ENDC}")
         return True
         
     print(f"\n{Colors.YELLOW}Downloading: {model_info['name']} ({model_info['size_gb']} GB){Colors.ENDC}")
@@ -236,10 +236,10 @@ def download_model(model_id: str, install_dir: Path) -> bool:
             downloaded = block_num * block_size
             percent = min(100, (downloaded / total_size) * 100)
             bar = '█' * int(50 * downloaded // total_size) + '-' * (50 - int(50 * downloaded // total_size))
-            print(f'\r{Colors.GREEN}[↓] |{bar}| {percent:.1f}%{Colors.ENDC}', end='')
+            print(f'\r{Colors.GREEN}[DL] |{bar}| {percent:.1f}%{Colors.ENDC}', end='')
             
         urllib.request.urlretrieve(model_info['url'], model_path, progress)
-        print(f"\n{Colors.GREEN}[✓] Download complete!{Colors.ENDC}")
+        print(f"\n{Colors.GREEN}[OK] Download complete!{Colors.ENDC}")
         return True
     except Exception as e:
         print(f"\n{Colors.RED}[ERROR] Download failed: {e}{Colors.ENDC}")
@@ -248,14 +248,14 @@ def download_model(model_id: str, install_dir: Path) -> bool:
 
 def install_dependencies(profile_id: str) -> bool:
     backend = HardwareProfile.PROFILES[profile_id]['backend']
-    print(f"\n{Colors.CYAN}[→] Installing TurboQuant architecture dependencies...{Colors.ENDC}")
+    print(f"\n{Colors.CYAN}[SYS] Installing TurboQuant architecture dependencies...{Colors.ENDC}")
     
     core_packages = ['flask', 'flask-cors', 'requests', 'psutil', 'pynvml', 'websocket-client', 'python-dotenv']
     for pkg in core_packages:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
         
     if backend == 'cuda':
-        print(f"{Colors.CYAN}[→] Binding CUDA acceleration...{Colors.ENDC}")
+        print(f"{Colors.CYAN}[SYS] Binding CUDA acceleration...{Colors.ENDC}")
         subprocess.check_call([
             sys.executable, "-m", "pip", "install", "llama-cpp-python", 
             "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cu121", "-q"
@@ -263,14 +263,14 @@ def install_dependencies(profile_id: str) -> bool:
     else:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python", "-q"])
         
-    print(f"{Colors.GREEN}[✓] Dependencies locked.{Colors.ENDC}")
+    print(f"{Colors.GREEN}[OK] Dependencies locked.{Colors.ENDC}")
     return True
 
 def create_environment(install_dir: Path) -> bool:
     """Generates the .env file with strict OS-level owner-only permissions (0o600)."""
     env_path = install_dir / '.env'
     if env_path.exists():
-        print(f"{Colors.GREEN}[✓] Security perimeter (.env) already exists.{Colors.ENDC}")
+        print(f"{Colors.GREEN}[OK] Security perimeter (.env) already exists.{Colors.ENDC}")
         return True
         
     api_key = secrets.token_hex(32)
@@ -287,7 +287,7 @@ API_KEY={api_key}
         with os.fdopen(fd, 'w') as f:
             f.write(env_content)
             
-        print(f"{Colors.GREEN}[✓] Cryptographic handshake initialized (.env locked to OS user).{Colors.ENDC}")
+        print(f"{Colors.GREEN}[OK] Cryptographic handshake initialized (.env locked to OS user).{Colors.ENDC}")
         return True
     except Exception as e:
         print(f"{Colors.RED}[ERROR] Failed to lock environment: {e}{Colors.ENDC}")
