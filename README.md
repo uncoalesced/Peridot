@@ -11,7 +11,7 @@
 
 ### `SOVEREIGN LOCAL AI KERNEL — v1.5.3 STABLE`
 
-### `Sovereign Kernel Architecture & Split Tensor Allocation`
+### `PERIDOT SOVEREIGN KERNEL v1.5.3-STABLE [ZAT-SCS]`
 
 [![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/COMMUNITY_INSTALL.md)
@@ -35,97 +35,80 @@
 
 # `> OVERVIEW`
 
-Peridot is a sovereign local AI kernel engineered to execute entirely on operator owned hardware without external dependency, cloud inference, telemetry collection or remote orchestration.
+Peridot v1.5.3-STABLE [ZAT-SCS] is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems.
 
-The runtime combines:
+ZAT-SCS stands for Zero-Overhead Active Telemetry and Speculative Context Streaming. It is the flagship v1.5.3 update: a predictive preemption layer that monitors physical interaction signals before a prompt is submitted, prepares the GPU and context path in advance, and removes the normal prefill delay when the operator commits a query during the prepared state.
 
-- Local LLM inference
-- Permission gated execution
-- Split Tensor Allocation
-- Dynamic VRAM arbitration
-- Hardware aware telemetry routing
-- Local Retrieval Augmented Generation (RAG)
-- Asynchronous forensic auditing
-- Immutable logging infrastructure
+The v1.5.3 telemetry path runs a 10Hz Physical Telemetry Engine as a background daemon thread. It fuses two local only signals:
 
-Unlike cloud first AI platforms, Peridot was architected around:
+- Keyboard typing frequency f(C), measured by the isolated pynput keystroke monitor through a sliding timestamp window.
+- Microphone RMS envelope g(A), measured by the non-blocking sounddevice InputStream acoustic tracker.
 
-- Deterministic local execution
-- Transparent orchestration
-- Operator sovereignty
-- Hardware aware optimization
-- Zero telemetry dependency
-
-Most AI assistants are surveillance infrastructure with a chat interface.
-
-Peridot is the opposite.
-
-Peridot was built around a simple principle:
+These signals are converted into the speculative interaction probability P(I_t). The decay-acceleration model raises probability during active typing or acoustic engagement and decays it during idle periods:
 
 ```text
-The user owns the machine.
-Therefore the user controls the intelligence running on it.
+P(I_t) = min(1.0, P(I_t-1) * e^(-lambda * dt) + w_key * f(C) + w_aud * g(A))
 ```
 
-Unlike cloud first assistants, Peridot does not:
-
-- Transmit prompts externally
-- Require external inference APIs
-- Rely on cloud orchestration
-- Force locked safety layers
-- Hide execution behavior from the operator
-
-Every subsystem is locally inspectable, locally auditable, and locally controllable.
-
-> **Development Note**
->
-> Peridot's runtime architecture, telemetry systems, security infrastructure, inference pipeline, orchestration layers, setup wizard, VRAM state machine, and kernel logic are human engineered.
->
-> AI-generated code is used exclusively inside the `benchmarking/` suite for telemetry automation and validation tooling.
+When P(I_t) >= 0.65, the finite state machine transitions into:
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│ USER INPUT                                              │
-│    │                                                    │
-│    ▼                                                    │
-│ SECURITY GATE                                           │
-│ • Input Sanitization                                    │
-│ • File Access Blacklist                                 │
-│ • Path Traversal Prevention                             │
-│    │                                                    │
-│    ▼                                                    │
-│ PERMISSION LAYER                                        │
-│ • constitution.json                                     │
-│ • Function Call Authorization                           │
-│    │                                                    │
-│    ▼                                                    │
-│ AETHER-ROUTE v1.5                                       │
-│ • Hardware-Aware Telemetry                              │
-│ • Semantic Routing                                      │
-│ • Dynamic VRAM Arbitration                              │
-│ • CPU-Offloaded Embedding Pipeline                      │
-│ • Local RAG Pipeline                                    │
-│    │                                                    │
-│    ▼                                                    │
-│ INFERENCE ENGINE                                        │
-│ • Qwen2.5-14B-Instruct-Q4_K_M                           │
-│ • Split-Tensor Allocation                               │
-│ • llama-cpp-python + cuBLAS                             │
-│ • localhost:5000 (local-only)                           │
-│ • ~39 tokens/sec sustained inference                    │
-│    │                                                    │
-│    ▼                                                    │
-│ GHOSTLOGGER                                             │
-│ • Asynchronous Security Auditing                        │
-│ • Tamper-Evident Logging                                │
-│ • Forensic Event Persistence                            │
-│    │                                                    │
-│    ▼                                                    │
-│ AUDIT LAYER                                             │
-│ • SHA-256 Verified                                      │
-│ • Append-Only Logging                                   │
-│ • Security Event Isolation                              │
-└─────────────────────────────────────────────────────────┘
+KernelState.SPECULATIVE_PREPARED
+```
+
+That transition prepares the inference path before the prompt reaches `/ask`:
+
+1. Distributed Folding@Home compute is throttled to 10 percent SM capacity through CUDA MPS where available.
+2. `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` is exported so model weights can be pre-mapped into physical page tables through Unified Virtual Memory.
+3. A non-blocking loopback REST call is issued to `/slots/0/restore` to prefetch the active session KV cache without freezing the telemetry loop.
+
+If the operator submits a prompt while the kernel is already in `SPECULATIVE_PREPARED`, the `/ask` endpoint bypasses the normal preemption and prefill latency phase. The request is routed directly into generation from the prepared state, allowing token streaming to begin at generation-speed limits instead of waiting for a cold VRAM handoff and context prefill cycle.
+
+Peridot still retains the original sovereign constraints: local inference, permission-gated execution, Split Tensor Allocation, dynamic VRAM arbitration, local RAG, asynchronous forensic auditing and operator controlled research participation.
+
+```text
++---------------------------------------------------------+
+| USER INPUT                                              |
+|    |                                                    |
+|    v                                                    |
+| SECURITY GATE                                           |
+| - Input Sanitization                                    |
+| - File Access Blacklist                                 |
+| - Path Traversal Prevention                             |
+|    |                                                    |
+|    v                                                    |
+| PERMISSION LAYER                                        |
+| - constitution.json                                     |
+| - Function Call Authorization                           |
+|    |                                                    |
+|    v                                                    |
+| ZAT-SCS TELEMETRY LOOP                                  |
+| - 10Hz Physical Telemetry Engine                        |
+| - Keyboard f(C) + Acoustic RMS g(A)                     |
+| - P(I_t) speculative probability                        |
+|    |                                                    |
+|    v                                                    |
+| SPECULATIVE PREPARED STATE                              |
+| - CUDA MPS 10 percent background throttle               |
+| - UVM weight pre-mapping                                |
+| - Async /slots/0/restore KV cache prefetch              |
+|    |                                                    |
+|    v                                                    |
+| AETHER-ROUTE v1.5.3                                     |
+| - Semantic Routing                                      |
+| - Dynamic VRAM Arbitration                              |
+| - CPU-Offloaded Embedding Pipeline                      |
+| - Local RAG Pipeline                                    |
+|    |                                                    |
+|    v                                                    |
+| /ask PREFILL BYPASS ROUTE                               |
+| - Direct generation from prepared state                 |
+| - Qwen2.5-14B-Instruct-Q4_K_M                           |
+| - Split-Tensor Allocation, GPU_LAYERS = 20              |
+|    |                                                    |
+|    v                                                    |
+| GHOSTLOGGER AND STABILITY LEDGER                        |
++---------------------------------------------------------+
 ```
 
 ---
@@ -142,27 +125,27 @@ Measured on real hardware. No overclocking. No cherry picked runs.
 
 ---
 
-## Split-Tensor Allocation
+## ZAT-SCS Telemetry Daemon
 
-Peridot v1.5.2 STABLE standardizes on a single production inference architecture.
+Peridot v1.5.3 adds a high frequency telemetry daemon that runs independently from prompt submission and inference generation. The daemon is launched as a background thread by the Physical Telemetry Engine after the server boots and continuously samples local interaction signals at 10Hz.
+
+The daemon lifecycle is intentionally isolated:
+
+1. `KeyboardTracker.start()` mounts the pynput listener and stores the latest keystroke timestamps in a bounded sliding window.
+2. `AudioTracker.start()` opens a sounddevice input stream and updates a smoothed microphone RMS envelope without blocking the main loop.
+3. `PhysicalTelemetryEngine.tick()` runs every 100ms, reads f(C) and g(A), applies temporal decay and forwards P(I_t) to the GPU orchestrator.
+4. `SovereignGPUOrchestrator.evaluate_probability()` transitions the kernel into `SPECULATIVE_PREPARED` when the probability crosses 0.65.
+
+The release model is:
 
 ```text
-Qwen2.5-14B-Instruct-Q4_K_M
+P(I_t) = min(1.0, P(I_t-1) * e^(-lambda * dt) + w_key * f(C) + w_aud * g(A))
+TELEMETRY_HZ = 10
+SPECULATIVE_THRESHOLD = 0.65
+LAMBDA_DECAY = 0.1
+WEIGHT_KEY = 0.45
+WEIGHT_AUD = 0.35
 ```
-
-Instead of aggressively reducing model size to fit inside VRAM boundaries, Peridot now uses Split Tensor Allocation.
-
-Tensor weights are dynamically distributed across GPU VRAM and system RAM.
-
-This allows Peridot to deploy substantially larger reasoning models on consumer hardware while preserving:
-
-- Stable inference execution
-- RAG grounding accuracy
-- Long context consistency
-- Reduced hallucination rates
-- Improved multi-document reasoning
-
-The legacy 3B execution path was retired as the primary engine after repeated parameter-starvation failures, knowledge bleed events and degraded RAG performance under complex retrieval workloads.
 
 ---
 
@@ -175,28 +158,6 @@ Model:        Qwen2.5-14B-Instruct-Q4_K_M
 Throughput:   ~39 tokens/sec
 Execution:    Fully Local
 ```
-
----
-
-## Benchmark Visualization
-
-<div align="center">
-
-![Benchmark Speed Chart](assets/benchmarks/benchmark_speed_chart.png)
-
-</div>
-
----
-
-## VRAM Allocation Map
-
-Peridot v1.5 aggressively manages memory allocation to support large-parameter inference without compromising operating system stability.
-
-<div align="center">
-
-![VRAM Allocation](assets/benchmarks/benchmark_vram_chart.png)
-
-</div>
 
 ---
 
@@ -231,79 +192,60 @@ Inference execution always takes priority.
 
 ---
 
-## Structural Watchdog Hardening & FSM Tuning
+## Speculative Context Restoration Pipeline
 
-Peridot v1.5 introduces a hardened finite state memory controller designed specifically for large model execution on constrained VRAM hardware.
+Peridot v1.5.3 extends the FSM with an asynchronous context restoration path for speculative prompt preparation. When telemetry pushes the kernel into `KernelState.SPECULATIVE_PREPARED`, the orchestrator launches the context streaming path without blocking the 10Hz monitoring loop.
 
-The kernel now enforces:
+The speculative restoration sequence is:
+
+1. `SovereignGPUOrchestrator` receives P(I_t) >= 0.65 and requests the prepared state.
+2. The kernel applies the ZAT-SCS transition hooks.
+3. CUDA MPS background capacity is reduced to 10 percent where Linux MPS control is available.
+4. Unified Virtual Memory pre-mapping is enabled with `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1`.
+5. `ContextStreamingEngine.speculative_restore_async()` starts a daemon thread.
+6. `LlamaClient.restore_slot(slot_id=0)` posts to the loopback llama-server endpoint `/slots/0/restore` with timeout and connection-failure isolation.
+
+This keeps speculative KV cache restoration non-blocking. If the loopback llama-server slot endpoint is offline or slow, the exception path is contained and the sensory loop continues operating.
+
+## Split-Tensor Runtime Guardrails
+
+The validated v1.5.3 inference target is:
 
 ```text
-7500MB Physical VRAM Ceiling
+Model:        Qwen2.5-14B-Instruct-Q4_K_M
+GPU:          RTX 5050 Laptop GPU, 8GB VRAM
+CPU:          Ryzen 7 250 AI
+GPU_LAYERS:   20
+Allocation:   Split Tensor Allocation across VRAM and system RAM
 ```
 
-to preserve display driver stability during sustained tensor workloads.
+Peridot does not attempt to force the entire 14B model into an 8GB VRAM envelope. The stable split configuration keeps a safe GPU layer budget and allows the remainder of the tensor load to execute through system RAM, preserving reasoning quality while avoiding catastrophic CUDA allocation failures.
 
-Additional safeguards include:
+The FSM retains a 200MB free VRAM clearance threshold on 8GB targets. If Folding@Home or any background workload cannot yield the required physical memory before timeout, inference is aborted rather than risking a display driver crash.
 
-- Direct NVIDIA driver interrogation through `pynvml`
-- Physical VRAM validation
-- Reduced purge threshold (200MB)
-- FSM-controlled memory recovery
-- Phantom VRAM mitigation
 
 ---
 
-## KERNEL PANIC Guarantee
+# `> SOVEREIGN MULTI-SESSION MEMORY`
 
-Peridot no longer trusts operating system cache metrics when reclaiming VRAM.
+Peridot v1.5.1 introduced a local SQLite-backed conversational ledger in `core_system/memory/chat_ledger.py`. The ledger gives the kernel durable, multi-session chat continuity without external accounts, cloud storage, or remote profile synchronization.
 
-The finite state machine verifies physical byte recovery directly from the NVIDIA driver.
-
-If Folding@Home fails to yield memory within a strict:
+The ledger persists two local tables:
 
 ```text
-2.0 Second Timeout
+sessions(session_id, title, created_at, updated_at)
+messages(id, session_id, role, content, timestamp)
 ```
 
-the kernel triggers:
+Session CRUD supports creating new conversations, listing recent sessions, updating titles, retrieving session metadata, and deleting a session with cascading message cleanup. Each `/ask` request may carry a `session_id`; the server uses that value to retrieve recent turns and return continuity metadata to the client.
+
+The runtime injects history through a six-turn sliding window:
 
 ```text
-KERNEL PANIC
+get_history(session_id, limit=6)
 ```
 
-The active prompt is discarded.
-
-The allocation path is aborted.
-
-The fault is isolated.
-
-Host operating system stability is preserved.
-
-<div align="center">
-
-![VRAM State Machine](assets/benchmarks/hardware_handoff_sequence.png)
-
-</div>
-
----
-
-# `> SECURITY`
-
-Peridot implements a hardened defense in depth architecture engineered to protect the inference runtime from malicious prompts, unauthorized file access, unsafe subprocess execution, prompt injection attacks, and privilege escalation attempts.
-
-The kernel assumes:
-
-```text
-All input is potentially hostile until validated otherwise
-```
-
-Security boundaries are enforced before the inference layer is permitted to interact with:
-
-- The filesystem
-- Subprocess execution
-- Network interfaces
-- External resources
-- Privileged runtime operations
+The ledger fetches up to twelve recent messages, reverses them back into chronological order, deduplicates consecutive identical role/content pairs and hands the result to the prompt builder for ChatML-style context assembly. This prevents unbounded chat growth while preserving enough local conversational state for stable follow-up prompts.
 
 ---
 
@@ -360,63 +302,39 @@ No remote trust assumptions exist.
 
 ---
 
-## System Prompt Hardening
+## Stable v1.5 Milestone Ledger
 
-Peridot v1.5 introduces a redesigned system prompt architecture engineered specifically to combat knowledge bleed and context drift.
+The stable v1.5 line consolidated Peridot around local persistence, hardened ingestion and predictive hardware orchestration.
 
-The `build_system_prompt()` pathway now injects explicit contextual constraints into every generation cycle.
+### v1.5.1-STABLE
 
-The objective is simple:
+v1.5.1 delivered the operator facing stability layer and local conversation persistence:
 
-```text
-If information does not exist in retrieved context,
-the model should not invent it.
-```
+- Multi-tab UI migration with dedicated Chat, Vault and Settings workspaces.
+- Glass Box operator visibility for runtime state, research controls and telemetry endpoints.
+- 360Hz Kinetic Scrolling and custom themed ttk.Combobox styling for the operator interface.
+- SQLite chat ledger integration for session CRUD, message logging and six turn sliding history injection.
+- 256-bit API key generation through `secrets.token_hex(32)` and loopback CORS restriction.
 
-The hardened prompt architecture actively suppresses:
+### v1.5.2-STABLE
 
-- RLHF conversational drift
-- Unsupported factual extrapolation
-- Cross-document contamination
-- Retrieval bypass attempts
-- Context abandonment
+v1.5.2 stabilized memory safety and document ingestion:
 
-This substantially improves:
+- Insecure pickle metadata deserialization was removed from the vault path and replaced with JSON metadata serialization.
+- PyMuPDF was promoted into the layout preserving extraction pipeline with `fitz` and `sort=True` to preserve tables, columns and balance-sheet style geometry.
+- Each embedded chunk receives an inline `[SOURCE DOC: filename]` citation brand before vector insertion.
+- Dynamic VRAM splitting heuristics and context overflow clamps reduce OOM and 400-response failures under dense RAG workloads.
 
-- RAG grounding accuracy
-- Citation fidelity
-- Multi-document reasoning
-- Contextual obedience
+### v1.5.3-STABLE [ZAT-SCS]
 
-while reducing hallucination rates under heavy retrieval workloads.
+v1.5.3 adds predictive preemption and speculative context streaming:
 
----
-
-## File Access Blacklist
-
-The kernel actively blocks access to sensitive files and restricted directories before the inference layer is permitted to interact with the host filesystem.
-
-### Blocked Files
-
-- `.env`
-- `.ssh/id_rsa`
-- `passwords.txt`
-- `auth.token`
-
-### Blocked Directories
-
-- `C:\Windows\`
-- `/etc/`
-- `/root/`
-- `/boot/`
-
-Path traversal attacks such as:
-
-```text
-../../../etc/passwd
-```
-
-are automatically neutralized through path normalization and permission validation before file execution paths are resolved.
+- The 10Hz Physical Telemetry Engine computes P(I_t) from keyboard f(C) and acoustic RMS g(A).
+- P(I_t) >= 0.65 transitions the kernel into `KernelState.SPECULATIVE_PREPARED`.
+- CUDA MPS throttles background distributed compute to 10 percent SM capacity during speculative preparation.
+- `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` enables Unified Virtual Memory weight pre-mapping.
+- The loopback `/slots/0/restore` call prefetches llama-server slot state asynchronously.
+- The `/ask` route detects the speculative prepared state and bypasses the preemption and prefill phase when possible.
 
 ---
 
@@ -457,9 +375,9 @@ For full threat model documentation and disclosure policy, see [`SECURITY.md`](d
 
 # `> GLASS BOX UI & OPERATOR INTERFACE`
 
-Peridot v1.5 introduces a redesigned operator interface engineered around transparency, observability, and separation of responsibilities.
+Peridot v1.5 introduces a redesigned operator interface engineered around transparency, observability and separation of responsibilities.
 
-Unlike traditional chat-first interfaces, the Glass Box UI exposes runtime state directly to the operator.
+Unlike traditional chat first interfaces, the Glass Box UI exposes runtime state directly to the operator.
 
 The objective is simple:
 
@@ -488,7 +406,7 @@ The interface remains isolated from background telemetry processing to ensure UI
 
 ## KERNEL VAULT
 
-KERNEL VAULT provides real-time visibility into the retrieval subsystem.
+KERNEL VAULT provides real time visibility into the retrieval subsystem.
 
 Operators can observe:
 
@@ -560,7 +478,7 @@ before runtime initialization occurs.
 
 ## 144Hz Kinetic Scrolling
 
-The v1.5 interface introduces a custom scrolling engine designed for high refresh-rate displays.
+The v1.5 interface introduces a custom scrolling engine designed for high refresh rate displays.
 
 Features include:
 
@@ -569,7 +487,7 @@ Features include:
 - High refresh rate optimization
 - Reduced scroll latency
 
-for large conversations and document-heavy workloads.
+for large conversations and document heavy workloads.
 
 ---
 
@@ -667,11 +585,6 @@ This separation reduces:
 
 during sustained workloads.
 
-<div align="center">
-
-![Aether-Route Topology](assets/illustrations/aether_route_topology.png)
-
-</div>
 
 ---
 
@@ -1101,7 +1014,7 @@ The kernel will initialize using the configured runtime environment.
 [████████████████████] v1.2 BETA      Security Hardening + Benchmarking
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
-[████████████████████] v1.5.4         Linux Support
+[█████████████████░░░] v1.5.4         Linux Support
 [░░░░░░░░░░░░░░░░░░░░] v1.6           Updated and more efficient RAG and Ingestion system
 [░░░░░░░░░░░░░░░░░░░░] v1.7           AMD GPU Support (ROCm)
 [░░░░░░░░░░░░░░░░░░░░] v2.0           macOS Support (Apple Silicon)
@@ -1109,7 +1022,7 @@ The kernel will initialize using the configured runtime environment.
 
 **Current Focus (v1.5.3 STABLE)**
 
-Autonomous RAG degradation policies, 24-hour MTBF stress testing under Split-Tensor Allocation workloads, and expanded sovereign UI observability.
+Autonomous RAG degradation policies, 24-hour MTBF stress testing under Split-Tensor Allocation workloads and expanded sovereign UI observability.
 
 ---
 
@@ -1141,11 +1054,6 @@ You can:
 
 That decision belongs to the user, not the developer.
 
-<div align="center">
-
-![Sovereign Network Diagram](assets/illustrations/sovereign_network_diagram.png)
-
-</div>
 
 **This is what AI should look like.**
 
