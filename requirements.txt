@@ -74,7 +74,7 @@ SpeechRecognition==3.16.1
 sympy==1.13.1
 threadpoolctl==3.6.0
 tiktoken==0.13.0
-tokenizers==0.22.2
+tokenizers==0.23.1
 tomli==2.4.1
 tomli_w==1.2.0
 tqdm==4.67.3
