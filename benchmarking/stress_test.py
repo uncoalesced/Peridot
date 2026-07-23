@@ -27,7 +27,8 @@ SERVER_PORT = 5000
 try:
     import config
 
-    API_KEY = getattr(config, "API_KEY", API_KEY)
+    import os
+    API_KEY = os.getenv("API_KEY")
     SERVER_HOST = getattr(config, "SERVER_HOST", SERVER_HOST)
     SERVER_PORT = getattr(config, "SERVER_PORT", SERVER_PORT)
 except ImportError:
