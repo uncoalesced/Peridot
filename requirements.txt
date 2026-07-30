@@ -44,7 +44,7 @@ nvidia-ml-py==13.595.45
 openai-whisper==20250625
 packageurl-python==0.17.6
 packaging==26.2
-Pillow==12.2.0
+Pillow==12.3.0
 pip-api==0.0.34
 pip-requirements-parser==32.0.1
 pip_audit==2.10.1
