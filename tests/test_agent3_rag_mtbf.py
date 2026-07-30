@@ -85,6 +85,11 @@ def _install_common_runtime_stubs():
                 return func
             return decorator
 
+        def errorhandler(self, code_or_exception):
+            def decorator(func):
+                return func
+            return decorator
+
     flask.Flask = FakeFlask
     flask.request = types.SimpleNamespace(json={}, headers={}, environ={})
     flask.jsonify = lambda payload: payload
@@ -202,6 +207,25 @@ class Agent3RegressionTests(unittest.TestCase):
             "core_system.memory.ephemeral_cache",
             "core_system.rag_cache",
             "config",
+            "dotenv",
+            "fitz",
+        )
+
+    def tearDown(self):
+        _drop_modules(
+            "server",
+            "benchmarking.mtbf_stress_test",
+            "core_system.kernel",
+            "core_system.memory.vault",
+            "core_system.memory.embedder",
+            "core_system.memory.turbovec_index",
+            "core_system.audit",
+            "core_system.telemetry",
+            "core_system.memory.chat_ledger",
+            "core_system.memory.ephemeral_cache",
+            "core_system.rag_cache",
+            "config",
+            "dotenv",
             "fitz",
         )
 

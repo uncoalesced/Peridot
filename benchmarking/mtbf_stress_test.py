@@ -80,11 +80,21 @@ def send_inference_request(prompt: str, session_id: str = None) -> dict:
 
         if resp.status_code == 200:
             result = resp.json()
-            # Check if response indicates kernel panic in the text
             response_text = result.get("response", "")
+            response_session_id = result.get("session_id") or session_id or "default_session"
             if "KERNEL PANIC" in response_text or "[KERNEL PANIC]" in response_text:
-                return {"status": "panic", "response": response_text, "elapsed": elapsed}
-            return {"status": "success", "response": response_text, "elapsed": elapsed}
+                return {
+                    "status": "panic",
+                    "response": response_text,
+                    "session_id": response_session_id,
+                    "elapsed": elapsed,
+                }
+            return {
+                "status": "success",
+                "response": response_text,
+                "session_id": response_session_id,
+                "elapsed": elapsed,
+            }
         else:
             # HTTP error (e.g., 503)
             return {"status": "http_error", "code": resp.status_code, "response": resp.text, "elapsed": elapsed}

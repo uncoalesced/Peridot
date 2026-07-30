@@ -21,11 +21,14 @@ import os
 import sys
 import logging
 import json
-import fitz  # PyMuPDF
+try:
+    import fitz
+except ImportError:
+    fitz = None
 import shutil
 import gc
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from core_system.audit import ghost
 from core_system.memory.embedder import embedder
@@ -61,7 +64,7 @@ class PersistentVault:
 
         # Initialize TurboVec IdMapIndex
         self.index = IdMapIndex(dim=dim, bit_width=bit_width)
-        self.metadata: List[str] = []  # Raw chunk text for retrieval
+        self.metadata: Dict[str, Dict[str, str]] = {}
 
         self._load_vault()
 
@@ -81,9 +84,44 @@ class PersistentVault:
             except Exception as e:
                 ghost.error(f"VAULT | Corruption detected: {e}. Rebuilding index.")
                 self.index = IdMapIndex(dim=self.dimension, bit_width=self.bit_width)
-                self.metadata = []
+                self.metadata = {}
         else:
             ghost.info("VAULT | TurboVec Layer 2 Initialised (Empty).")
+
+    def _chunk_ids_for_source(self, source: str, count: int) -> List[str]:
+        existing_ids = set(self.index.list_ids()) if hasattr(self.index, "list_ids") else set()
+        prefix = f"[SOURCE DOC: {source}]_chunk_"
+        chunk_ids = []
+        chunk_number = 0
+        while len(chunk_ids) < count:
+            chunk_id = f"{prefix}{chunk_number}"
+            if chunk_id not in existing_ids:
+                chunk_ids.append(chunk_id)
+            chunk_number += 1
+        return chunk_ids
+
+    def add_documents(self, documents: List[str], source: str) -> int:
+        prefix = f"[SOURCE DOC: {source}]\n"
+        tagged_documents = [
+            document if document.startswith(prefix) else f"{prefix}{document.strip()}"
+            for document in documents
+            if document.strip()
+        ]
+        if not tagged_documents:
+            return 0
+
+        chunk_ids = self._chunk_ids_for_source(source, len(tagged_documents))
+        embeddings = embedder.embed_documents(tagged_documents)
+        self.index.add_with_ids(embeddings, chunk_ids)
+
+        if not isinstance(self.metadata, dict):
+            self.metadata = {}
+        for chunk_id, tagged_document in zip(chunk_ids, tagged_documents):
+            self.metadata[chunk_id] = {
+                "source": source,
+                "text": tagged_document,
+            }
+        return len(chunk_ids)
 
     def save_vault(self) -> None:
         """Persist vault state to disk using safetensors format."""
@@ -143,18 +181,9 @@ class PersistentVault:
             if not chunks:
                 return 0
 
-            # Generate embeddings for all chunks
-            embeddings = embedder.embed_documents(chunks)
-
-            # Generate stable IDs for each chunk
-            chunk_ids = [
-                f"[SOURCE DOC: {pdf_path.name}]_chunk_{i}"
-                for i in range(len(chunks))
-            ]
-
-            # Add to TurboVec index with stable IDs
-            self.index.add_with_ids(embeddings, chunk_ids)
-            self.metadata.extend(chunks)
+            count = self.add_documents(chunks, source=pdf_path.name)
+            if count == 0:
+                return 0
 
             gc.collect()
 
@@ -162,8 +191,8 @@ class PersistentVault:
             PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
             shutil.move(str(pdf_path), str(PROCESSED_PATH / pdf_path.name))
 
-            ghost.info(f"VAULT | Ingested & Tagged: {pdf_path.name} ({len(chunks)} chunks)")
-            return len(chunks)
+            ghost.info(f"VAULT | Ingested & Tagged: {pdf_path.name} ({count} chunks)")
+            return count
 
         except Exception as e:
             ghost.error(f"VAULT | Ingestion failed for {pdf_path.name}: {e}")
@@ -188,7 +217,12 @@ class PersistentVault:
         if new_chunks > 0:
             self.save_vault()
 
-    def search(self, query_vector, top_k: int = 6) -> Optional[List[str]]:
+    def search(
+        self,
+        query_vector,
+        top_k: int = 6,
+        allowlist: Optional[List[str]] = None,
+    ) -> Optional[List[str]]:
         """
         Search for semantically relevant chunks.
 
@@ -203,26 +237,32 @@ class PersistentVault:
             return None
 
         try:
-            # Search TurboVec index
-            distances, chunk_ids, scores = self.index.search(query_vector, k=top_k)
+            distances, chunk_ids, scores = self.index.search(
+                query_vector,
+                k=top_k,
+                allowlist=allowlist,
+            )
 
             if len(chunk_ids) == 0:
                 return None
 
-            # Check similarity threshold (same as FAISS implementation)
-            # Distance > 1.85 means too dissimilar
             if len(distances) > 0 and distances[0] > 1.85:
                 return None
 
-            # Map chunk IDs back to metadata indices
             results = []
-            for i, chunk_id in enumerate(chunk_ids):
-                # Extract original chunk text from metadata
-                # Chunk ID format: "[SOURCE DOC: filename]_chunk_N"
-                for idx, meta in enumerate(self.metadata):
-                    if f"_chunk_{len(results)}" in chunk_id or idx == i:
-                        results.append(meta)
-                        break
+            if isinstance(self.metadata, dict):
+                for chunk_id in chunk_ids:
+                    metadata = self.metadata.get(str(chunk_id))
+                    if isinstance(metadata, dict):
+                        text = metadata.get("text")
+                    else:
+                        text = metadata
+                    if text:
+                        results.append(text)
+            else:
+                for index, _ in enumerate(chunk_ids):
+                    if index < len(self.metadata):
+                        results.append(self.metadata[index])
 
             ghost.info(f"VAULT | Retrieved {len(results)} chunks (best score: {scores[0]:.4f})")
             return results if results else None
@@ -242,8 +282,10 @@ class PersistentVault:
             Number of chunks deleted
         """
         deleted = 0
+        available_ids = self.index.list_ids() if hasattr(self.index, "list_ids") else []
         ids_to_delete = [
-            chunk_id for chunk_id in self.index._id_to_idx.keys()
+            chunk_id
+            for chunk_id in available_ids
             if f"[SOURCE DOC: {filename}]" in chunk_id
         ]
 
@@ -252,11 +294,14 @@ class PersistentVault:
                 deleted += 1
 
         if deleted > 0:
-            # Rebuild metadata to remove deleted chunks
-            self.metadata = [
-                meta for meta in self.metadata
-                if f"[SOURCE DOC: {filename}]" not in meta
-            ]
+            if isinstance(self.metadata, dict):
+                for chunk_id in ids_to_delete:
+                    self.metadata.pop(chunk_id, None)
+            else:
+                self.metadata = [
+                    meta for meta in self.metadata
+                    if f"[SOURCE DOC: {filename}]" not in meta
+                ]
             self.save_vault()
             ghost.info(f"VAULT | Deleted {deleted} chunks from {filename}")
 

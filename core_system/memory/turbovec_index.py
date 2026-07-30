@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 from core_system.audit import ghost
 
+TURBOVEC_NATIVE = True
+
 # Try to import the official TurboVec package
 # If not available, fall back to pure-Python implementation
 try:
@@ -101,7 +103,24 @@ class IdMapIndex:
 
             ghost.info(f"TURBOVEC | Added {len(ids)} vectors with stable IDs (total: {self._next_idx})")
 
-    def search(self, query_vector: np.ndarray, k: int = 6) -> Tuple[np.ndarray, List[str], List[float]]:
+    def list_ids(self) -> list:
+        if hasattr(self, "id_to_doc"):
+            return list(self.id_to_doc.keys())
+        if hasattr(self, "ids"):
+            return list(self.ids)
+        if hasattr(self, "_id_to_idx"):
+            return list(self._id_to_idx.keys())
+        if TURBOVEC_NATIVE and hasattr(self._native_index, "list_ids"):
+            return list(self._native_index.list_ids())
+        return []
+
+    def search(
+        self,
+        query_vector: np.ndarray,
+        k: int = 6,
+        allowlist: Optional[List[str]] = None,
+        mask: Optional[List[bool]] = None,
+    ) -> Tuple[np.ndarray, List[str], List[float]]:
         """
         Search for the k nearest neighbors.
 
@@ -115,32 +134,67 @@ class IdMapIndex:
             - ids: List of stable chunk identifiers
             - scores: List of similarity scores (1 / (1 + distance))
         """
+        result_limit = max(0, int(k))
+        allowed_ids = set(allowlist) if allowlist is not None else None
+        mask_values = list(mask) if mask is not None else None
+
         if TURBOVEC_NATIVE:
-            distances, ids = self._native_index.search(query_vector, k=k)
-            scores = [1.0 / (1.0 + float(d)) for d in distances]
-            return distances, list(ids), scores
-        else:
-            # Pure-Python fallback using L2 distance
-            q_vec = np.array(query_vector, dtype=np.float32).flatten()
-            if len(self._vectors) == 0:
-                return np.array([]), [], []
+            candidate_count = max(result_limit, self.size)
+            try:
+                if mask_values is None:
+                    distances, ids = self._native_index.search(query_vector, k=candidate_count)
+                else:
+                    distances, ids = self._native_index.search(
+                        query_vector,
+                        k=candidate_count,
+                        mask=mask_values,
+                    )
+            except TypeError:
+                distances, ids = self._native_index.search(query_vector, k=candidate_count)
 
-            # Compute L2 distances to all vectors
-            distances = []
-            indices = []
-            for idx, vec in enumerate(self._vectors):
-                dist = np.linalg.norm(q_vec - vec)
-                distances.append(dist)
-                indices.append(idx)
+            result_pairs = []
+            for distance, chunk_id in zip(distances, ids):
+                chunk_id = str(chunk_id)
+                index = self._id_to_idx.get(chunk_id)
+                if allowed_ids is not None and chunk_id not in allowed_ids:
+                    continue
+                if mask_values is not None and (
+                    index is None or index >= len(mask_values) or not mask_values[index]
+                ):
+                    continue
+                result_pairs.append((float(distance), chunk_id))
+                if len(result_pairs) == result_limit:
+                    break
 
-            # Sort by distance and take top-k
-            sorted_pairs = sorted(zip(distances, indices), key=lambda x: x[0])[:k]
-
-            result_distances = np.array([d for d, _ in sorted_pairs])
-            result_ids = [self._idx_to_id[idx] for _, idx in sorted_pairs]
-            result_scores = [1.0 / (1.0 + float(d)) for d in result_distances]
-
+            result_distances = np.array([distance for distance, _ in result_pairs])
+            result_ids = [chunk_id for _, chunk_id in result_pairs]
+            result_scores = [1.0 / (1.0 + distance) for distance in result_distances]
             return result_distances, result_ids, result_scores
+
+        q_vec = np.array(query_vector, dtype=np.float32).flatten()
+        if len(self._vectors) == 0:
+            return np.array([]), [], []
+
+        pairs = []
+        for idx, vec in enumerate(self._vectors):
+            if vec is None:
+                continue
+            chunk_id = self._idx_to_id.get(idx)
+            if chunk_id is None:
+                continue
+            if allowed_ids is not None and chunk_id not in allowed_ids:
+                continue
+            if mask_values is not None and (
+                idx >= len(mask_values) or not mask_values[idx]
+            ):
+                continue
+            pairs.append((float(np.linalg.norm(q_vec - vec)), idx))
+
+        sorted_pairs = sorted(pairs, key=lambda pair: pair[0])[:result_limit]
+        result_distances = np.array([distance for distance, _ in sorted_pairs])
+        result_ids = [self._idx_to_id[index] for _, index in sorted_pairs]
+        result_scores = [1.0 / (1.0 + float(distance)) for distance in result_distances]
+        return result_distances, result_ids, result_scores
 
     def delete_by_id(self, chunk_id: str) -> bool:
         """
@@ -208,18 +262,30 @@ class IdMapIndex:
             save_dir.mkdir(parents=True, exist_ok=True)
 
             # Save vectors as numpy arrays in safetensors format
-            valid_vectors = [(idx, vec) for idx, vec in enumerate(self._vectors) if vec is not None]
+            valid_vectors = [
+                (idx, vec)
+                for idx, vec in enumerate(self._vectors)
+                if vec is not None and idx in self._idx_to_id
+            ]
             if valid_vectors:
                 vector_array = np.stack([vec for _, vec in valid_vectors])
                 save_file({"vectors": vector_array}, str(save_dir / "vectors.safetensors"))
 
             # Save ID mappings as JSON
+            compact_id_to_idx = {
+                self._idx_to_id[old_idx]: new_idx
+                for new_idx, (old_idx, _) in enumerate(valid_vectors)
+            }
+            compact_idx_to_id = {
+                new_idx: chunk_id
+                for chunk_id, new_idx in compact_id_to_idx.items()
+            }
             meta = {
-                "id_to_idx": self._id_to_idx,
-                "idx_to_id": {str(k): v for k, v in self._idx_to_id.items()},
+                "id_to_idx": compact_id_to_idx,
+                "idx_to_id": {str(k): v for k, v in compact_idx_to_id.items()},
                 "dim": self.dim,
                 "bit_width": self.bit_width,
-                "next_idx": self._next_idx
+                "next_idx": len(valid_vectors)
             }
             with open(save_dir / "metadata.json", "w", encoding="utf-8") as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)

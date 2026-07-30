@@ -365,10 +365,14 @@ def ask():
 
             try:
                 query_vector = embedder.embed_query(user_query)
+                retrieval_depth = min(
+                    MAX_RETRIEVAL_DEPTH,
+                    max(MIN_RETRIEVAL_DEPTH, int(current_retrieval_depth)),
+                )
 
                 # Apply autonomous RAG degradation policy based on retrieval latency
                 retrieval_start_time = time.time()
-                relevant_context = vault.search(query_vector, top_k=current_retrieval_depth)
+                relevant_context = vault.search(query_vector, top_k=retrieval_depth)
                 retrieval_latency_ms = (time.time() - retrieval_start_time) * 1000
 
                 # Update global retrieval latency tracker
