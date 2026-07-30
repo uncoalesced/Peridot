@@ -81,7 +81,7 @@ transformers>=4.46.0,<5.0
 typing_extensions==4.15.0
 urllib3==2.7.0
 websocket-client==1.9.0
-Werkzeug==3.1.6
+Werkzeug==3.1.8
 
 # Platform-isolated Deep Learning Matrix
 # Windows uses validated CUDA 12.4 wheels; Linux/macOS CI stays on standard CPU-compatible PyPI wheels.
