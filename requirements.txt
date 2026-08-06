@@ -7,7 +7,7 @@
 blinker==1.9.0
 boolean.py==5.0
 CacheControl==0.14.4
-certifi==2026.5.20
+certifi==2026.7.22
 cffi==2.0.0
 charset-normalizer==3.4.7
 click==8.4.2
