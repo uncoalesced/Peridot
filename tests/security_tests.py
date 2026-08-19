@@ -43,7 +43,15 @@ def test_file_blacklist():
 
     # Relative traversal must resolve and get caught on the host we run on.
     if os.name == "posix":
-        assert not is_file_safe("../../../../etc/shadow")[0], "FAIL: Linux traversal to /etc allowed!"
+        # Walk up far enough to provably clear the filesystem root ('..' at '/'
+        # is a no-op), so this holds regardless of how deeply the CI workspace
+        # is nested. A fixed shallow count resolved to /home/etc/shadow on the
+        # GitHub runner and asserted nothing -- the guard below catches that.
+        traversal = "../" * 20 + "etc/shadow"
+        resolved = os.path.abspath(traversal)
+        assert resolved == "/etc/shadow", \
+            f"Test bug: traversal resolved to {resolved}, not /etc/shadow"
+        assert not is_file_safe(traversal)[0], "FAIL: Linux traversal to /etc allowed!"
 
     assert is_file_safe("research_paper.pdf")[0], "FAIL: Safe file falsely blocked!"
     assert is_file_safe("input/processed/notes.txt")[0], "FAIL: Safe nested file falsely blocked!"
