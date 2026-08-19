@@ -9,12 +9,12 @@
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 ```
 
-### `SOVEREIGN LOCAL AI KERNEL — v1.5.3 STABLE`
+### `SOVEREIGN LOCAL AI KERNEL — v1.5.4 STABLE`
 
-### `PERIDOT SOVEREIGN KERNEL v1.5.3-STABLE [ZAT-SCS]`
+### `PERIDOT SOVEREIGN KERNEL v1.5.4-STABLE [ZAT-SCS]`
 
 [![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
-[![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS-0078D4?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/COMMUNITY_INSTALL.md)
+[![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS_%7C_LINUX-0078D4?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/COMMUNITY_INSTALL.md)
 [![PRIVACY](https://img.shields.io/badge/PRIVACY_AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/SECURITY.md)
 
 <br>
@@ -35,7 +35,7 @@
 
 # `> OVERVIEW`
 
-Peridot v1.5.3-STABLE [ZAT-SCS] is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems.
+Peridot v1.5.4-STABLE is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems. v1.5.4 adds native Linux support (Debian 12, Ubuntu 22.04+, Arch) alongside the existing Windows runtime, and closes a real sovereignty gap where the offline flags could be silently reopened by a stale `.env`.
 
 ZAT-SCS stands for Zero-Overhead Active Telemetry and Speculative Context Streaming. It is the flagship v1.5.3 update: a predictive preemption layer that monitors physical interaction signals before a prompt is submitted, prepares the GPU and context path in advance, and removes the normal prefill delay when the operator commits a query during the prepared state.
 
@@ -336,6 +336,15 @@ v1.5.3 adds predictive preemption and speculative context streaming:
 - The loopback `/slots/0/restore` call prefetches llama-server slot state asynchronously.
 - The `/ask` route detects the speculative prepared state and bypasses the preemption and prefill phase when possible.
 
+### v1.5.4-STABLE
+
+v1.5.4 adds Linux support and closes a real sovereignty gap:
+
+- Native Linux support (Debian 12, Ubuntu 22.04+, Arch). Session type (`x11`/`wayland`/`headless`/`native`) is detected at boot; under Wayland, `pynput`'s global keyboard hook cannot receive input by design, so the ZAT-SCS keyboard term degrades to zero rather than crashing or silently going stale.
+- `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE` are now force-locked to `1` immediately after `.env` is loaded — a hand-edited or stale `.env` can no longer reopen outbound traffic. Model downloads route through a subprocess-isolated child process that is the only part of the system ever granted network access.
+- Default model briefly promoted to `Qwen3.8-27B-UD-Q2_K_XL.gguf`, then **reverted** to `Qwen2.5-14B-Instruct-Q4_K_M.gguf`. The 27B cannot be loaded by the pinned `llama-cpp-python` 0.3.23: the GGUF declares an MTP (multi-token prediction) head at block 64 via `qwen35.nextn_predict_layers`, which the runtime builds as a standard hybrid layer and then rejects for a missing SSM tensor. The file is valid - a byte-exact re-download fails identically - so this is a runtime support gap, not corruption. Unblocked by a newer llama.cpp; deferred to v1.6.x. See CHANGELOG.md for the full analysis.
+- Test suite expanded from 11 to 50 tests; a platform-relative path-blacklist bug affecting both Windows and Linux sensitive-directory checks was found and fixed.
+
 ---
 
 ## GhostLogger
@@ -602,7 +611,7 @@ A dedicated ingestion utility:
 ingest_vault.py
 ```
 
-allows operators to parse, chunk, embed and index content directly into the FAISS database.
+allows operators to parse, chunk, embed and index content directly into the TurboVec index.
 
 All ingestion workloads remain CPU bound to protect inference resources.
 
@@ -677,6 +686,16 @@ This architecture minimizes:
 - Retrieval latency spikes
 
 during sustained ingestion workloads.
+
+---
+
+### TurboVec / TurboQuant
+
+Peridot does not depend on a third-party vector database. Retrieval runs on **TurboVec**, a Rust-backed vector index (`core_system/memory/turbovec_index.py`) built specifically for this kernel, with a pure-Python fallback when the native extension isn't available.
+
+TurboVec uses **TurboQuant** — Peridot's own quantization architecture, applied consistently across the kernel since v1.4.0 — to compress stored vectors to 4-bit precision, claiming roughly 16x lower memory footprint than an uncompressed FAISS index at comparable retrieval accuracy. Persistence is safetensors-based; no `pickle` is used anywhere in the vault path. Chunk IDs remain stable across deletions, so the index doesn't need a full rebuild after routine document removal.
+
+This is sovereign infrastructure, not a wrapper around someone else's hosted or telemetry-bearing vector store — no external vector database dependency exists anywhere in Peridot, by design.
 
 ---
 
@@ -874,6 +893,8 @@ using Split Tensor Allocation.
 
 CPU only execution paths remain fully supported at reduced throughput.
 
+**Linux:** Debian 12, Ubuntu 22.04+ and Arch are supported as of v1.5.4. The code path is correct in principle and covered by automated tests, but GPU-accelerated inference has not yet been validated on real Linux hardware — no GPU-equipped Linux machine was available during that release cycle. Treat Linux GPU inference as untested, not unsupported.
+
 **Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See [`COMMUNITY_INSTALL.md`](docs/markdowns/COMMUNITY_INSTALL.md).
 
 ---
@@ -883,12 +904,14 @@ CPU only execution paths remain fully supported at reduced throughput.
 ## Prerequisites
 
 ```text
-OS:      Windows 10/11 (64-bit)
+OS:      Windows 10/11 (64-bit), or Debian 12 / Ubuntu 22.04+ / Arch (Linux)
 GPU:     NVIDIA RTX Series Recommended
 Python:  3.11
 Storage: ~10GB Free (SSD Recommended)
 RAM:     16GB Recommended
 ```
+
+Linux operators: see [`COMMUNITY_INSTALL.md`](docs/markdowns/COMMUNITY_INSTALL.md) for system dependencies (including `portaudio19-dev`, required for the acoustic telemetry sensor) and the Wayland degradation matrix before running setup.
 
 ---
 
@@ -1014,15 +1037,15 @@ The kernel will initialize using the configured runtime environment.
 [████████████████████] v1.2 BETA      Security Hardening + Benchmarking
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
-[████████████████████] v1.5.4         Linux Support (code-complete; GPU unvalidated on Linux)
-[░░░░░░░░░░░░░░░░░░░░] v1.6           Updated and more efficient RAG and Ingestion system
-[░░░░░░░░░░░░░░░░░░░░] v1.7           AMD GPU Support (ROCm)
-[░░░░░░░░░░░░░░░░░░░░] v2.0           macOS Support (Apple Silicon)
+[████████████████████] v1.5.4 STABLE  Linux Support (code-complete; GPU unvalidated on Linux)
+[░░░░░░░░░░░░░░░░░░░░] v1.6.x         Multi-engine inference (ExLlamaV2, vLLM), episodic memory
+[░░░░░░░░░░░░░░░░░░░░] v1.7.x         FreeThink reasoning, sandboxed agentic REPL, sovereign web gateway
+[░░░░░░░░░░░░░░░░░░░░] v1.8.x         Optional local WebUI, artifact system
 ```
 
-**Current Focus (v1.5.3 STABLE)**
+**Current Focus (v1.6.x)**
 
-Autonomous RAG degradation policies, 24-hour MTBF stress testing under Split-Tensor Allocation workloads and expanded sovereign UI observability.
+Multi-engine inference behind a shared provider abstraction, each model in its own child process, plus infrastructure for Peridot's own episodic self-improvement memory — both built on the existing TurboVec index rather than any external vector database.
 
 ---
 
@@ -1087,7 +1110,7 @@ Peridot exists to be studied, audited, modified and expanded by its operators.
 
 <div align="center">
 
-`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.5.3 STABLE`
+`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.5.4 STABLE`
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 
