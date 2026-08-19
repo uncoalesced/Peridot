@@ -87,11 +87,17 @@ def _calculate_gpu_layers(model_size_mb: int, total_vram_mb: int) -> int:
 # GPU on boot if it guessed high, these entries pin a deliberately conservative
 # value. Boot safety over throughput.
 #
-# PROVISIONAL - NOT BENCHMARKED. Pending real measurement in v1.6.x. Operators
-# with headroom should raise this via the GPU_LAYERS env var and report results.
+# PROVISIONAL - NOT BENCHMARKED. Operators with headroom should raise this via
+# the GPU_LAYERS env var and report results.
 _PROVISIONAL_GPU_LAYERS: dict[str, int] = {
-    # 10.7GB file vs 8GB VRAM: leaves ~4.5GB free for KV cache + compute buffer
+    # 9.2GiB file vs 8GB VRAM: leaves ~4.5GB free for KV cache + compute buffer
     # + CUDA context, with the remaining layers tensor-split into system RAM.
+    #
+    # DORMANT: this model cannot currently be loaded at all (llama.cpp 0.3.23
+    # lacks qwen35 MTP support -- see the ACTIVE_MODEL_NAME note below), so the
+    # value has never been exercised against a successful load. It is retained
+    # so the pin is already in place when MTP support lands; re-derive it from a
+    # real benchmark at that point rather than trusting this number.
     "Qwen3.8-27B-UD-Q2_K_XL.gguf": 20,
 }
 
@@ -150,20 +156,28 @@ for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH
     directory.mkdir(parents=True, exist_ok=True)
 
 # --- ENGINE CONFIGURATION (v1.5.4) ---
-# KNOWN ISSUE (v1.5.4): the Qwen3.8-27B-UD-Q2_K_XL.gguf currently in models/ is
-# REJECTED by the pinned llama-cpp-python 0.3.23 at load time:
+# Default reverted from Qwen3.8-27B-UD-Q2_K_XL.gguf (post-v1.5.4).
+#
+# The 27B cannot be loaded by the pinned llama-cpp-python 0.3.23:
 #
 #   llama_model_load: error loading model: missing tensor 'blk.64.ssm_conv1d.weight'
 #
-# The GGUF declares arch 'qwen35' (hybrid SSM + attention, 65 layers, 27.32B
-# params) but its tensor index carries SSM tensors only for layers 0-63; layer
-# 64 has just 2 of its ~13 tensors. This is NOT a VRAM or GPU_LAYERS problem --
-# it fails identically at n_gpu_layers=0. Most likely an incomplete download.
+# Root cause is a RUNTIME GAP, not a bad file. The GGUF declares:
+#   qwen35.block_count          = 65
+#   qwen35.nextn_predict_layers = 1
+# i.e. 64 hybrid SSM/attention layers plus one MTP (multi-token prediction)
+# head at index 64. llama.cpp 0.3.23 ignores nextn_predict_layers and builds
+# all 65 blocks as standard hybrid layers, so it demands an SSM tensor that
+# correctly does not exist on the MTP head.
 #
-# Shipped as the default deliberately for v1.5.4. Until the file is replaced,
-# override to a known-good local model:
-#   ACTIVE_MODEL_NAME=Qwen2.5-14B-Instruct-Q4_K_M.gguf
-ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen3.8-27B-UD-Q2_K_XL.gguf")
+# Verified against a byte-exact re-download from unsloth/Qwen3.8-27B-GGUF
+# (9,828,981,664 bytes): fails identically, and identically at n_gpu_layers=0,
+# so it is neither corruption nor a VRAM/offload problem.
+#
+# Unblocked by llama-cpp-python >= a release with qwen35 MTP support (0.3.35 is
+# current; 0.3.23 is pinned). That upgrade requires a cuBLAS rebuild and belongs
+# with the v1.6.x inference-provider work, not a patch bump.
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen2.5-14B-Instruct-Q4_K_M.gguf")
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
 # Dynamic hardware-aware configuration

@@ -4,6 +4,41 @@
 
 ---
 
+#### [post-v1.5.4] - 2026-08-19
+
+**Name:** Default Model Revert - Qwen3.8-27B MTP Incompatibility
+
+##### Root Cause Correction
+
+- **The Qwen3.8-27B GGUF Was Never Corrupted:** v1.5.4 shipped documenting the `missing tensor 'blk.64.ssm_conv1d.weight'` load failure as an incomplete download. That diagnosis was wrong. The file was re-fetched byte-exact from `unsloth/Qwen3.8-27B-GGUF` (9,828,981,664 bytes) through the v1.5.4 subprocess-isolated path and fails **identically**, confirming the artifact was valid all along. The original on-disk copy was in fact 847MB *larger* than upstream, which alone rules out truncation.
+- **Actual Cause - MTP Head vs Runtime Support Gap:** The GGUF declares `qwen35.block_count = 65` and `qwen35.nextn_predict_layers = 1`: 64 hybrid Gated-DeltaNet/attention layers plus one MTP (Multi-Token Prediction) head at block index 64. The upstream model card confirms the architecture as 64 layers with MTP trained in. `llama-cpp-python` 0.3.23 ignores `nextn_predict_layers` and constructs all 65 blocks as standard hybrid layers, then demands an `ssm_conv1d` tensor that correctly does not exist on an MTP head. This is a runtime capability gap, not a file defect, and it is independent of VRAM: the failure reproduces identically at `n_gpu_layers=0`.
+
+##### Engine Configuration
+
+- **Default Reverted to Qwen2.5-14B-Instruct-Q4_K_M.gguf:** Per the release conditional, a default that cannot be loaded cannot clear the 25 t/s throughput floor. `config.py`'s `ACTIVE_MODEL_NAME` falls back to the validated baseline until the runtime can load the 27B.
+- **Provisional Pin Retained but Dormant:** The `_PROVISIONAL_GPU_LAYERS` entry pinning `Qwen3.8-27B-UD-Q2_K_XL.gguf` to 20 layers is kept in place so it is already present when MTP support lands. It has never been exercised against a successful load and must be re-derived from a real benchmark rather than trusted as-is.
+- **Unblocking Path:** Requires `llama-cpp-python` with `qwen35` MTP support (0.3.23 pinned, 0.3.35 current). That upgrade entails a cuBLAS rebuild and revalidation of the VRAM arbitration path, so it is deferred to the v1.6.x inference-provider work rather than taken as a patch bump.
+
+##### Benchmarks (RTX 5050 Laptop 8GB, Ryzen 7 250 AI, Windows 11)
+
+Measured on `Qwen2.5-14B-Instruct-Q4_K_M.gguf` at the auto-derived `GPU_LAYERS=28`, `CONTEXT_LENGTH=4096`, 10 runs per workload via `benchmarking/benchmark_inference.py`.
+
+| Workload | Avg Tokens | Avg Time | Throughput | Std Dev |
+|---|---|---|---|---|
+| Short | 28 | 3.65s | 7.57 t/s | +/- 0.37 |
+| Medium | 79 | 3.65s | 21.34 t/s | +/- 1.07 |
+| Long | 231 | 3.66s | 62.38 t/s (median) | +/- 3.36 |
+
+- **Methodology Caveat:** `benchmark_inference.py` divides an approximate token count (`words * 1.3`, not tokenizer output) by full HTTP round-trip wall time, so these are end-to-end request figures including prefill, RAG retrieval and transport - not isolated decode rates. Short-workload throughput is dominated by fixed per-request overhead and should not be read as a decode regression. The metric is unchanged from previous releases, so the long-workload figure remains directly comparable to the 39 t/s previously recorded for this model.
+- **Hard Floor for v1.6.x:** 62.38 t/s long-workload median on the shipped default is the reference figure any new inference provider must meet or beat on this hardware.
+
+##### Known Limitations
+
+- **Qwen3.8-27B Remains Unloadable:** Both the original and the byte-exact re-fetched GGUF fail under the pinned runtime. The original MTP build is retained on disk as `Qwen3.8-27B-UD-Q2_K_XL.mtp-head.gguf.bak` rather than deleted, since it is a valid artifact awaiting runtime support.
+- **No Isolated Decode Benchmark Exists:** The suite has no pure token-generation measurement separate from request overhead. Worth adding alongside the v1.6.x provider abstraction, so providers are compared on decode rate rather than end-to-end latency.
+
+---
+
 #### [v1.5.4-STABLE] - 2026-08-19
 
 **Name:** Peridot v1.5.4 STABLE - Linux Support & Sovereignty Lock
@@ -45,7 +80,7 @@
 ##### Known Limitations
 
 - **Linux GPU Inference Is Not Hardware-Validated:** No Linux machine with an NVIDIA GPU was available during this cycle. Pathing, session detection and every degradation path are covered by automated tests and the code is correct in principle, but no GPU-accelerated inference run has been performed on Linux. Linux GPU support should be treated as untested, not validated.
-- **The Default Model Does Not Currently Load:** The `Qwen3.8-27B-UD-Q2_K_XL.gguf` in `models/` is rejected by the pinned `llama-cpp-python` 0.3.23 with `missing tensor 'blk.64.ssm_conv1d.weight'`. The GGUF declares architecture `qwen35` - a hybrid SSM/attention model of 65 layers and 27.32B parameters - but its tensor index carries SSM tensors only for layers 0-63, with layer 64 holding 2 of its expected tensors. This is not a VRAM or layer-offload fault: it fails identically at `n_gpu_layers=0`. The most probable cause is an incomplete download of the GGUF, consistent with the interrupted HuggingFace transfer recorded in `logs/server.log`. Operators must override with `ACTIVE_MODEL_NAME=Qwen2.5-14B-Instruct-Q4_K_M.gguf` (or another local model) until the file is replaced; `server.py` now prints this hint on load failure.
+- **The Default Model Does Not Currently Load:** The `Qwen3.8-27B-UD-Q2_K_XL.gguf` in `models/` is rejected by the pinned `llama-cpp-python` 0.3.23 with `missing tensor 'blk.64.ssm_conv1d.weight'`. The GGUF declares architecture `qwen35` - a hybrid SSM/attention model of 65 layers and 27.32B parameters - but its tensor index carries SSM tensors only for layers 0-63, with layer 64 holding 2 of its expected tensors. This is not a VRAM or layer-offload fault: it fails identically at `n_gpu_layers=0`. The cause was originally recorded here as an incomplete download. **Correction (post-v1.5.4):** that was wrong - the file is valid and the failure is an MTP head vs. runtime support gap in `llama-cpp-python` 0.3.23. See the [post-v1.5.4] entry above for the verified root cause. Operators must override with `ACTIVE_MODEL_NAME=Qwen2.5-14B-Instruct-Q4_K_M.gguf` (or another local model) until the file is replaced; `server.py` now prints this hint on load failure.
 - **Provisional GPU Layer Count:** `GPU_LAYERS=20` for `Qwen3.8-27B-UD-Q2_K_XL.gguf` is a conservative estimate derived from file size and VRAM headroom, not a measured optimum, and it has never been exercised against a successful load of that model. Throughput is unbenchmarked and is expected to fall substantially below the 39 t/s recorded for `Qwen2.5-14B-Instruct-Q4_K_M`.
 - **Release Validation Baseline:** The v1.5.4 smoke test (boot, model load, RAG online, inference) was performed on Windows 11 / RTX 5050 Laptop 8GB against `Qwen2.5-14B-Instruct-Q4_K_M.gguf`, not against the shipped default.
 
