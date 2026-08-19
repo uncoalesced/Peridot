@@ -46,6 +46,114 @@ tags.
 
 ---
 
+# `> 0. NATIVE LINUX (NVIDIA) — v1.5.4`
+
+Target distributions: **Debian 12**, **Ubuntu 22.04 LTS or newer**, **Arch Linux**.
+
+---
+
+## Validation Status
+
+```text
+Code:     complete
+Hardware: NOT VALIDATED
+```
+
+No Linux machine with an NVIDIA GPU was available during the v1.5.4 cycle.
+The pathing, session detection and sensor-degradation paths are covered by
+automated tests, but **no GPU-accelerated inference run has been performed on
+Linux**. Do not treat the throughput figures in `README.md` as transferable.
+
+If you boot this on Linux with a working CUDA stack, the crash log or the
+benchmark is equally valuable. File it under the `[Linux]` tag.
+
+---
+
+## System Dependencies
+
+The acoustic sensor binds PortAudio and the keystroke sensor binds X11. Both
+degrade cleanly if absent, but for the full ZAT-SCS feature set:
+
+### Debian 12 / Ubuntu 22.04+
+
+```bash
+sudo apt-get update
+sudo apt-get install -y portaudio19-dev python3-tk
+```
+
+### Arch Linux
+
+```bash
+sudo pacman -S --needed portaudio tk
+```
+
+---
+
+## Wayland: ZAT-SCS Runs Degraded
+
+This is expected behaviour, not a fault.
+
+Peridot's predictive preemption layer measures keystroke cadence through a
+`pynput` global hook. That hook is an **X11 client**. Wayland compositors do
+not expose global keyboard input to unprivileged clients by design, and Wayland
+is the default session on Ubuntu 22.04+, Fedora, and most Arch desktop setups.
+
+The kernel detects the session at boot and adapts rather than crashing:
+
+| Session | Detection source | Keyboard term | P(I_t) |
+|---|---|---|---|
+| Windows / macOS | `sys.platform` | active | full |
+| X11 | `XDG_SESSION_TYPE=x11` or `$DISPLAY` | active | full |
+| **Wayland** | `XDG_SESSION_TYPE=wayland` or `$WAYLAND_DISPLAY` | **weight = 0** | **audio-only** |
+| Headless / TTY | neither set | **weight = 0** | **audio-only** |
+
+Under Wayland the interaction probability reduces to the acoustic term alone:
+
+```text
+P(I_t) = min(1.0, P(I_{t-1}) * e^(-lambda * dt) + w_aud * g(A))
+```
+
+The degradation is logged at WARNING on boot:
+
+```text
+[ZAT-SCS] P(I_t) degraded to audio-only (session=wayland,
+reason=global keyboard hook unavailable under 'wayland' session).
+WEIGHT_KEY 0.45 -> 0.00.
+```
+
+Consequence: speculative preemption still fires on ambient acoustic activity,
+but typing alone will not warm the VRAM. Inference correctness is unaffected --
+you lose the latency optimisation, nothing else. If both sensors are absent the
+kernel logs that speculative preemption is inert and falls back to standard
+prefill latency.
+
+### Forcing X11 (optional)
+
+To get the full ZAT-SCS feature set, log into an X11 session instead. On GNOME,
+uncomment in `/etc/gdm3/custom.conf`:
+
+```text
+WaylandEnable=false
+```
+
+Then restart the display manager. This is an operator choice, not a
+requirement -- Peridot runs correctly either way.
+
+---
+
+## Sovereign Mode on Linux
+
+Identical to Windows. The kernel force-sets `HF_HUB_OFFLINE=1` and
+`TRANSFORMERS_OFFLINE=1` at boot regardless of `.env` contents, and refuses to
+start if either is unset. To acquire a model after install, use the isolated
+fetch path -- it is the only thing in the system permitted to go online:
+
+```bash
+python -m core_system.model_fetch <repo_id> <filename>
+```
+
+---
+
 # `> 1. AMD RADEON ARCHITECTURE (ROCm)`
 
 Support for AMD graphics processing units is currently restricted to Linux environments utilizing the ROCm framework.

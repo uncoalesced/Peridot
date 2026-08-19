@@ -76,7 +76,7 @@ ASCII_LOGO = """
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 """
-VERSION_TEXT = "SOVEREIGN KERNEL v1.5.3 [STABLE]\nENGINEERED BY UNCOALESCED"
+VERSION_TEXT = "SOVEREIGN KERNEL v1.5.4 [STABLE]\nENGINEERED BY UNCOALESCED"
 
 
 class TechProgressBar(tk.Canvas):
@@ -156,13 +156,12 @@ class PeridotUI:
         # Windows NT only: Icon loading via win32 APIs
         if sys.platform == "win32":
             try:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                icon_path = os.path.join(base_dir, "assets", "ui", "logo", "peridot.ico")
-                self.root.iconbitmap(icon_path)
+                icon_path = Path(__file__).resolve().parent / "assets" / "ui" / "logo" / "peridot.ico"
+                self.root.iconbitmap(str(icon_path))
 
                 hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
                 if hwnd:
-                    hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010 | 0x00000020)
+                    hicon = ctypes.windll.user32.LoadImageW(0, str(icon_path), 1, 0, 0, 0x00000010 | 0x00000020)
                     ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
                     ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
             except Exception:
@@ -686,17 +685,17 @@ class PeridotUI:
     def _update_vault_directory(self):
         self.vault_list.delete(0, tk.END)
         
-        vault_dir = os.path.join("input", "processed")
-        fallback_dir = "input"
-        
-        if os.path.exists(vault_dir):
-            files = [f for f in os.listdir(vault_dir) if os.path.isfile(os.path.join(vault_dir, f))]
+        vault_dir = Path("input") / "processed"
+        fallback_dir = Path("input")
+
+        if vault_dir.exists():
+            files = sorted(f.name for f in vault_dir.iterdir() if f.is_file())
             if not files:
                 self.vault_list.insert(tk.END, " [EMPTY] No text corpora or source files detected inside archived sectors.")
             for file in files:
                 self.vault_list.insert(tk.END, f" └── [SECURED-VAULT-NODE] : {file}")
-        elif os.path.exists(fallback_dir):
-            files = [f for f in os.listdir(fallback_dir) if os.path.isfile(os.path.join(fallback_dir, f))]
+        elif fallback_dir.exists():
+            files = sorted(f.name for f in fallback_dir.iterdir() if f.is_file())
             if files:
                 for file in files:
                     self.vault_list.insert(tk.END, f" └── [STAGED-NODE] : {file}")

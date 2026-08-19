@@ -75,6 +75,26 @@ def _calculate_gpu_layers(model_size_mb: int, total_vram_mb: int) -> int:
         return max(20, min(int(ratio * 35), 99))
     return 20
 
+# -----------------------------------------------------------------------------
+# PROVISIONAL GPU LAYER OVERRIDES (v1.5.4)
+# -----------------------------------------------------------------------------
+# _calculate_gpu_layers() was tuned against 4-bit-quant 8B-14B models. Its
+# layer-count model does not hold for 2-bit UD quants of a 27.8B parameter
+# model: per-layer VRAM cost, KV-cache footprint and the compute buffer all
+# scale differently, and nothing here has been benchmarked against that shape.
+#
+# Rather than trust an unvalidated extrapolation on a model that would OOM the
+# GPU on boot if it guessed high, these entries pin a deliberately conservative
+# value. Boot safety over throughput.
+#
+# PROVISIONAL - NOT BENCHMARKED. Pending real measurement in v1.6.x. Operators
+# with headroom should raise this via the GPU_LAYERS env var and report results.
+_PROVISIONAL_GPU_LAYERS: dict[str, int] = {
+    # 10.7GB file vs 8GB VRAM: leaves ~4.5GB free for KV cache + compute buffer
+    # + CUDA context, with the remaining layers tensor-split into system RAM.
+    "Qwen3.8-27B-UD-Q2_K_XL.gguf": 20,
+}
+
 def _calculate_context_length(total_vram_mb: int) -> int:
     """
     Calculate optimal context length based on available VRAM.
@@ -97,6 +117,24 @@ _TOTAL_VRAM_GB: float = _TOTAL_VRAM_MB / 1024.0
 # -----------------------------------------------------------------------------
 load_dotenv(override=True)
 
+# -----------------------------------------------------------------------------
+# SOVEREIGNTY LOCK (v1.5.4)
+# -----------------------------------------------------------------------------
+# The main process is air-gapped, unconditionally. These are forced AFTER
+# load_dotenv() so a stale or hand-edited .env cannot re-open the network.
+#
+# huggingface_hub reads these at *import* time, so this must run before any
+# transformers / sentence-transformers / huggingface_hub import. config is the
+# first Peridot module imported by server.py, main.py and setup.py, so this is
+# the earliest reliable point.
+#
+# Model downloads are NOT done here. They run in an isolated child process
+# (core_system/model_fetch.py) which is the only place HF_HUB_OFFLINE=0 exists.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 # --- SYSTEM PATHS ---
 BASE_DIR: Path = Path(__file__).parent.resolve()
 ROOT_PATH: Path = BASE_DIR
@@ -111,16 +149,40 @@ MODEL_DIR: Path = ROOT_PATH / "models"
 for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH, INPUT_PATH):
     directory.mkdir(parents=True, exist_ok=True)
 
-# --- ENGINE CONFIGURATION (v1.5.3 ZAT-SCS) ---
-ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf")
+# --- ENGINE CONFIGURATION (v1.5.4) ---
+# KNOWN ISSUE (v1.5.4): the Qwen3.8-27B-UD-Q2_K_XL.gguf currently in models/ is
+# REJECTED by the pinned llama-cpp-python 0.3.23 at load time:
+#
+#   llama_model_load: error loading model: missing tensor 'blk.64.ssm_conv1d.weight'
+#
+# The GGUF declares arch 'qwen35' (hybrid SSM + attention, 65 layers, 27.32B
+# params) but its tensor index carries SSM tensors only for layers 0-63; layer
+# 64 has just 2 of its ~13 tensors. This is NOT a VRAM or GPU_LAYERS problem --
+# it fails identically at n_gpu_layers=0. Most likely an incomplete download.
+#
+# Shipped as the default deliberately for v1.5.4. Until the file is replaced,
+# override to a known-good local model:
+#   ACTIVE_MODEL_NAME=Qwen2.5-14B-Instruct-Q4_K_M.gguf
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen3.8-27B-UD-Q2_K_XL.gguf")
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
 # Dynamic hardware-aware configuration
 _MODEL_SIZE_MB: int = _get_model_size_mb(MODEL_PATH)
 
-# GPU_LAYERS: Auto-calculate based on VRAM vs model size
-# Allow env override for manual tuning
-GPU_LAYERS: int = int(os.getenv("GPU_LAYERS", str(_calculate_gpu_layers(_MODEL_SIZE_MB, _TOTAL_VRAM_MB))))
+# GPU_LAYERS resolution order:
+#   1. GPU_LAYERS env var (operator override, always wins)
+#   2. _PROVISIONAL_GPU_LAYERS pin for models the auto-heuristic has not been
+#      validated against (see the table above)
+#   3. _calculate_gpu_layers() auto-heuristic
+_provisional_layers = _PROVISIONAL_GPU_LAYERS.get(ACTIVE_MODEL_NAME)
+if _TOTAL_VRAM_MB == 0:
+    _default_gpu_layers = 0  # CPU-only: the provisional pin does not apply
+elif _provisional_layers is not None:
+    _default_gpu_layers = _provisional_layers
+else:
+    _default_gpu_layers = _calculate_gpu_layers(_MODEL_SIZE_MB, _TOTAL_VRAM_MB)
+
+GPU_LAYERS: int = int(os.getenv("GPU_LAYERS", str(_default_gpu_layers)))
 
 # CONTEXT_LENGTH: Auto-calculate based on total VRAM
 CONTEXT_LENGTH: int = int(os.getenv("CONTEXT_LENGTH", str(_calculate_context_length(_TOTAL_VRAM_MB))))
@@ -174,3 +236,10 @@ if not MODEL_PATH.exists():
     logger.warning(f"Core logic matrix not found at {MODEL_PATH}. Awaiting TurboQuant payload ingestion.")
 
 logger.info(f"Hardware Profile: VRAM={TOTAL_VRAM_GB:.1f}GB | Model={_MODEL_SIZE_MB}MB | GPU_LAYERS={GPU_LAYERS} | CTX={CONTEXT_LENGTH}")
+
+if _provisional_layers is not None and "GPU_LAYERS" not in os.environ:
+    logger.warning(
+        f"GPU_LAYERS={GPU_LAYERS} is a PROVISIONAL pin for {ACTIVE_MODEL_NAME} "
+        "(auto-heuristic unvalidated for this quant/size). Not benchmarked. "
+        "Override with the GPU_LAYERS env var if you have VRAM headroom."
+    )

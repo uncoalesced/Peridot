@@ -44,12 +44,7 @@ def _get_cpu_info():
     if platform.system() == "Windows":
         try:
             # Explicitly target System32 to avoid 'not recognized' errors
-            system32 = os.path.join(
-                os.environ.get("SystemRoot", "C:\\Windows"),
-                "System32",
-                "Wbem",
-                "wmic.exe",
-            )
+            system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "Wbem" / "wmic.exe"
             cpu_name = (
                 subprocess.check_output(f'"{system32}" cpu get name', shell=True)
                 .decode()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.3 | IGNITION LAUNCHER
+# PERIDOT SOVEREIGN KERNEL v1.5.4 | IGNITION LAUNCHER
 # Copyright (C) 2026 uncoalesced
 # 
 # Licensed under the MIT License.
@@ -34,7 +34,7 @@ def kill_proc_tree(pid, including_parent=True):
 
 def main():
     print("==================================================")
-    print("  PERIDOT SOVEREIGN KERNEL v1.5.3 | INITIATING BOOT ")
+    print("  PERIDOT SOVEREIGN KERNEL v1.5.4 | INITIATING BOOT ")
     print("==================================================")
 
     custom_env = os.environ.copy()

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.3 | STABILITY LEDGER
+# PERIDOT SOVEREIGN KERNEL v1.5.4 | STABILITY LEDGER
 # Copyright (C) 2026 uncoalesced
 #
 # Licensed under the MIT License.
