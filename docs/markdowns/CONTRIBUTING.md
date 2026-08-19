@@ -75,6 +75,8 @@ This includes:
 - silent HuggingFace trackers
 - cloud-first middleware
 
+**Exception (v1.8.x WebUI only):** the optional, opt-in local WebUI may offer cloud inference API backends (e.g. OpenAI, Anthropic) as an explicit user choice, disabled by default. This exception applies *only* to the WebUI surface — the core kernel, the Tkinter Glass Box app, and all inference-provider/storage code underneath both remain zero-cloud with no exceptions. A cloud backend selected in the WebUI must never become reachable from, or silently default into, the native app or any headless/SSH-driven usage.
+
 The operator remains sovereign over execution.
 
 ---
