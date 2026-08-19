@@ -73,3 +73,6 @@ AUDIT.MD
 MASTER_CONTEXT.md
 ROUTINES.md
 SKILL.md
+
+# Cowork agent working folder (meta-docs, not shipped product)
+cowork/

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.3 | NEURAL ENGINE & INGESTION CORE
+# PERIDOT SOVEREIGN KERNEL v1.5.4 | NEURAL ENGINE & INGESTION CORE
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
@@ -32,11 +32,18 @@ from config import (
     RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE, INPUT_PATH, PROCESSED_PATH
 )
 
+# --- SOVEREIGNTY GATE ---
+# config has already force-set offline mode; fail loud rather than boot an
+# engine that could reach the network. Model fetches run in an isolated child
+# process (python -m core_system.model_fetch), never in this one.
+from core_system.model_fetch import assert_main_process_offline
+assert_main_process_offline()
+
 # --- CENTRALIZED PROMPT ENGINE ---
 from core_system.prompting.constitution import get_model_format
 from core_system.prompting.builder import build_full_context
 
-# --- RAG SUBSYSTEM AND v1.5.3 CACHE IMPORTS ---
+# --- RAG SUBSYSTEM AND v1.5.4 CACHE IMPORTS ---
 try:
     from core_system.audit import ghost
 except ImportError:
@@ -72,12 +79,17 @@ try:
             ghost.info("RAG Subsystem Online.")
         except Exception:
             pass
-except ImportError as e:
+except Exception as e:
+    # Deliberately broad: the RAG stack fails at *runtime* as well as at import
+    # (a missing offline embedding model raises OSError/RuntimeError, not
+    # ImportError). Inference must survive a degraded RAG subsystem -- pure LLM
+    # mode is the documented fallback, a dead server is not.
     if ghost:
         try:
             ghost.warning(f"RAG Subsystem offline. Operating in pure LLM mode. Error: {e}")
         except Exception:
             pass
+    print(f">> [WARN] RAG Subsystem offline, continuing in pure LLM mode: {e}")
     l1_cache = None
     vault = None
     rag_cache = None
@@ -132,7 +144,7 @@ def send_fah_command(cmd_state: str) -> bool:
     except Exception:
         return False
 
-# --- v1.5.3 KERNEL INTEGRATION (Delta Watchdog) ---
+# --- v1.5.4 KERNEL INTEGRATION (Delta Watchdog) ---
 class PeridotProductionKernel(SovereignKernel):
     def _execute_vram_purge(self):
         if self.state == KernelState.PANIC:
@@ -216,7 +228,7 @@ def idle_monitor():
 def boot_engine():
     global llm
     print(f"\n{'='*50}")
-    print("   PERIDOT NEURAL ENGINE (v1.5.3 SOVEREIGN KERNEL)")
+    print("   PERIDOT NEURAL ENGINE (v1.5.4 SOVEREIGN KERNEL)")
     print(f"{'='*50}")
     
     if not MODEL_PATH.exists():
@@ -253,6 +265,11 @@ def boot_engine():
                 except Exception: pass
     except Exception as e:
         print(f"\n[FATAL ERROR] {e}")
+        print(f"[HINT] Active model: {MODEL_PATH.name}")
+        print("[HINT] If the GGUF is rejected by llama.cpp (missing/unknown tensors), the file "
+              "is incomplete or its architecture is unsupported by the pinned llama-cpp-python. "
+              "Select another local model with the ACTIVE_MODEL_NAME env var, e.g. "
+              "ACTIVE_MODEL_NAME=Qwen2.5-14B-Instruct-Q4_K_M.gguf")
         sys.exit(1)
 
 inference_lock = threading.Lock()

@@ -10,6 +10,8 @@ import time
 import os
 import warnings
 import logging
+from pathlib import Path
+
 import numpy as np
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -18,6 +20,13 @@ logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
 from sentence_transformers import SentenceTransformer
 from core_system.audit import ghost
+
+# Sovereign embedder resolution (v1.5.4).
+# The kernel runs with HF_HUB_OFFLINE=1, so passing a bare hub name only works
+# if some earlier run happened to warm the HF cache. Prefer a vendored copy
+# inside the repo so the embedder is genuinely operator-owned and air-gapped.
+EMBEDDER_REPO = "sentence-transformers/all-MiniLM-L6-v2"
+LOCAL_EMBEDDER_DIR = Path(__file__).resolve().parents[2] / "models" / "embeddings" / "all-MiniLM-L6-v2"
 
 class EmbeddingEngine:
     """Singleton CPU-bound embedding generator."""
@@ -32,12 +41,30 @@ class EmbeddingEngine:
     def _initialise(self):
         start_time = time.time()
         ghost.info("EMBEDDER | Initialising isolated CPU embedding matrix...")
-        
-        # Hardcode to CPU. Do not allow PyTorch to autodetect the GPU.
-        self.model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        
+
+        # Vendored copy first; fall back to the hub name for a warm HF cache.
+        source = str(LOCAL_EMBEDDER_DIR) if LOCAL_EMBEDDER_DIR.is_dir() else "all-MiniLM-L6-v2"
+
+        try:
+            # Hardcode to CPU. Do not allow PyTorch to autodetect the GPU.
+            self.model = SentenceTransformer(source, device='cpu')
+        except Exception as e:
+            # Offline mode is not the bug -- a missing local model is. Fail with
+            # an instruction instead of an SSL stack trace, and let the caller
+            # degrade to pure LLM mode rather than taking the kernel down.
+            ghost.warning(
+                f"EMBEDDER | Model unavailable offline ({e.__class__.__name__}). "
+                f"RAG requires a local copy. Fetch it once via the isolated path: "
+                f"python -m core_system.model_fetch --snapshot {EMBEDDER_REPO} "
+                f"\"{LOCAL_EMBEDDER_DIR}\""
+            )
+            raise RuntimeError(
+                f"Embedding model not available offline. Run: "
+                f"python -m core_system.model_fetch --snapshot {EMBEDDER_REPO} \"{LOCAL_EMBEDDER_DIR}\""
+            ) from e
+
         elapsed = (time.time() - start_time) * 1000
-        ghost.info(f"EMBEDDER | all-MiniLM-L6-v2 loaded in {elapsed:.2f}ms.")
+        ghost.info(f"EMBEDDER | all-MiniLM-L6-v2 loaded from '{source}' in {elapsed:.2f}ms.")
 
     def embed_query(self, text: str) -> np.ndarray:
         """Embeds a single user prompt. Returns a 2D float32 numpy array."""

@@ -8,15 +8,15 @@
 
 import logging
 import json
-import os
 import threading
 from datetime import datetime
+from pathlib import Path
 
-LOG_DIR = "logs"
-LOG_FILE = os.path.join(LOG_DIR, "system.log")
-JSON_LOG_FILE = os.path.join(LOG_DIR, "system.json")
+LOG_DIR = Path("logs")
+LOG_FILE = LOG_DIR / "system.log"
+JSON_LOG_FILE = LOG_DIR / "system.json"
 
-os.makedirs(LOG_DIR, exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class EnhancedLogger:

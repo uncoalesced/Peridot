@@ -13,6 +13,7 @@ import logging
 import shutil
 import pynvml
 import sys
+from pathlib import Path
 from config import RESEARCH_IDLE_THRESHOLD, RESEARCH_CHECK_INTERVAL
 
 logger = logging.getLogger("Peridot-Research")
@@ -29,7 +30,7 @@ class MedicalResearchModule:
         # Cross-platform FAH path detection
         # Default Windows path (user can override via config)
         if sys.platform == "win32":
-            self.fah_path = r"C:\Program Files (x86)\FAHClient\FAHClient.exe"
+            self.fah_path = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "FAHClient" / "FAHClient.exe"
         else:
             # Linux: FAHClient is typically installed in system paths
             self.fah_path = "FAHClient"  # Will be found via PATH
@@ -53,7 +54,7 @@ class MedicalResearchModule:
     def check_installation(self) -> bool:
         """Check if FAHClient is installed. Cross-platform."""
         if sys.platform == "win32":
-            return os.path.exists(self.fah_path)
+            return Path(self.fah_path).exists()
         else:
             # Linux: check if executable exists in PATH
             return shutil.which(self.fah_path) is not None
@@ -110,10 +111,10 @@ class MedicalResearchModule:
             }
             if sys.platform == "win32":
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-                subprocess.Popen([self.fah_path, f"--send-{cmd}"], **kwargs)  # nosec B603
+                subprocess.Popen([str(self.fah_path), f"--send-{cmd}"], **kwargs)  # nosec B603
             else:
                 # Linux: use shell=False with PATH lookup
-                subprocess.Popen([self.fah_path, f"--send-{cmd}"], **kwargs)  # nosec B603
+                subprocess.Popen([str(self.fah_path), f"--send-{cmd}"], **kwargs)  # nosec B603
             return True
         except Exception as e:
             logger.error(f"Command '{cmd}' failed: {e}")

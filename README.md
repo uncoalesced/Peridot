@@ -1014,7 +1014,7 @@ The kernel will initialize using the configured runtime environment.
 [████████████████████] v1.2 BETA      Security Hardening + Benchmarking
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
-[█████████████████░░░] v1.5.4         Linux Support
+[████████████████████] v1.5.4         Linux Support (code-complete; GPU unvalidated on Linux)
 [░░░░░░░░░░░░░░░░░░░░] v1.6           Updated and more efficient RAG and Ingestion system
 [░░░░░░░░░░░░░░░░░░░░] v1.7           AMD GPU Support (ROCm)
 [░░░░░░░░░░░░░░░░░░░░] v2.0           macOS Support (Apple Silicon)

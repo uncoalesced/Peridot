@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.3 | INTEGRITY & CONCURRENCY HARNESS
+# PERIDOT SOVEREIGN KERNEL v1.5.4 | INTEGRITY & CONCURRENCY HARNESS
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.

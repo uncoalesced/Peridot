@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 """
-PERIDOT SETUP WIZARD v1.5.3 - ZAT-SCS
+PERIDOT SETUP WIZARD v1.5.4 - ZAT-SCS
 Intelligent hardware detection, VRAM profiling, and engine configuration
 Supports NVIDIA GPUs, AMD GPUs, and CPU-only fallback
 """
@@ -47,7 +47,7 @@ def print_banner():
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 {Colors.ENDC}
-{Colors.GREEN}       SETUP WIZARD v1.5.3 (ZAT-SCS) - SOVEREIGN AI KERNEL{Colors.ENDC}
+{Colors.GREEN}       SETUP WIZARD v1.5.4 (ZAT-SCS) - SOVEREIGN AI KERNEL{Colors.ENDC}
 {Colors.CYAN}{'='*70}{Colors.ENDC}
 
 {Colors.YELLOW}Engineered by uncoalesced{Colors.ENDC}
@@ -219,6 +219,15 @@ class HardwareProfile:
         return 'cpu_standard'
 
 def download_model(model_id: str, install_dir: Path) -> bool:
+    """
+    First-run model acquisition.
+
+    This is the installer, not the kernel: it runs once, in its own process,
+    before dependencies (including huggingface_hub) are guaranteed present, so
+    it fetches over plain urllib from the pinned URLs above. The running kernel
+    never downloads anything -- see core_system/model_fetch.py for the
+    subprocess-isolated path used after install.
+    """
     model_info = HardwareProfile.MODELS[model_id]
     models_dir = install_dir / 'models'
     models_dir.mkdir(exist_ok=True)
@@ -275,7 +284,11 @@ def create_environment(install_dir: Path) -> bool:
         
     api_key = secrets.token_hex(32)
     env_content = f"""# PERIDOT SOVEREIGN KERNEL - SECURITY PERIMETER
+# The kernel is air-gapped: config.py force-sets both flags at boot regardless
+# of what is written here. Post-install model fetches run in an isolated child
+# process via `python -m core_system.model_fetch <repo_id> <filename>`.
 HF_HUB_OFFLINE=1
+TRANSFORMERS_OFFLINE=1
 API_KEY={api_key}
 """
     try:
