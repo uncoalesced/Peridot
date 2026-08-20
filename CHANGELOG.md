@@ -4,6 +4,41 @@
 
 ---
 
+#### [post-v1.5.4b] - 2026-08-20
+
+**Name:** Benchmark Integrity Correction & Inference Provider Abstraction
+
+##### Correction - Previously Reported Throughput Was Invalid
+
+- **The 62.38 t/s Figure Recorded Yesterday Is Wrong; The Real Rate Is 4.00 t/s.** The `[post-v1.5.4]` entry recorded 62.38 t/s as the v1.6.x comparison floor for `Qwen2.5-14B-Instruct-Q4_K_M.gguf`. Isolated measurement puts the true decode rate at **4.00 t/s median** (mean 4.03, stdev 0.21, range 3.81-4.27, prefill 23.83 t/s) on the same hardware and settings. The reported figure was **15.6x too high**.
+- **Root Cause - The Suite Was Measuring Cache Hits, Not Inference.** `benchmark_inference.py` sends an identical prompt on every run. After the first, `server.py`'s L1 semantic cache returns a stored response and, in its own words, "Bypasses GPU entirely." GhostLogger for the 30-request run recorded **3 real inferences and 30 cache hits**. The server's own logged speeds for those 3 real inferences were 2.63, 4.64 and 4.95 t/s - consistent with the isolated 4.00 t/s and nowhere near 62.
+- **Secondary Defect - Approximate Token Counts.** The same suite divides `len(words) * 1.3` by full HTTP round-trip time rather than using tokenizer output over generation time. Both defects inflate in the same direction.
+- **The Historical 39 t/s Baseline Is Also Untrustworthy.** It was produced by the same method against the same model and should not be treated as a regression reference.
+- **`benchmark_inference.py` Retained but Relabelled.** Request latency remains worth tracking, so the script stays, with its docstring and printed summary corrected to state plainly that it does not measure decode rate.
+
+##### Inference Provider Abstraction (v1.6.x Item 1, Partial)
+
+- **`BaseInferenceProvider` Contract:** `load()`, `unload()`, `generate_stream()`, `tokenize()`, and a `ProviderCapabilities` set (`engine`, `context_window`, `supports_thinking`, `supports_vision`, `supports_streaming`). Defined with its full surface now so ExLlamaV2 and vLLM are additive rather than breaking changes.
+- **Engine-Agnostic Timing:** `generate()` is concrete on the base class and times prefill (time to first token) separately from decode (first token to last), measured off the stream. This works identically for any engine; llama.cpp's internal perf counters would not have, and the first cross-engine comparison would have measured different things on each side.
+- **`LlamaCppProvider`:** wraps llama-cpp-python with the exact call signature `server.py` already uses, so adoption is a refactor rather than a behaviour change. Load failure raises the recoverable `ProviderLoadError` so a bad model file can never take the kernel down.
+- **Extension-Based Registry:** `.gguf` routes to llama-cpp-python; `.exl2` and `.safetensors` raise a clear not-implemented error naming the milestone that will provide them. No manual backend picker, per spec.
+- **GhostLogger Integration:** provider load, unload and load-failure events all audit through GhostLogger.
+
+##### Benchmarking
+
+- **`benchmarking/benchmark_decode_rate.py`:** isolated decode-rate measurement targeting the provider abstraction directly - no HTTP, no L1 cache, no RAG, no routing - using real tokenizer counts and distinct prompts per run. This is the cross-engine comparison tool required before ExLlamaV2 lands.
+
+##### Security
+
+- **Hardcoded API Key Removed From The Benchmarking Client:** `benchmarking/api_client.py` still carried `08101954` as a fallback - the exact key v1.5.1 eliminated from the kernel - and printed the live key to stdout on every run, putting a working credential into console scrollback and any captured CI log. The fallback is gone and the client now fails loudly if no key is configured. Two regression tests guard against reintroduction anywhere in the tree.
+
+##### Known Limitations
+
+- **The Spec's 25 t/s Floor Is Unreachable On This Hardware.** The v1.6.x acceptance criterion for keeping Qwen3.8-27B as default is >=25 t/s on the RTX 5050. The *14B* manages 4.00 t/s with 28 layers offloaded; a 27B model cannot plausibly exceed it. That floor was set against the invalid 62 t/s measurement and needs revisiting independently of the MTP blocker.
+- **Provider Abstraction Not Yet Wired Into `server.py`.** The contract, the llama.cpp implementation and the benchmark exist and are tested; the child-process provider, the orchestrator refactor and `POST /model/swap` are still outstanding within item 1.
+
+---
+
 #### [post-v1.5.4] - 2026-08-19
 
 **Name:** Default Model Revert - Qwen3.8-27B MTP Incompatibility
@@ -30,7 +65,7 @@ Measured on `Qwen2.5-14B-Instruct-Q4_K_M.gguf` at the auto-derived `GPU_LAYERS=2
 | Long | 231 | 3.66s | 62.38 t/s (median) | +/- 3.36 |
 
 - **Methodology Caveat:** `benchmark_inference.py` divides an approximate token count (`words * 1.3`, not tokenizer output) by full HTTP round-trip wall time, so these are end-to-end request figures including prefill, RAG retrieval and transport - not isolated decode rates. Short-workload throughput is dominated by fixed per-request overhead and should not be read as a decode regression. The metric is unchanged from previous releases, so the long-workload figure remains directly comparable to the 39 t/s previously recorded for this model.
-- **Hard Floor for v1.6.x:** 62.38 t/s long-workload median on the shipped default is the reference figure any new inference provider must meet or beat on this hardware.
+- **Hard Floor for v1.6.x:** ~~62.38 t/s long-workload median~~ **RETRACTED 2026-08-20** - this figure was produced by a benchmark that was serving L1 cache hits rather than running inference. The real decode rate is 4.00 t/s. See the [post-v1.5.4b] entry above.
 
 ##### Known Limitations
 

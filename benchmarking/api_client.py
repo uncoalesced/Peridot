@@ -22,13 +22,18 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(env_path)
 
-# Hunt for the correct key and strip any accidental quote characters
-raw_key = (
-    os.environ.get("PERIDOT_AUTH_TOKEN") or os.environ.get("API_KEY") or "08101954"
-)
+# Read the operator key from the environment. No fallback: v1.5.1 eliminated the
+# hardcoded default key from the kernel, but this client kept a copy of it.
+raw_key = os.environ.get("PERIDOT_AUTH_TOKEN") or os.environ.get("API_KEY") or ""
 API_KEY = raw_key.strip('"').strip("'")
 
-print(f"\n[DEBUG] api_client initialized. Using API Key: {API_KEY}\n")
+# Never echo the key. It previously went to stdout on every run, putting a live
+# credential into console scrollback and any captured CI log.
+if not API_KEY:
+    raise RuntimeError(
+        "No API key found. Set PERIDOT_AUTH_TOKEN or API_KEY in .env before "
+        "running the benchmarking suite."
+    )
 
 BASE_URL = "http://127.0.0.1:5000"
 

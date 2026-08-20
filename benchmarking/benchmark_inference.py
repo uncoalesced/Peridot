@@ -9,7 +9,23 @@
 
 """
 Inference Speed
-Measures token generation throughput across different workload sizes.
+Measures END-TO-END REQUEST LATENCY across different workload sizes.
+
+WARNING -- THIS DOES NOT MEASURE GENERATION THROUGHPUT.
+Two independent confounders make its "t/s" figures unusable as a decode rate:
+
+  1. It sends the SAME prompt on every run. After the first, server.py's L1
+     semantic cache returns a stored response and bypasses the GPU entirely. A
+     30-request run produced 3 real inferences and 27 cache hits.
+  2. It divides an APPROXIMATE token count (len(words) * 1.3, not tokenizer
+     output) by full HTTP round-trip time, including prefill, RAG and transport.
+
+Measured 2026-08-20: this reported 62.38 t/s where the true decode rate was
+4.00 t/s -- a 15.6x overstatement. The historical 39 t/s baseline recorded for
+Qwen2.5-14B came from this same method and is not trustworthy either.
+
+Kept because request latency is still worth tracking. For generation speed, and
+for any cross-engine comparison, use benchmarking/benchmark_decode_rate.py.
 """
 
 import sys
@@ -206,7 +222,8 @@ def main():
             logger.info("")
 
     logger.info("\n" + "=" * 60)
-    logger.info("OVERALL SUMMARY")
+    logger.info("OVERALL SUMMARY -- END-TO-END LATENCY, NOT DECODE RATE")
+    logger.info("(L1 cache serves repeat prompts; see benchmark_decode_rate.py)")
     logger.info("=" * 60 + "\n")
 
     summary_table = []
