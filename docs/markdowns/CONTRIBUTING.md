@@ -2,7 +2,7 @@
 
 # CONTRIBUTING TO PERIDOT
 
-### Sovereign Development Protocol — v1.5.3-STABLE
+### Sovereign Development Protocol — v1.5.4-STABLE
 
 *Build First. Ship Code. No Hype.*
 
@@ -455,7 +455,7 @@ Act accordingly.
 
 <div align="center">
 
-`PERIDOT CONTRIBUTION PROTOCOL` · `v1.5.3`
+`PERIDOT CONTRIBUTION PROTOCOL` · `v1.5.4`
 
 **Engineered by uncoalesced**
 

@@ -4,6 +4,30 @@
 
 ---
 
+#### [post-v1.5.4c] - 2026-08-20
+
+**Name:** Documentation Version Sync & Style Cleanup
+
+##### Version References
+
+- **Stale v1.5.3 References Bumped to v1.5.4:** `README.md`, `SECURITY.md`, `docs/architecture/RUNTIME_GUARANTEES.md`, `docs/architecture/v1.5_memory_flow.md`, `docs/markdowns/CONTRIBUTING.md`, `docs/markdowns/MEDICAL_RESEARCH_INTEGRATION.md`, `requirements.txt` and `cowork/PERIDOT_TRACKER.md` still declared the current version as v1.5.3 in headers, banners and footers, despite the codebase itself (`config.py`, `core_system/`, `server.py`, `launcher.py`, `setup.py`, `ui.py`) already reading v1.5.4 throughout. Historical version attributions - the README's Stable v1.5 Milestone Ledger, this file's dated entries, and "introduced in v1.5.3" provenance notes - were left untouched; only present-tense "current version" claims were bumped. `joblib==1.5.3` in `requirements.txt` is an unrelated third-party pin and was not touched.
+
+##### README
+
+- **Overview Rewritten:** The opening `> OVERVIEW` section was rewritten to correctly frame ZAT-SCS as introduced in v1.5.3 but still Peridot's flagship subsystem, rather than describing it as "the v1.5.3 update" from inside a v1.5.4 document.
+- **Roadmap Section Updated:** The `> ROADMAP` bar chart and "Current Focus" paragraph now match the actual v1.6.x-v1.8.x scope agreed in the Frontier Roadmap spec: the `BaseInferenceProvider` abstraction (partially landed), multi-engine inference, and episodic memory on TurboVec for v1.6.x (ChromaDB migration investigated and dropped - TurboVec was already permanent); FreeThink, sandboxed REPL, image input, the RAG rebuild and the sovereign web gateway for v1.7.x; the React WebUI and artifact system for v1.8.x. Also notes the Qwen3.8-27B default revert and the retraction of the 39/62 t/s throughput figures as cache-hit artifacts, rather than leaving the stale numbers standing uncontextualized.
+- **Emoji Removed:** The Hardware Support table's checkmark, warning and tool emoji were replaced with plain bold labels. No other tracked file in the repository contained emoji.
+
+##### Code Comments
+
+- **Swept For AI-Narration/Bloat Comments, None Found:** Checked all first-party Python sources (`core_system/`, `config.py`, `server.py`, `setup.py`, `ui.py`, `benchmarking/`, `tests/`) for conversational or restating comments ("Now we...", "This function...", TODO/FIXME stubs, etc.). None matched; existing comments are dense but substantive (e.g. the MTP-head root-cause note in `config.py`, the sovereignty-lock ordering rationale in `server.py`) and were left as-is rather than stripped for the sake of it.
+
+##### Contributors
+
+- **GitHub "claude" Contributor Entry - Investigated, Not Removable By File Edit:** GitHub's Contributors graph is computed server-side from commit authorship and `Co-Authored-By` trailers, not from any file in the repository. Three commits still carry a `Co-Authored-By: Claude Opus 5` trailer predating `includeCoAuthoredBy: false` being set (see Planning Log, 2026-08-19). Removing the entry requires a history rewrite (`git filter-branch` or interactive rebase, plus a force-push) of every commit from the first affected one forward. Not performed - flagged for confirmation before any such rewrite is attempted.
+
+---
+
 #### [post-v1.5.4b] - 2026-08-20
 
 **Name:** Benchmark Integrity Correction & Inference Provider Abstraction

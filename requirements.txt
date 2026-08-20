@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.3 | REINFORCED ENVIRONMENT REQUIREMENTS
+# PERIDOT SOVEREIGN KERNEL v1.5.4 | REINFORCED ENVIRONMENT REQUIREMENTS
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.

@@ -35,11 +35,11 @@
 
 # `> OVERVIEW`
 
-Peridot v1.5.4-STABLE is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems. v1.5.4 adds native Linux support (Debian 12, Ubuntu 22.04+, Arch) alongside the existing Windows runtime, and closes a real sovereignty gap where the offline flags could be silently reopened by a stale `.env`.
+Peridot v1.5.4-STABLE is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems. Every inference cycle runs on hardware the operator physically owns, with no cloud dependency, no telemetry and no remote trust assumptions anywhere in the execution path. v1.5.4 adds native Linux support (Debian 12, Ubuntu 22.04+, Arch) alongside the existing Windows runtime, and closes a real sovereignty gap where the offline flags could be silently reopened by a stale `.env`.
 
-ZAT-SCS stands for Zero-Overhead Active Telemetry and Speculative Context Streaming. It is the flagship v1.5.3 update: a predictive preemption layer that monitors physical interaction signals before a prompt is submitted, prepares the GPU and context path in advance, and removes the normal prefill delay when the operator commits a query during the prepared state.
+ZAT-SCS stands for Zero-Overhead Active Telemetry and Speculative Context Streaming, introduced in v1.5.3 and still Peridot's flagship subsystem: a predictive preemption layer that monitors physical interaction signals before a prompt is submitted, prepares the GPU and context path in advance, and removes the normal prefill delay when the operator commits a query during the prepared state.
 
-The v1.5.3 telemetry path runs a 10Hz Physical Telemetry Engine as a background daemon thread. It fuses two local only signals:
+The ZAT-SCS telemetry path runs a 10Hz Physical Telemetry Engine as a background daemon thread. It fuses two local only signals:
 
 - Keyboard typing frequency f(C), measured by the isolated pynput keystroke monitor through a sliding timestamp window.
 - Microphone RMS envelope g(A), measured by the non-blocking sounddevice InputStream acoustic tracker.
@@ -94,7 +94,7 @@ Peridot still retains the original sovereign constraints: local inference, permi
 | - Async /slots/0/restore KV cache prefetch              |
 |    |                                                    |
 |    v                                                    |
-| AETHER-ROUTE v1.5.3                                     |
+| AETHER-ROUTE v1.5.4                                     |
 | - Semantic Routing                                      |
 | - Dynamic VRAM Arbitration                              |
 | - CPU-Offloaded Embedding Pipeline                      |
@@ -127,7 +127,7 @@ Measured on real hardware. No overclocking. No cherry picked runs.
 
 ## ZAT-SCS Telemetry Daemon
 
-Peridot v1.5.3 adds a high frequency telemetry daemon that runs independently from prompt submission and inference generation. The daemon is launched as a background thread by the Physical Telemetry Engine after the server boots and continuously samples local interaction signals at 10Hz.
+Peridot v1.5.4 ships a high frequency telemetry daemon that runs independently from prompt submission and inference generation. The daemon is launched as a background thread by the Physical Telemetry Engine after the server boots and continuously samples local interaction signals at 10Hz.
 
 The daemon lifecycle is intentionally isolated:
 
@@ -194,7 +194,7 @@ Inference execution always takes priority.
 
 ## Speculative Context Restoration Pipeline
 
-Peridot v1.5.3 extends the FSM with an asynchronous context restoration path for speculative prompt preparation. When telemetry pushes the kernel into `KernelState.SPECULATIVE_PREPARED`, the orchestrator launches the context streaming path without blocking the 10Hz monitoring loop.
+Peridot v1.5.4 extends the FSM with an asynchronous context restoration path for speculative prompt preparation. When telemetry pushes the kernel into `KernelState.SPECULATIVE_PREPARED`, the orchestrator launches the context streaming path without blocking the 10Hz monitoring loop.
 
 The speculative restoration sequence is:
 
@@ -209,7 +209,7 @@ This keeps speculative KV cache restoration non-blocking. If the loopback llama-
 
 ## Split-Tensor Runtime Guardrails
 
-The validated v1.5.3 inference target is:
+The validated v1.5.4 inference target is:
 
 ```text
 Model:        Qwen2.5-14B-Instruct-Q4_K_M
@@ -870,14 +870,14 @@ research status
 
 | Tier | Hardware | Configuration | Expected Performance |
 |:-----|:---------|:--------------|:--------------------:|
-| ✅ **Validated Baseline** | NVIDIA RTX 5050 (8GB) + Ryzen 7 250 AI | Split-Tensor Allocation | **~39 t/s** |
-| ✅ **Full Support** | NVIDIA RTX 4050+ (8GB+) | Split-Tensor Allocation | High |
-| ✅ **Full Support** | NVIDIA RTX 5060 / 5070 / 5080 | Split-Tensor Allocation | Very High |
-| ⚙️ **CPU Fallback** | Modern x64 CPUs | CPU Only | 10–20 t/s |
-| ⚠️ **Lite Mode** | AMD Radeon 680M / 780M | Lite | 8–15 t/s |
-| ⚠️ **Lite Mode** | Intel Iris Xe | Lite | 5–10 t/s |
-| 🛠️ **Community** | AMD RX 6000 / 7000 Series | ROCm (Linux) | Experimental |
-| 🛠️ **Community** | Intel Arc A750 / A770 | Vulkan | Experimental |
+| **Validated Baseline** | NVIDIA RTX 5050 (8GB) + Ryzen 7 250 AI | Split-Tensor Allocation | **~39 t/s** |
+| **Full Support** | NVIDIA RTX 4050+ (8GB+) | Split-Tensor Allocation | High |
+| **Full Support** | NVIDIA RTX 5060 / 5070 / 5080 | Split-Tensor Allocation | Very High |
+| **CPU Fallback** | Modern x64 CPUs | CPU Only | 10–20 t/s |
+| **Lite Mode** | AMD Radeon 680M / 780M | Lite | 8–15 t/s |
+| **Lite Mode** | Intel Iris Xe | Lite | 5–10 t/s |
+| **Community** | AMD RX 6000 / 7000 Series | ROCm (Linux) | Experimental |
+| **Community** | Intel Arc A750 / A770 | Vulkan | Experimental |
 
 Peridot is optimized for modern NVIDIA hardware but remains operational across a wide range of deployment environments.
 
@@ -1038,14 +1038,14 @@ The kernel will initialize using the configured runtime environment.
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
 [████████████████████] v1.5.4 STABLE  Linux Support (code-complete; GPU unvalidated on Linux)
-[░░░░░░░░░░░░░░░░░░░░] v1.6.x         Multi-engine inference (ExLlamaV2, vLLM), episodic memory
-[░░░░░░░░░░░░░░░░░░░░] v1.7.x         FreeThink reasoning, sandboxed agentic REPL, sovereign web gateway
+[█████░░░░░░░░░░░░░░░] v1.6.x         Provider abstraction, multi-engine inference, episodic memory
+[░░░░░░░░░░░░░░░░░░░░] v1.7.x         FreeThink, sandboxed REPL, image input, RAG rebuild, web gateway
 [░░░░░░░░░░░░░░░░░░░░] v1.8.x         Optional local WebUI, artifact system
 ```
 
 **Current Focus (v1.6.x)**
 
-Multi-engine inference behind a shared provider abstraction, each model in its own child process, plus infrastructure for Peridot's own episodic self-improvement memory — both built on the existing TurboVec index rather than any external vector database.
+`BaseInferenceProvider` lands first: a shared contract (`load()`, `unload()`, streaming generation, capability flags) so ExLlamaV2 and vLLM can be added later without a breaking interface change. TurboQuant and `llama-cpp-python` stay the permanent, hardcoded default underneath it — a ChromaDB migration was investigated and dropped, since TurboVec's own 4-bit quantization already outperforms it and an external vector database would violate Peridot's zero-cloud-dependency stance. Once the abstraction is wired into `server.py`, each model runs in its own child process, since `llama-cpp-python`'s CUDA context does not reliably release VRAM without a full process exit. Alongside it: infrastructure for Peridot's own episodic self-improvement memory, built on the same TurboVec index as the RAG vault. Qwen3.8-27B stays reverted to Qwen2.5-14B as the shipped default, blocked on a `llama-cpp-python` upgrade for MTP-head support and on re-establishing a real throughput floor — the previous 39/62 t/s figures were retracted after turning out to be cache-hit artifacts, not genuine decode-rate measurements.
 
 ---
 
