@@ -45,7 +45,7 @@ class CommandRouter:
             "AVAILABLE COMMANDS:\n"
             "-------------------\n"
             "help        - Show this menu\n"
-            "clear       - Clear chat history\n"
+            "clear       - Clear the screen (stored history is kept)\n"
             "status      - Show system vitals\n"
             "ingest      - Scan and vectorize new PDFs in the input folder\n"
             "vault [Q]   - Search local PDFs for query [Q]\n"
@@ -62,8 +62,13 @@ class CommandRouter:
             self.core.ui.chat_display.delete(1.0, "end")
             self.core.ui.print_logo()
             self.core.ui.chat_display.config(state="disabled")
-        self.core.chat_memory = []
-        return "[SYSTEM] Memory & Screen Cleared."
+        # Was `self.core.chat_memory = []`, an attribute PeridotCore stopped
+        # having when conversation state moved to the chat ledger in Phase 4.
+        # The assignment created a new unused attribute and cleared nothing,
+        # while the message claimed memory had been wiped. Clearing the screen
+        # is all this does, so that is all it now says. To actually start from
+        # a blank history, open a new session from the UI's session drawer.
+        return "[SYSTEM] Screen cleared. Conversation memory is unchanged."
 
     def ingest_command(self, args):
         """Triggers the Vault to scan the input directory and ingest new PDFs."""
@@ -87,8 +92,22 @@ class CommandRouter:
         if self.core.ui:
             self.core.ui.display_system_message(f">> Initiating Layer 2 Vault Extraction for: '{args}'")
 
-        vault_context = self.core.vault.search(args)
-        
+        # PersistentVault.search takes an embedding, not text -- this passed the
+        # raw query string, so the command raised on every invocation and
+        # route()'s catch-all reported it as a generic command failure. Embed
+        # first, exactly as server.py's /ask path does.
+        try:
+            from core_system.memory.embedder import embedder
+            query_vector = embedder.embed_query(args)
+        except Exception as e:
+            logger.error(f"Vault search embedding failed: {e}")
+            return "[ERROR] Semantic memory is offline; vault search is unavailable."
+
+        chunks = self.core.vault.search(query_vector)
+        # search() returns a list of chunk texts; interpolating the list itself
+        # would put a Python repr in the prompt.
+        vault_context = "\n---\n".join(chunks) if chunks else None
+
         if vault_context:
             if self.core.ui:
                 self.core.ui.display_system_message(">> Target Acquired. Injecting context into VRAM...")
