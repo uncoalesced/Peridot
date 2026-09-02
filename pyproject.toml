@@ -28,9 +28,26 @@ dependencies = [
 where = ["."]
 exclude = ["assets*", "docs*", "input*", ".github*"]
 
+[tool.ruff]
+# Vendored upstream checkout; not ours to lint.
+exclude = ["llama.cpp", "venv", ".venv", "backups", ".temp"]
+
+[tool.ruff.lint]
+# Deliberately narrow: F (pyflakes -- undefined names, unused imports,
+# redefinitions) and E9 (syntax/IO errors). Real defects only, no style
+# opinions, so this can be enforced without a formatting debate.
+#
+# Run it with: python -m ruff check .
+# The pre-commit hook stays commented out until the current findings are
+# cleared -- see the note in .pre-commit-config.yaml.
+select = ["F", "E9"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_tests.py"]
+# Puts the project root on sys.path for the whole run, so test modules import
+# `config` / `core_system` without each one hand-rolling a sys.path.insert.
+pythonpath = ["."]
 norecursedirs = [
     ".git",
     ".pytest_cache",

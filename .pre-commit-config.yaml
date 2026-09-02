@@ -4,3 +4,14 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
+
+  # TODO(phase-2): enable the ruff hook below once the existing F-rule findings
+  # are cleared. The rule set is already decided and recorded in pyproject.toml
+  # under [tool.ruff]; `ruff check` runs clean-room today via `python -m ruff
+  # check`. Enabling the hook before the cleanup lands would fail every commit
+  # on 102 pre-existing findings, ~half of them in files with in-flight work.
+  #
+  # - repo: https://github.com/astral-sh/ruff-pre-commit
+  #   rev: v0.9.6
+  #   hooks:
+  #     - id: ruff
