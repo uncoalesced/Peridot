@@ -12,17 +12,12 @@ timing/counting logic, so these run on the GPU-less CI runner. Real-model
 behaviour is covered by benchmarking/benchmark_decode_rate.py and manual runs.
 """
 
-import sys
 import time
 from pathlib import Path
 
 import pytest
 
-PERIDOT_ROOT = Path(__file__).parent.parent.absolute()
-if str(PERIDOT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PERIDOT_ROOT))
-
-from core_system.providers import (  # noqa: E402
+from core_system.providers import (
     EXTENSION_MAP,
     LlamaCppProvider,
     ProviderLoadError,
@@ -30,11 +25,13 @@ from core_system.providers import (  # noqa: E402
     provider_for,
     supported_extensions,
 )
-from core_system.providers.base import (  # noqa: E402
+from core_system.providers.base import (
     BaseInferenceProvider,
     GenerationResult,
     ProviderCapabilities,
 )
+
+PERIDOT_ROOT = Path(__file__).parent.parent.absolute()
 
 
 class FakeProvider(BaseInferenceProvider):
@@ -199,6 +196,84 @@ def test_capabilities_are_immutable():
     caps = ProviderCapabilities(engine="x", context_window=1)
     with pytest.raises(Exception):
         caps.context_window = 2
+
+
+# --- LlamaCppProvider internals (server.py wiring, v1.6.x) -------------------
+#
+# These stub out the loaded llama_cpp.Llama client directly (bypass load(),
+# no GPU/model file needed) to cover the three things server.py's /ask route
+# now depends on: top_k actually reaching the engine call, finish_reason
+# surviving the generate_stream() -> generate() round trip, and reset() being
+# a safe passthrough.
+
+
+class _FakeLlamaClient:
+    """Stands in for a loaded llama_cpp.Llama, OpenAI-shaped stream chunks."""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.last_call_kwargs = None
+        self.reset_called = False
+
+    def __call__(self, prompt, **kwargs):
+        self.last_call_kwargs = kwargs
+        return iter(self._chunks)
+
+    def tokenize(self, raw_bytes):
+        return list(range(len(raw_bytes)))
+
+    def reset(self):
+        self.reset_called = True
+
+
+def _loaded_provider(chunks):
+    p = LlamaCppProvider("fake.gguf")
+    p._llm = _FakeLlamaClient(chunks)
+    p._loaded = True
+    return p
+
+
+def test_top_k_reaches_the_engine_call():
+    p = _loaded_provider([{"choices": [{"text": "hi", "finish_reason": None}]}])
+    list(p.generate_stream("prompt", top_k=7))
+    assert p._llm.last_call_kwargs["top_k"] == 7
+
+
+def test_top_k_has_a_default_when_not_passed():
+    p = _loaded_provider([{"choices": [{"text": "hi", "finish_reason": None}]}])
+    list(p.generate_stream("prompt"))
+    assert p._llm.last_call_kwargs["top_k"] == 40
+
+
+def test_finish_reason_is_captured_from_the_final_chunk():
+    p = _loaded_provider([
+        {"choices": [{"text": "a", "finish_reason": None}]},
+        {"choices": [{"text": "b", "finish_reason": None}]},
+        {"choices": [{"text": "", "finish_reason": "length"}]},
+    ])
+    result = p.generate("prompt")
+    assert result.text == "ab"
+    assert result.finish_reason == "length"
+
+
+def test_finish_reason_defaults_to_stop_when_engine_never_reports_one():
+    p = _loaded_provider([{"choices": [{"text": "a", "finish_reason": None}]}])
+    result = p.generate("prompt")
+    assert result.finish_reason == "stop"
+
+
+def test_reset_delegates_to_the_underlying_client():
+    p = _loaded_provider([])
+    p.reset()
+    assert p._llm.reset_called is True
+
+
+def test_reset_is_a_safe_noop_before_load():
+    LlamaCppProvider("fake.gguf").reset()  # must not raise
+
+
+def test_base_provider_reset_is_a_safe_default_noop():
+    FakeProvider().reset()  # must not raise, no override needed
 
 
 # --- benchmark integrity -----------------------------------------------------
