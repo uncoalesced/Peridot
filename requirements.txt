@@ -30,7 +30,7 @@ license-expression==30.4.4
 # (Qwen3.5+ MTP) support, causing "missing tensor 'blk.64.ssm_conv1d.weight'"
 # on Qwen3.8-27B load. Run scripts/build_llama_cpp_python.ps1 to build against
 # the vendored llama.cpp/ checkout instead, which has qwen35 support.
-llama_cpp_python==0.3.23
+llama_cpp_python==0.3.35
 llvmlite==0.47.0
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
