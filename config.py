@@ -90,15 +90,11 @@ def _calculate_gpu_layers(model_size_mb: int, total_vram_mb: int) -> int:
 # PROVISIONAL - NOT BENCHMARKED. Operators with headroom should raise this via
 # the GPU_LAYERS env var and report results.
 _PROVISIONAL_GPU_LAYERS: dict[str, int] = {
-    # 9.2GiB file vs 8GB VRAM: leaves ~4.5GB free for KV cache + compute buffer
-    # + CUDA context, with the remaining layers tensor-split into system RAM.
-    #
-    # DORMANT: this model cannot currently be loaded at all (llama.cpp 0.3.23
-    # lacks qwen35 MTP support -- see the ACTIVE_MODEL_NAME note below), so the
-    # value has never been exercised against a successful load. It is retained
-    # so the pin is already in place when MTP support lands; re-derive it from a
-    # real benchmark at that point rather than trusting this number.
-    "Qwen3.8-27B-UD-Q2_K_XL.gguf": 20,
+    # ponytail: "Qwen3.8-27B-UD-IQ1_S.gguf" used to be pinned at 20 here, but
+    # that comment/value described the old 9.2GiB Q2_K_XL quant, not this one.
+    # IQ1_S is 5905MB on disk, which _calculate_gpu_layers() already offloads
+    # in full (99) on 8GB VRAM -- no pin needed. Re-add a pin here only if a
+    # specific quant is measured to need one.
 }
 
 def _calculate_context_length(total_vram_mb: int) -> int:
@@ -205,8 +201,16 @@ MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "1024"))
 THREADS: int = int(os.getenv("THREADS", "8"))
 BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "1024"))
 
-TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.1"))
-TOP_P: float = float(os.getenv("TOP_P", "0.9"))
+# Sampling. These are calibration knobs, not constants -- every env var below
+# still overrides. The defaults were near-greedy (temp 0.1 / top_p 0.9), which
+# is actively harmful on Qwen3-family thinking models: with almost no sampling
+# entropy the model locks onto whatever degenerate pattern the in-context
+# history suggests and reproduces it deterministically (observed 2026-08-20 as
+# repeated empty <think></think> / bare [KERNEL_RESPONSE] turns). Values below
+# are Qwen's published recommendations for thinking mode.
+TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.6"))
+TOP_P: float = float(os.getenv("TOP_P", "0.95"))
+TOP_K: int = int(os.getenv("TOP_K", "20"))
 REPEAT_PENALTY: float = float(os.getenv("REPEAT_PENALTY", "1.1"))
 
 # --- NETWORK & SECURITY ---
