@@ -143,6 +143,15 @@ class BaseInferenceProvider(ABC):
     def is_loaded(self) -> bool:
         return self._loaded
 
+    def reset(self) -> None:
+        """
+        Clear engine-internal generation state (e.g. KV cache) between calls.
+
+        Default no-op. Engines whose client exposes an explicit reset override
+        this; never raises, so callers can call it defensively without a
+        hasattr check at every call site.
+        """
+
     # --- inference -----------------------------------------------------------
 
     @abstractmethod
