@@ -26,6 +26,10 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 joblib==1.5.3
 license-expression==30.4.4
+# PyPI/cu121-wheel fallback only. This wheel's llama.cpp core predates qwen35
+# (Qwen3.5+ MTP) support, causing "missing tensor 'blk.64.ssm_conv1d.weight'"
+# on Qwen3.8-27B load. Run scripts/build_llama_cpp_python.ps1 to build against
+# the vendored llama.cpp/ checkout instead, which has qwen35 support.
 llama_cpp_python==0.3.23
 llvmlite==0.47.0
 markdown-it-py==4.2.0

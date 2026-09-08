@@ -19,7 +19,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from llama_cpp import Llama
 from dotenv import load_dotenv
 import functools
 
@@ -27,8 +26,8 @@ load_dotenv()
 
 # --- PERIDOT CONFIGURATION ---
 from config import (
-    MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH, 
-    TEMPERATURE, TOP_P, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
+    MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH,
+    TEMPERATURE, TOP_P, TOP_K, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
     RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE, INPUT_PATH, PROCESSED_PATH
 )
 
@@ -40,8 +39,14 @@ from core_system.model_fetch import assert_main_process_offline
 assert_main_process_offline()
 
 # --- CENTRALIZED PROMPT ENGINE ---
-from core_system.prompting.constitution import get_model_format
+from core_system.prompting.constitution import get_model_format, parse_kernel_response, format_kernel_response
 from core_system.prompting.builder import build_full_context
+
+# --- v1.6.x INFERENCE PROVIDER ABSTRACTION ---
+# .gguf always routes to LlamaCppProvider today; provider_for() is used (rather
+# than importing LlamaCppProvider directly) so a future ExLlamaV2/.exl2 model
+# picks up its provider automatically once that backend is registered.
+from core_system.providers import provider_for, ProviderLoadError
 
 # --- RAG SUBSYSTEM AND v1.5.4 CACHE IMPORTS ---
 try:
@@ -242,16 +247,16 @@ def boot_engine():
     send_fah_command("pause")
 
     try:
-        llm = Llama(
-            model_path=str(MODEL_PATH),
-            n_ctx=CONTEXT_LENGTH,            
-            n_threads=THREADS,          
-            n_gpu_layers=GPU_LAYERS,      
-            n_gpu=1 if GPU_LAYERS != 0 else 0,
-            n_batch=BATCH_SIZE,          
-            flash_attn=True,      
-            verbose=False,       
+        llm = provider_for(
+            MODEL_PATH,
+            n_ctx=CONTEXT_LENGTH,
+            n_threads=THREADS,
+            n_gpu_layers=GPU_LAYERS,
+            n_batch=BATCH_SIZE,
+            flash_attn=True,
+            verbose=False,
         )
+        llm.load()
         print(f">> [SUCCESS] Peridot Brain Online. (Free VRAM: {get_vram_free()}MB)")
         threading.Thread(target=idle_monitor, daemon=True).start()
         
@@ -293,7 +298,7 @@ def queue_requests(f):
 # --- API ENDPOINTS ---
 @app.route('/health', methods=['GET'])
 def health_check():
-    if llm is not None:
+    if llm is not None and llm.is_loaded:
         return jsonify({"status": "online"}), 200
     return jsonify({"status": "booting"}), 503
 
@@ -442,6 +447,13 @@ def ask():
 
         if model_format == "llama3":
             target_stops = ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"]
+        elif model_format == "mistral":
+            # ponytail: was silently falling through to the ChatML stop
+            # tokens below, which never appear in Mistral output -- generation
+            # would have run to MAX_TOKENS every time instead of stopping at
+            # </s>. Untested against real hardware; verify a Mistral-Nemo run
+            # actually stops cleanly before trusting this.
+            target_stops = ["</s>", "[INST]"]
         else:
             target_stops = ["<|im_end|>", "<|im_start|>"]
 
@@ -455,9 +467,9 @@ def ask():
         start_time = time.time()
         
         try:
-            prompt_tokens = len(llm.tokenize(final_prompt.encode("utf-8")))
+            prompt_tokens = llm.token_count(final_prompt)
             safe_max_tokens = CONTEXT_LENGTH - prompt_tokens - 10
-            
+
             while safe_max_tokens < 128 and len(history) > 0:
                 history.pop(0)
                 final_prompt = build_full_context(
@@ -466,7 +478,7 @@ def ask():
                     current_prompt=user_query,
                     model_format=model_format
                 )
-                prompt_tokens = len(llm.tokenize(final_prompt.encode("utf-8")))
+                prompt_tokens = llm.token_count(final_prompt)
                 safe_max_tokens = CONTEXT_LENGTH - prompt_tokens - 10
                 
         except Exception:
@@ -475,23 +487,64 @@ def ask():
         if safe_max_tokens < 128:
             return jsonify({"response": "[SYSTEM ERROR] The conversation history and context have exceeded the AI's memory window, and could not be truncated safely. Please clear memory and start a new session."}), 400
             
-        output = llm(
-            final_prompt, 
-            max_tokens=min(MAX_TOKENS, safe_max_tokens), 
-            stop=target_stops, 
-            temperature=TEMPERATURE,
-            top_p=TOP_P,
-            repeat_penalty=REPEAT_PENALTY,
-            echo=False
-        )
+        token_budget = min(MAX_TOKENS, safe_max_tokens)
+
+        def _generate(prompt_text, tag):
+            """Run one completion and log the RAW, unstripped text it produced.
+
+            The raw repr is the only thing that separates "model stopped
+            immediately" from "model answered and we dropped it downstream".
+            Without it this bug was undiagnosable from the logs, which only
+            ever recorded a token count.
+            """
+            result = llm.generate(
+                prompt_text,
+                max_tokens=token_budget,
+                stop=target_stops,
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+                top_k=TOP_K,
+                repeat_penalty=REPEAT_PENALTY,
+            )
+            if ghost:
+                try:
+                    ghost.info(
+                        f"RAW_OUTPUT | {tag} | finish={result.finish_reason} "
+                        f"| prompt_tokens={prompt_tokens} | budget={token_budget} "
+                        f"| text={result.text[:1200]!r}"
+                    )
+                except Exception:
+                    pass
+            return result
+
+        output = _generate(final_prompt, "primary")
+        analysis, body = parse_kernel_response(output.text)
+
+        if not body:
+            # The model emitted the [KERNEL_RESPONSE] header (or an empty
+            # <think> block) and then stopped. Re-run with the scaffolding
+            # pre-seeded into the assistant turn so there is no header left
+            # for it to stop on: it can only continue with the answer itself.
+            if ghost:
+                try: ghost.warning("INFERENCE   | Empty kernel body. Re-running with pre-seeded response header.")
+                except Exception: pass
+            seed = '<think>\n\n</think>\n\n[ANALYSIS]\nDirect synthesis.\n\n[KERNEL_RESPONSE]\n'
+            output = _generate(final_prompt + seed, "retry_preseeded")
+            retry_analysis, retry_body = parse_kernel_response(
+                seed + output.text
+            )
+            analysis = retry_analysis or analysis
+            body = retry_body
+
         elapsed_s = time.time() - start_time
-        
-        final_response = output["choices"][0]["text"].strip()
-        
-        if "[ANALYSIS]" not in final_response or "[KERNEL_RESPONSE]" not in final_response:
-            final_response = f"[ANALYSIS]\nEnforced kernel formatting fallback.\n\n[KERNEL_RESPONSE]\n{final_response}"
-        
-        tokens_generated = output.get("usage", {}).get("completion_tokens", len(final_response.split()) * 1.3)
+
+        if not body:
+            body = ("[KERNEL FAULT] The model produced no answer for this turn. "
+                    "Raw output was empty; see RAW_OUTPUT in logs/ghost_audit.log.")
+
+        final_response = format_kernel_response(analysis, body)
+
+        tokens_generated = output.completion_tokens
         tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
         
         if ghost:
@@ -531,6 +584,7 @@ def ask():
         except ImportError:
             pass
         kernel.event_queue.put("INFERENCE_COMPLETE")
+
 
 @app.route("/vram/reclaim", methods=["POST"])
 @require_auth

@@ -174,20 +174,37 @@ class PeridotUI:
                 pass
 
     def _load_icons(self):
+        """
+        Load the button glyphs, falling back to a text label per icon.
+
+        This pointed at assets/ui/icons/{mic,execute,settings,vault}.png, a
+        directory that has never existed in the tree -- the shipped icons are
+        .ico files under assets/icons/ with different names. The exists()
+        guard swallowed it, so every button silently rendered its text
+        fallback and the Pillow branch below had never once executed.
+
+        Only two glyphs actually exist. "settings" and "vault" keep their text
+        labels deliberately, rather than naming files that are not there.
+        """
         self.icons = {}
-        base_dir = Path(__file__).parent.resolve() / "assets" / "ui" / "icons"
+        base_dir = Path(__file__).parent.resolve() / "assets" / "icons"
         icons_to_load = {
-            "mic": ("[MIC]", "mic.png"),
-            "run": ("[EXEC]", "execute.png"),
-            "settings": ("[SET]", "settings.png"),
-            "vault": ("[DIR]", "vault.png")
+            "mic": ("[MIC]", "peridot_mic.ico"),
+            "run": ("[EXEC]", "peridot_send.ico"),
+            "settings": ("[SET]", None),
+            "vault": ("[DIR]", None),
         }
         for key, (fallback, filename) in icons_to_load.items():
+            if filename is None:
+                self.icons[key] = fallback
+                continue
             icon_path = base_dir / filename
             try:
                 if icon_path.exists():
                     img = Image.open(icon_path)
-                    img = img.resize((16, 16), Image.LANCZOS)
+                    # .ico carries non-square frames here; LANCZOS to a fixed
+                    # 16x16 keeps the button metrics uniform.
+                    img = img.convert("RGBA").resize((16, 16), Image.LANCZOS)
                     self.icons[key] = ImageTk.PhotoImage(img)
                 else:
                     self.icons[key] = fallback
@@ -439,6 +456,12 @@ class PeridotUI:
         )
         self.model_dropdown.pack(fill=tk.X, pady=(0, 10))
 
+        # The Combobox popdown is a separate override-redirect toplevel; on
+        # Windows it survives an Alt-Tab and floats over whatever app you
+        # switch to. Tk owns that window, so close it from the root's own
+        # focus-out rather than trying to reach into the widget.
+        self.root.bind("<FocusOut>", self._close_dropdown_popdown, add="+")
+
         # Use dynamic VRAM detection from config (Phase 2: Hardware Auto-Scaling)
         total_vram_gb = TOTAL_VRAM_GB if TOTAL_VRAM_GB > 0 else 8.0
 
@@ -541,6 +564,16 @@ class PeridotUI:
             lbl = tk.Label(link_frame, text=f"[{text}]", bg=COLOR_BG, fg=COLOR_USER, font=FONT_LINK, cursor="hand2")
             lbl.pack(side=tk.LEFT, padx=15)
             lbl.bind("<Button-1>", lambda e, u=url: webbrowser.open_new(u))
+
+    def _close_dropdown_popdown(self, event=None):
+        """Withdraw any open Combobox popdown when the app loses focus."""
+        if event is not None and event.widget is not self.root:
+            return
+        try:
+            popdown = self.root.tk.call("ttk::combobox::PopdownWindow", self.model_dropdown)
+            self.root.tk.call("wm", "withdraw", popdown)
+        except Exception:
+            pass
 
     def _swap_model(self):
         """Modifies config.py architecture map to select a new binary."""
@@ -1041,7 +1074,15 @@ class PeridotUI:
                 main_text = ""
         else:
             main_text = main_text.replace("[KERNEL_RESPONSE]", "").strip()
-            
+
+        # Never render a blank turn. A response that parses to nothing used to
+        # leave the chat pane silently unchanged, which read as "the app did
+        # not respond" and hid the real fault completely.
+        if not main_text.strip():
+            main_text = ("[KERNEL FAULT] Empty response body. "
+                         "See RAW_OUTPUT in logs/ghost_audit.log.")
+
+
         # Stealth UI Render: Cognitive Analysis Dropdown
         if analysis_text:
             self.chat.insert(tk.END, "\n")
@@ -1180,10 +1221,25 @@ class PeridotUI:
 
     def _update_stats(self):
         if not self.root.winfo_exists(): return
+
+        # Backend telemetry first, and in its own try. It used to sit at the
+        # end of the block below, so a missing or failing nvidia-smi -- the
+        # normal case on the CPU-only path config.py explicitly supports at
+        # GPU_LAYERS=0 -- skipped the thread start entirely. FSM state, health
+        # score, latency and panic count then never updated, with no error
+        # shown: the panel simply stayed blank forever.
+        try:
+            threading.Thread(target=self._poll_backend_telemetry, daemon=True).start()
+        except Exception:
+            pass
+
         try:
             self.bar_cpu.update_value(psutil.cpu_percent())
             self.bar_ram.update_value(psutil.virtual_memory().percent)
+        except Exception:
+            pass
 
+        try:
             # Cross-platform nvidia-smi call - only use CREATE_NO_WINDOW on Windows
             c = ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"]
             kwargs = {}
@@ -1191,10 +1247,11 @@ class PeridotUI:
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             o = subprocess.check_output(c, **kwargs).decode().strip().split(",")
             self.bar_vram.update_value((int(o[0]) / int(o[1])) * 100)
-
-            threading.Thread(target=self._poll_backend_telemetry, daemon=True).start()
         except Exception:
+            # No NVIDIA GPU, or nvidia-smi absent. CPU/RAM and the backend
+            # telemetry above are unaffected; only the VRAM bar goes stale.
             pass
+
         self.root.after(1500, self._update_stats)
 
     def run(self):

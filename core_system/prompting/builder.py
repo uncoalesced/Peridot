@@ -25,4 +25,14 @@ def build_full_context(rag_context, chat_history, current_prompt, model_format):
             prompt_str += f"<|start_header_id|>{turn['role']}<|end_header_id|>\n\n{turn['content']}<|eot_id|>\n"
         prompt_str += f"<|start_header_id|>user<|end_header_id|>\n\n{current_prompt}<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n"
 
+    elif model_format == "mistral":
+        # No per-turn role header: [INST] wraps only the user side, assistant
+        # replies are bare text closed with </s>.
+        for turn in chat_history:
+            if turn['role'] == 'user':
+                prompt_str += f"[INST] {turn['content']}[/INST]"
+            else:
+                prompt_str += f"{turn['content']}</s>"
+        prompt_str += f"[INST] {current_prompt}[/INST]"
+
     return prompt_str

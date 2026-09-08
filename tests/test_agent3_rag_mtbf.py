@@ -50,6 +50,7 @@ def _install_fake_config():
     config.CONTEXT_LENGTH = 512
     config.TEMPERATURE = 0.1
     config.TOP_P = 0.9
+    config.TOP_K = 20
     config.REPEAT_PENALTY = 1.1
     config.SERVER_HOST = "127.0.0.1"
     config.SERVER_PORT = 5000
@@ -241,14 +242,21 @@ class Agent3RegressionTests(unittest.TestCase):
                 return None
 
         class FakeLLM:
-            def tokenize(self, _payload):
+            is_loaded = True
+
+            def tokenize(self, _text):
                 return [1, 2, 3]
 
-            def __call__(self, *args, **kwargs):
-                return {
-                    "choices": [{"text": "plain response"}],
-                    "usage": {"completion_tokens": 2},
-                }
+            def token_count(self, text):
+                return len(self.tokenize(text))
+
+            def generate(self, *args, **kwargs):
+                return types.SimpleNamespace(
+                    text="plain response",
+                    finish_reason="stop",
+                    completion_tokens=2,
+                    prompt_tokens=3,
+                )
 
             def reset(self):
                 pass

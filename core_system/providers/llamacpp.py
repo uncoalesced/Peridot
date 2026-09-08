@@ -28,6 +28,7 @@ from typing import Any, Iterator
 
 from core_system.providers.base import (
     BaseInferenceProvider,
+    GenerationResult,
     ProviderCapabilities,
     ProviderLoadError,
 )
@@ -78,6 +79,7 @@ class LlamaCppProvider(BaseInferenceProvider):
         self._supports_thinking = supports_thinking
         self._supports_vision = supports_vision
         self._llm: Any = None
+        self._last_finish_reason: str | None = None
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -136,6 +138,13 @@ class LlamaCppProvider(BaseInferenceProvider):
         # llama.cpp's CUDA context outlives the Python object. Use the
         # child-process provider when a hard guarantee is required.
 
+    def reset(self) -> None:
+        if self._llm is not None and hasattr(self._llm, "reset"):
+            try:
+                self._llm.reset()
+            except Exception as e:
+                logger.warning("reset() failed: %s", e)
+
     # --- inference -----------------------------------------------------------
 
     def tokenize(self, text: str) -> list[int]:
@@ -151,6 +160,7 @@ class LlamaCppProvider(BaseInferenceProvider):
             "max_tokens": params.get("max_tokens", 512),
             "temperature": params.get("temperature", 0.1),
             "top_p": params.get("top_p", 0.9),
+            "top_k": params.get("top_k", 40),
             "repeat_penalty": params.get("repeat_penalty", 1.1),
             "echo": False,
             "stream": True,
@@ -159,10 +169,33 @@ class LlamaCppProvider(BaseInferenceProvider):
         if stop:
             call_params["stop"] = stop
 
+        self._last_finish_reason = None
         for piece in self._llm(prompt, **call_params):
-            text = piece.get("choices", [{}])[0].get("text", "")
+            choice = piece.get("choices", [{}])[0]
+            reason = choice.get("finish_reason")
+            if reason:
+                self._last_finish_reason = reason
+            text = choice.get("text", "")
             if text:
                 yield text
+
+    def generate(self, prompt: str, **params: Any) -> GenerationResult:
+        """
+        One-shot generation with the engine's real finish_reason attached.
+
+        The base implementation already drives generate_stream() and times
+        prefill vs. decode correctly -- reused as-is rather than duplicated.
+        generate_stream()'s plain-text yield contract is shared by every
+        provider, so it has no way to hand finish_reason back through the
+        loop; _last_finish_reason is the side channel, patched onto the
+        result here. Without a real reason, callers can't tell "the model
+        produced a full answer" apart from "it was cut off," which is exactly
+        the distinction the empty-response bug needed to be diagnosed.
+        """
+        result = super().generate(prompt, **params)
+        if self._last_finish_reason:
+            result.finish_reason = self._last_finish_reason
+        return result
 
     @property
     def capabilities(self) -> ProviderCapabilities:
