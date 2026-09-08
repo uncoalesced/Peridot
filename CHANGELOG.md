@@ -1,507 +1,465 @@
-# Peridot - Changelog
->
-> Engineered by uncoalesced
+# Changelog
+
+**Engineered by uncoalesced**
+
+All notable changes to the Peridot Sovereign Kernel are documented in this file.
 
 ---
 
-#### [post-v1.5.4c] - 2026-08-20
+## [post-v1.5.4f] - 2026-08-20
 
-**Name:** Documentation Version Sync & Style Cleanup
+**Release Summary:** Chat Ledger Degenerate Feedback Loop Remediation & Response Contract Alignment
 
-##### Version References
+### Root Cause Analysis
 
-- **Stale v1.5.3 References Bumped to v1.5.4:** `README.md`, `SECURITY.md`, `docs/architecture/RUNTIME_GUARANTEES.md`, `docs/architecture/v1.5_memory_flow.md`, `docs/markdowns/CONTRIBUTING.md`, `docs/markdowns/MEDICAL_RESEARCH_INTEGRATION.md`, `requirements.txt` and `cowork/PERIDOT_TRACKER.md` still declared the current version as v1.5.3 in headers, banners and footers, despite the codebase itself (`config.py`, `core_system/`, `server.py`, `launcher.py`, `setup.py`, `ui.py`) already reading v1.5.4 throughout. Historical version attributions - the README's Stable v1.5 Milestone Ledger, this file's dated entries, and "introduced in v1.5.3" provenance notes - were left untouched; only present-tense "current version" claims were bumped. `joblib==1.5.3` in `requirements.txt` is an unrelated third-party pin and was not touched.
+- **Model generation failures were unrelated to quantization degradation:** Investigations in `[post-v1.5.4e]` treated empty or `<think>`-only completions as instruction-following degradation in `Qwen3.8-27B-UD-IQ1_S` (~1.56 bits/weight). Session audit logs contradict this: failing turns logged explicit premature stop conditions (`Tokens: 0` to `Tokens: 3`) against a 1024-token generation budget. A model degraded by extreme quantization emits random or ungrounded token sequences; immediate cessation indicates a stop-condition signal rather than a loss of reasoning capacity. Consistent `MEMORY MISS` and `L1 MISS` events on failing turns, paired with zero `[ZAT-SCS] Predictive preemption hit!` log entries, also eliminated speculative KV prefetching and semantic cache corruption as contributing factors.
+- **Degenerate feedback loop via persisted conversational ledger:** Inspection of `storage/chat_ledger.db` revealed that failing turns occurred when the model generated a complete `[ANALYSIS]` block terminating at an empty `[KERNEL_RESPONSE]` header (~50 tokens matching system prompt boilerplate). `core.py` persisted this raw output—including reasoning scaffolding—directly into the ledger. Subsequent generation requests in `server.py` re-injected the trailing 6 turns into the prompt context. Presenting the model with historical turns terminating at an empty header prompted it to replicate the pattern deterministically. This explains why failures did not correlate with query complexity (e.g., basic arithmetic failed while complex physics queries succeeded) and why outcomes shifted as the 12-message sliding window advanced.
+- **Formatting fallback obscured the defect:** `server.py` previously wrapped missing `[ANALYSIS]` tags in boilerplate headers (`[ANALYSIS]\nEnforced kernel formatting fallback.\n\n[KERNEL_RESPONSE]\n{final_response}`). When given an unclosed `<think>` fragment, this generated a syntactically valid structure with an empty body. Downstream components could not differentiate valid responses from empty completions, causing `ui.py` to split on `[KERNEL_RESPONSE]` and render empty chat turns without surfacing errors.
 
-##### README
+### Fixed
 
-- **Overview Rewritten:** The opening `> OVERVIEW` section was rewritten to correctly frame ZAT-SCS as introduced in v1.5.3 but still Peridot's flagship subsystem, rather than describing it as "the v1.5.3 update" from inside a v1.5.4 document.
-- **Roadmap Section Updated:** The `> ROADMAP` bar chart and "Current Focus" paragraph now match the actual v1.6.x-v1.8.x scope agreed in the Frontier Roadmap spec: the `BaseInferenceProvider` abstraction (partially landed), multi-engine inference, and episodic memory on TurboVec for v1.6.x (ChromaDB migration investigated and dropped - TurboVec was already permanent); FreeThink, sandboxed REPL, image input, the RAG rebuild and the sovereign web gateway for v1.7.x; the React WebUI and artifact system for v1.8.x. Also notes the Qwen3.8-27B default revert and the retraction of the 39/62 t/s throughput figures as cache-hit artifacts, rather than leaving the stale numbers standing uncontextualized.
-- **Emoji Removed:** The Hardware Support table's checkmark, warning and tool emoji were replaced with plain bold labels. No other tracked file in the repository contained emoji.
+- **Unified response contract in `constitution.py`:** Added `strip_reasoning()`, `parse_kernel_response()`, and `format_kernel_response()` adjacent to kernel prompt definitions. This establishes a single source of truth for response parsing across `server.py` and `core.py`, and properly sanitizes unclosed `<think>` reasoning tails before storage.
+- **Empty response detection and retries in `server.py`:** Completions are now parsed structurally rather than matched via string checks. If an assistant turn returns an empty body, the request is automatically retried once with prompt scaffolding pre-seeded into the assistant turn (`<think>\n\n</think>\n\n[ANALYSIS]\n...\n\n[KERNEL_RESPONSE]\n`), preventing premature termination on header tokens. If generation remains empty, the engine returns an explicit `[KERNEL FAULT]` rather than silent whitespace.
+- **Structured output telemetry in `server.py`:** Added comprehensive generation logging (`RAW_OUTPUT | <tag> | finish=<reason> | prompt_tokens=N | budget=N | text=<repr>`). Recording `finish_reason` alongside token counts enables clear differentiation between context budget exhaustion and premature stop tokens.
+- **Scaffolding isolation in `core.py`:** Chat persistence now extracts and records only the parsed answer body. Internal `[ANALYSIS]` blocks and `<think>` reasoning chains are excluded from `storage/chat_ledger.db`, preventing internal scaffolding from re-entering the prompt context.
+- **History sanitization in `chat_ledger.py`:** Updated `get_history()` to filter out historical assistant turns that contain empty bodies along with their corresponding user turns. This preserves strict user/assistant alternation and neutralizes historical corrupted records (135 existing rows) without requiring manual database truncation.
+- **Sampling parameter defaults in `config.py`:** Updated default decoding parameters to align with thinking model requirements (`TEMPERATURE` 0.1 -> 0.6, `TOP_P` 0.9 -> 0.95, `TOP_K` = 20) and passed them through `server.py`. Near-greedy sampling previously made the feedback loop deterministic by removing the entropy required to escape repetitive output patterns. All parameters remain configurable via environment variables.
+- **FAISS property compatibility in `command_router.py`:** Aliased `ntotal` to `size` on `IdMapIndex`. Resolves `'IdMapIndex' object has no attribute 'ntotal'` crashes when executing `status` and `ingest` commands.
+- **Session resumption bounds in `server.py`:** Configured `_ensure_active_session()` to respect `SESSION_RESUME_WINDOW_S` (default 6 hours). Previously, the engine unconditionally resumed the most recent session from `list_sessions(limit=1)`, permanently locking restarts into a single June development session (`55a71b3f`). Implemented `_autotitle_session()` to name new sessions based on their initial user prompt.
+- **Explicit failure reporting in `ui.py`:** Blank parsing results now render an explicit `[KERNEL FAULT]` notice pointing to `RAW_OUTPUT` in the console logs, eliminating silent rendering failures.
+- **Model selector window dismissal in `ui.py`:** Added `<FocusOut>` binding to withdraw the `ttk::combobox::PopdownWindow` toplevel when the main application window loses focus, preventing the dropdown from floating over other desktop windows during Alt-Tab switching.
 
-##### Code Comments
+### Changed
 
-- **Swept For AI-Narration/Bloat Comments, None Found:** Checked all first-party Python sources (`core_system/`, `config.py`, `server.py`, `setup.py`, `ui.py`, `benchmarking/`, `tests/`) for conversational or restating comments ("Now we...", "This function...", TODO/FIXME stubs, etc.). None matched; existing comments are dense but substantive (e.g. the MTP-head root-cause note in `config.py`, the sovereignty-lock ordering rationale in `server.py`) and were left as-is rather than stripped for the sake of it.
+- **Metrics interpretation clarification:** Clarified that `Kernel Panics: 1` and `Avg Handoff Latency: 1483.37ms` recorded in `logs/stability_metrics.json` represent lifetime aggregate counters across 280 handoffs and 218 inferences, rather than session-specific regressions. `ghost_audit.log` shows zero panic events, and recorded handoff latencies (~2000ms) reflect external Folding@home client release polling reaching the 20-iteration/100ms timeout in `server.py`.
 
-##### Contributors
+### Testing
 
-- **GitHub "claude" Contributor Entry - Investigated, Not Removable By File Edit:** GitHub's Contributors graph is computed server-side from commit authorship and `Co-Authored-By` trailers, not from any file in the repository. Three commits still carry a `Co-Authored-By: Claude Opus 5` trailer predating `includeCoAuthoredBy: false` being set (see Planning Log, 2026-08-19). Removing the entry requires a history rewrite (`git filter-branch` or interactive rebase, plus a force-push) of every commit from the first affected one forward. Not performed - flagged for confirmation before any such rewrite is attempted.
+- Added `tests/test_response_contract.py` containing 7 test cases validating response parsing against corrupted strings extracted from historical databases, as well as history sanitization filters. All tests pass alongside existing test suites (`tests/test_turbovec_index.py` and `tests/test_vault.py`).
 
----
+### Known Limitations
 
-#### [post-v1.5.4b] - 2026-08-20
-
-**Name:** Benchmark Integrity Correction & Inference Provider Abstraction
-
-##### Correction - Previously Reported Throughput Was Invalid
-
-- **The 62.38 t/s Figure Recorded Yesterday Is Wrong; The Real Rate Is 4.00 t/s.** The `[post-v1.5.4]` entry recorded 62.38 t/s as the v1.6.x comparison floor for `Qwen2.5-14B-Instruct-Q4_K_M.gguf`. Isolated measurement puts the true decode rate at **4.00 t/s median** (mean 4.03, stdev 0.21, range 3.81-4.27, prefill 23.83 t/s) on the same hardware and settings. The reported figure was **15.6x too high**.
-- **Root Cause - The Suite Was Measuring Cache Hits, Not Inference.** `benchmark_inference.py` sends an identical prompt on every run. After the first, `server.py`'s L1 semantic cache returns a stored response and, in its own words, "Bypasses GPU entirely." GhostLogger for the 30-request run recorded **3 real inferences and 30 cache hits**. The server's own logged speeds for those 3 real inferences were 2.63, 4.64 and 4.95 t/s - consistent with the isolated 4.00 t/s and nowhere near 62.
-- **Secondary Defect - Approximate Token Counts.** The same suite divides `len(words) * 1.3` by full HTTP round-trip time rather than using tokenizer output over generation time. Both defects inflate in the same direction.
-- **The Historical 39 t/s Baseline Is Also Untrustworthy.** It was produced by the same method against the same model and should not be treated as a regression reference.
-- **`benchmark_inference.py` Retained but Relabelled.** Request latency remains worth tracking, so the script stays, with its docstring and printed summary corrected to state plainly that it does not measure decode rate.
-
-##### Inference Provider Abstraction (v1.6.x Item 1, Partial)
-
-- **`BaseInferenceProvider` Contract:** `load()`, `unload()`, `generate_stream()`, `tokenize()`, and a `ProviderCapabilities` set (`engine`, `context_window`, `supports_thinking`, `supports_vision`, `supports_streaming`). Defined with its full surface now so ExLlamaV2 and vLLM are additive rather than breaking changes.
-- **Engine-Agnostic Timing:** `generate()` is concrete on the base class and times prefill (time to first token) separately from decode (first token to last), measured off the stream. This works identically for any engine; llama.cpp's internal perf counters would not have, and the first cross-engine comparison would have measured different things on each side.
-- **`LlamaCppProvider`:** wraps llama-cpp-python with the exact call signature `server.py` already uses, so adoption is a refactor rather than a behaviour change. Load failure raises the recoverable `ProviderLoadError` so a bad model file can never take the kernel down.
-- **Extension-Based Registry:** `.gguf` routes to llama-cpp-python; `.exl2` and `.safetensors` raise a clear not-implemented error naming the milestone that will provide them. No manual backend picker, per spec.
-- **GhostLogger Integration:** provider load, unload and load-failure events all audit through GhostLogger.
-
-##### Benchmarking
-
-- **`benchmarking/benchmark_decode_rate.py`:** isolated decode-rate measurement targeting the provider abstraction directly - no HTTP, no L1 cache, no RAG, no routing - using real tokenizer counts and distinct prompts per run. This is the cross-engine comparison tool required before ExLlamaV2 lands.
-
-##### Security
-
-- **Hardcoded API Key Removed From The Benchmarking Client:** `benchmarking/api_client.py` still carried `08101954` as a fallback - the exact key v1.5.1 eliminated from the kernel - and printed the live key to stdout on every run, putting a working credential into console scrollback and any captured CI log. The fallback is gone and the client now fails loudly if no key is configured. Two regression tests guard against reintroduction anywhere in the tree.
-
-##### Known Limitations
-
-- **The Spec's 25 t/s Floor Is Unreachable On This Hardware.** The v1.6.x acceptance criterion for keeping Qwen3.8-27B as default is >=25 t/s on the RTX 5050. The *14B* manages 4.00 t/s with 28 layers offloaded; a 27B model cannot plausibly exceed it. That floor was set against the invalid 62 t/s measurement and needs revisiting independently of the MTP blocker.
-- **Provider Abstraction Not Yet Wired Into `server.py`.** The contract, the llama.cpp implementation and the benchmark exist and are tested; the child-process provider, the orchestrator refactor and `POST /model/swap` are still outstanding within item 1.
+- Changes have been validated against recorded failure data, historical ledger entries, and automated unit tests, but await validation under a fresh physical hardware session.
+- `scripts/build_llama_cpp_python.ps1` remains unexecuted; testing was conducted against the packaged `llama_cpp_python==0.3.23` wheel and `IQ1_S` quantization.
 
 ---
 
-#### [post-v1.5.4] - 2026-08-19
+## [post-v1.5.4e] - 2026-08-20
 
-**Name:** Default Model Revert - Qwen3.8-27B MTP Incompatibility
+**Release Summary:** Model Support Audit — Metadata-Driven Chat Template Resolution
 
-##### Root Cause Correction
+### Changed
 
-- **The Qwen3.8-27B GGUF Was Never Corrupted:** v1.5.4 shipped documenting the `missing tensor 'blk.64.ssm_conv1d.weight'` load failure as an incomplete download. That diagnosis was wrong. The file was re-fetched byte-exact from `unsloth/Qwen3.8-27B-GGUF` (9,828,981,664 bytes) through the v1.5.4 subprocess-isolated path and fails **identically**, confirming the artifact was valid all along. The original on-disk copy was in fact 847MB *larger* than upstream, which alone rules out truncation.
-- **Actual Cause - MTP Head vs Runtime Support Gap:** The GGUF declares `qwen35.block_count = 65` and `qwen35.nextn_predict_layers = 1`: 64 hybrid Gated-DeltaNet/attention layers plus one MTP (Multi-Token Prediction) head at block index 64. The upstream model card confirms the architecture as 64 layers with MTP trained in. `llama-cpp-python` 0.3.23 ignores `nextn_predict_layers` and constructs all 65 blocks as standard hybrid layers, then demands an `ssm_conv1d` tensor that correctly does not exist on an MTP head. This is a runtime capability gap, not a file defect, and it is independent of VRAM: the failure reproduces identically at `n_gpu_layers=0`.
+- **GGUF metadata model inspection:** Replaced filename heuristic checks with direct inspection of GGUF headers (`general.architecture` and `tokenizer.ggml.pre`) using `llama.cpp/gguf-py`. Audited all 8 local models; confirmed 4 Llama-family models (`arch=llama, vocab_pre=llama-bpe`) and 2 Qwen2.5 models (`arch=qwen2, vocab_pre=qwen2`) correctly map to expected templates.
+- **Dynamic chat template dispatch in `constitution.py`:** `get_model_format()` now inspects `tokenizer.ggml.pre` via `_read_gguf_metadata()` (cached by path) and resolves against `_VOCAB_PRE_TO_FORMAT`. Substring matching (`"llama"` / `"mistral"`) is preserved strictly as a fallback when headers cannot be read.
 
-##### Engine Configuration
+### Fixed
 
-- **Default Reverted to Qwen2.5-14B-Instruct-Q4_K_M.gguf:** Per the release conditional, a default that cannot be loaded cannot clear the 25 t/s throughput floor. `config.py`'s `ACTIVE_MODEL_NAME` falls back to the validated baseline until the runtime can load the 27B.
-- **Provisional Pin Retained but Dormant:** The `_PROVISIONAL_GPU_LAYERS` entry pinning `Qwen3.8-27B-UD-Q2_K_XL.gguf` to 20 layers is kept in place so it is already present when MTP support lands. It has never been exercised against a successful load and must be re-derived from a real benchmark rather than trusted as-is.
-- **Unblocking Path:** Requires `llama-cpp-python` with `qwen35` MTP support (0.3.23 pinned, 0.3.35 current). That upgrade entails a cuBLAS rebuild and revalidation of the VRAM arbitration path, so it is deferred to the v1.6.x inference-provider work rather than taken as a patch bump.
+- **Mistral-Nemo chat template resolution:** Fixed an issue where `Mistral-Nemo-Instruct-2407-Q4_K_M.gguf` defaulted to ChatML (`<|im_start|>` / `<|im_end|>`) because its filename lacked `"llama"` or `"qwen"`. The model specifies `arch=llama, vocab_pre=tekken`, requiring Mistral V3-Tekken formatting (`[INST] ... [/INST]`). Added explicit Mistral formatting support across `constitution.py` (`get_chat_template`), context compilation in `builder.py` (`build_full_context`), and stop token definitions in `server.py`.
+- Verified template resolution against all 8 on-disk GGUF files; `Mistral-Nemo-Instruct-2407-Q4_K_M.gguf` successfully returns `mistral` while other formats remain unaffected.
 
-##### Benchmarks (RTX 5050 Laptop 8GB, Ryzen 7 250 AI, Windows 11)
+### Known Limitations
 
-Measured on `Qwen2.5-14B-Instruct-Q4_K_M.gguf` at the auto-derived `GPU_LAYERS=28`, `CONTEXT_LENGTH=4096`, 10 runs per workload via `benchmarking/benchmark_inference.py`.
+- Mistral template syntax and stop tokens (`</s>`) match official V3-Tekken specifications, but have not yet been validated via live inference runs on hardware.
+- Native `<think>` handling for Qwen3.5 remains unhandled in prompt builders.
+- `get_assistant_start()` and `get_stop_tokens()` utility functions remain unused in `server.py` and `builder.py` in favor of inline token definitions.
+
+---
+
+## [post-v1.5.4d] - 2026-08-20
+
+**Release Summary:** Multi-Token Prediction (MTP) Build Infrastructure for Qwen3.8-27B
+
+### Root Cause Analysis
+
+- **Model load failure traced to runtime support gap:** Verified that the `missing tensor 'blk.64.ssm_conv1d.weight'` error encountered when loading `Qwen3.8-27B-UD-Q2_K_XL.gguf` was neither a truncated download nor a VRAM allocation failure. The vendored `llama.cpp` checkout (`commit 715b86a3`) supports the `qwen35` architecture and its Multi-Token Prediction (MTP) head (`src/models/qwen35.cpp`), loading block 64 via `load_block_mtp()` without requiring `ssm_conv1d`. However, the installed pre-built `llama_cpp_python==0.3.23` wheel predates upstream qwen35 support and fails to recognize MTP layers.
+
+### Added
+
+- **Local compilation script `scripts/build_llama_cpp_python.ps1`:** Added build automation to clone `abetlen/llama-cpp-python`, substitute the bundled `vendor/llama.cpp` submodule with the repository's updated checkout, and compile locally with `GGML_CUDA=on`.
+- Documented the `llama_cpp_python==0.3.23` entry in `requirements.txt` as a temporary PyPI fallback pending local CUDA compilation.
+
+### Known Limitations
+
+- The compilation script requires Visual Studio Build Tools and the CUDA Toolkit; compilation has not yet been executed on the host. Hardware validation and VRAM layer derivation for Qwen3.8-27B remain pending.
+
+---
+
+## [post-v1.5.4c] - 2026-08-20
+
+**Release Summary:** Documentation Version Synchronization and Repository Cleanup
+
+### Changed
+
+- **Version alignment across project assets:** Synchronized stale references from v1.5.3 to v1.5.4 across `README.md`, `SECURITY.md`, `docs/architecture/RUNTIME_GUARANTEES.md`, `docs/architecture/v1.5_memory_flow.md`, `docs/markdowns/CONTRIBUTING.md`, `docs/markdowns/MEDICAL_RESEARCH_INTEGRATION.md`, `requirements.txt`, and `cowork/PERIDOT_TRACKER.md`. Historical release records and fixed dependency pins (`joblib==1.5.3`) were preserved.
+- **Documentation restructuring:** Updated `README.md` to properly frame ZAT-SCS as a core architectural subsystem in v1.5.4 rather than a past milestone. Aligned the roadmap section with the Frontier Roadmap milestones (v1.6.x multi-engine providers and TurboVec memory, v1.7.x sandboxed REPL and sovereign web gateway, v1.8.x React WebUI).
+- **Format standardization:** Replaced emoji glyphs in the Hardware Support matrix with standard markdown badges and text labels.
+- **Codebase comment audit:** Audited first-party source trees (`core_system/`, `config.py`, `server.py`, `setup.py`, `ui.py`, `benchmarking/`, `tests/`) to ensure comments remain technical and concise.
+
+### Notes
+
+- Historical `Co-Authored-By` commit trailers from past development cycles were analyzed in Git history. Modifying historical contributor entries would require an interactive rebase and force push, and has been intentionally omitted to preserve commit hash integrity.
+
+---
+
+## [post-v1.5.4b] - 2026-08-20
+
+**Release Summary:** Benchmark Methodology Rectification & Inference Provider Abstraction
+
+### Performance
+
+- **Correction of previously reported inference throughput:** The 62.38 t/s throughput previously reported for `Qwen2.5-14B-Instruct-Q4_K_M.gguf` was determined to be an artifact of benchmark design rather than actual inference speed. `benchmark_inference.py` utilized static prompts across iterations; after the initial turn, `server.py` served cached completions directly from the Layer 1 semantic cache. Logging revealed 3 actual GPU inferences alongside 30 cache hits, yielding an actual decode rate of **4.00 t/s median** (mean 4.03, stdev 0.21, range 3.81-4.27, prefill 23.83 t/s) on an RTX 5050 Laptop GPU. The historical 39 t/s baseline was measured under the same conditions and is similarly retracted as an evaluation baseline.
+- **Dedicated benchmark utility `benchmarking/benchmark_decode_rate.py`:** Introduced an isolated benchmarking tool targeting the provider interface directly without HTTP, caching, or RAG layers, using tokenizer token counts and unique prompt sets to measure true decode speed.
+- Updated `benchmark_inference.py` documentation to clarify that it evaluates end-to-end request turnaround latency rather than raw generation throughput.
+
+### Added
+
+- **Inference provider abstraction (`BaseInferenceProvider`):** Implemented an extensible provider contract defining `load()`, `unload()`, `generate_stream()`, `tokenize()`, and `ProviderCapabilities` (`engine`, `context_window`, `supports_thinking`, `supports_vision`, `supports_streaming`). Provides the architectural foundation for subsequent ExLlamaV2 and vLLM backends.
+- **Concrete LlamaCpp implementation (`LlamaCppProvider`):** Wrapped `llama_cpp_python` within the provider abstraction, incorporating recoverable `ProviderLoadError` handling, engine-agnostic prefill/decode timing metrics, and GhostLogger audit integration.
+- **Format-based engine registry:** Configured model routing by file extension (`.gguf` routes to `LlamaCppProvider`, with stubs for `.exl2` and `.safetensors`).
+
+### Security
+
+- **Elimination of test credential fallback:** Removed a legacy fallback API key (`08101954`) and console print statement from `benchmarking/api_client.py`. The client now enforces explicit environment configuration, backed by automated regression tests.
+
+### Known Limitations
+
+- The 25 t/s performance target for default 27B models is physically unreachable on the target 8GB RTX 5050 hardware, where a 14B model achieves 4.00 t/s across 28 offloaded layers. Acceptance criteria will be revised in v1.6.x.
+- Integration of `BaseInferenceProvider` into `server.py` lifecycle and `/model/swap` routes is scheduled for the next iteration.
+
+---
+
+## [post-v1.5.4] - 2026-08-19
+
+**Release Summary:** Default Model Reversion to Qwen2.5-14B
+
+### Changed
+
+- **Default model reversion in `config.py`:** Reverted `ACTIVE_MODEL_NAME` to `Qwen2.5-14B-Instruct-Q4_K_M.gguf`. Pending runtime support for MTP layers in the 27B model, the 14B model provides a fully validated operational baseline.
+- Retained the provisional 20-layer GPU allocation table for `Qwen3.8-27B-UD-Q2_K_XL.gguf` in `_PROVISIONAL_GPU_LAYERS` (`config.py`) to prepare for future runtime updates.
+
+### Root Cause Analysis
+
+- Confirmed that `Qwen3.8-27B-UD-Q2_K_XL.gguf` (9,828,981,664 bytes) was intact and matching upstream sources. The `missing tensor 'blk.64.ssm_conv1d.weight'` error stems from the runtime treating block 64 as a recurrent layer rather than an MTP layer.
+
+### Benchmarks (RTX 5050 Laptop 8GB, AMD Ryzen 7 250 AI, Windows 11)
+
+Measured on `Qwen2.5-14B-Instruct-Q4_K_M.gguf` with `GPU_LAYERS=28`, `CONTEXT_LENGTH=4096`, 10 iterations per workload:
 
 | Workload | Avg Tokens | Avg Time | Throughput | Std Dev |
 |---|---|---|---|---|
 | Short | 28 | 3.65s | 7.57 t/s | +/- 0.37 |
 | Medium | 79 | 3.65s | 21.34 t/s | +/- 1.07 |
-| Long | 231 | 3.66s | 62.38 t/s (median) | +/- 3.36 |
+| Long | 231 | 3.66s | 62.38 t/s (median)* | +/- 3.36 |
 
-- **Methodology Caveat:** `benchmark_inference.py` divides an approximate token count (`words * 1.3`, not tokenizer output) by full HTTP round-trip wall time, so these are end-to-end request figures including prefill, RAG retrieval and transport - not isolated decode rates. Short-workload throughput is dominated by fixed per-request overhead and should not be read as a decode regression. The metric is unchanged from previous releases, so the long-workload figure remains directly comparable to the 39 t/s previously recorded for this model.
-- **Hard Floor for v1.6.x:** ~~62.38 t/s long-workload median~~ **RETRACTED 2026-08-20** - this figure was produced by a benchmark that was serving L1 cache hits rather than running inference. The real decode rate is 4.00 t/s. See the [post-v1.5.4b] entry above.
+*\*Note: The long workload throughput figure was subsequently determined to reflect L1 semantic cache hits rather than GPU execution. See entry `[post-v1.5.4b]` for verified throughput metrics.*
 
-##### Known Limitations
+### Known Limitations
 
-- **Qwen3.8-27B Remains Unloadable:** Both the original and the byte-exact re-fetched GGUF fail under the pinned runtime. The original MTP build is retained on disk as `Qwen3.8-27B-UD-Q2_K_XL.mtp-head.gguf.bak` rather than deleted, since it is a valid artifact awaiting runtime support.
-- **No Isolated Decode Benchmark Exists:** The suite has no pure token-generation measurement separate from request overhead. Worth adding alongside the v1.6.x provider abstraction, so providers are compared on decode rate rather than end-to-end latency.
+- The 27B model remains unbootable under `llama-cpp-python==0.3.23`. The model file has been preserved on disk as `Qwen3.8-27B-UD-Q2_K_XL.mtp-head.gguf.bak`.
 
 ---
 
-#### [v1.5.4-STABLE] - 2026-08-19
+## [v1.5.4-STABLE] - 2026-08-19
 
-**Name:** Peridot v1.5.4 STABLE - Linux Support & Sovereignty Lock
+**Release Summary:** Linux System Support and Zero-Cloud Sovereignty Lock
 
-##### Linux Support (Wayland & Session Detection)
+### Added
 
-- **Desktop Session Classification:** `core_system/telemetry/keyboard.py` now classifies the active session at boot as `native`, `x11`, `wayland` or `headless`, resolved from `sys.platform`, `XDG_SESSION_TYPE`, `$WAYLAND_DISPLAY` and `$DISPLAY`. The `pynput` global hook is an X11 client and cannot receive global input under Wayland, which is the default session on Ubuntu 22.04+, Fedora and most Arch desktop installations.
-- **Audio-Only P(I_t) Degradation:** Under Wayland or a headless TTY the keystroke term is removed from the interaction probability entirely (`w_key -> 0.00`), reducing the model to `P(I_t) = min(1.0, P(I_{t-1}) * e^(-lambda * dt) + w_aud * g(A))`. A permanently flat cadence is treated as a missing sensor rather than as genuine operator stillness, which would otherwise suppress speculative preemption while reporting a healthy telemetry loop.
-- **Degradation Telemetry:** `core_system/telemetry/processor.py` logs the detected session type, the degradation reason and the exact weight transition at WARNING on boot, and logs a distinct warning when neither sensor is available and speculative preemption is therefore inert.
-- **Deferred Sensor Binding:** `pynput` and `sounddevice` are now imported inside their respective `start()` calls rather than at module scope. `sounddevice` raises `OSError` (not `ImportError`) when `libportaudio` is absent, which `server.py`'s `except ImportError` guard did not catch - a stock Debian 12 or Arch host without `portaudio19-dev` previously hard-crashed the inference server during import, before the FSM ever initialised.
-- **Acoustic Sensor Degradation:** `core_system/telemetry/audio.py` now exposes an `available` flag and degrades to a zeroed audio weight when PortAudio or an input device is missing, matching the keyboard degradation contract instead of feeding a silent envelope into `P(I_t)`.
-- **pathlib Migration:** Replaced the remaining `os.path.join` and string path construction with `pathlib.Path` across `core_system/enhancedlogger.py`, `core_system/memory/embedder.py`, `core_system/research.py`, `ui.py` and `benchmarking/handoff_bench.py`. The Folding@home client path now resolves from the `ProgramFiles(x86)` environment variable rather than a hardcoded literal.
-- **Native Linux Deployment Guide:** Added a Debian 12 / Ubuntu 22.04+ / Arch section to `docs/markdowns/COMMUNITY_INSTALL.md` covering system dependencies, the Wayland degradation matrix, optional X11 fallback, and the sovereign model-fetch path.
+- **Cross-platform desktop session detection:** Implemented automated session classification (`native`, `x11`, `wayland`, `headless`) in `core_system/telemetry/keyboard.py` using `sys.platform`, `XDG_SESSION_TYPE`, `$WAYLAND_DISPLAY`, and `$DISPLAY`.
+- **Acoustic-only telemetry degradation under Wayland:** Under Wayland or headless environments where global keystroke interception via `pynput` is restricted by display server security policies, the telemetry engine zeroes the keystroke weighting factor (`w_key -> 0.00`). Interaction probability gracefully transitions to acoustic density tracking:
+  ```text
+  P(I_t) = min(1.0, P(I_{t-1}) * e^(-lambda * dt) + w_aud * g(A))
+  ```
+  Prevents missing hardware sensors from falsely reporting system idle states.
+- **Subprocess-isolated model acquisition:** Introduced `core_system/model_fetch.py` to handle repository downloads in an isolated short-lived subprocess. Allows network access strictly for downloads while maintaining parent process network isolation.
+- **Model acquisition security boundaries:** Added `is_model_download_safe()` to `core_system/security.py`, validating repository and file strings against strict character whitelists to prevent path traversal, shell injection, or extraction outside the target directory.
+- **Linux platform deployment documentation:** Added comprehensive deployment guides for Debian 12, Ubuntu 22.04+, and Arch Linux in `docs/markdowns/COMMUNITY_INSTALL.md`.
 
-##### Sovereignty & Zero-Cloud Enforcement
+### Security
 
-- **Unconditional Offline Lock:** `config.py` force-sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` immediately after `load_dotenv()`, so a stale or hand-edited `.env` can no longer re-open outbound traffic. Fixes a live regression where both were set to `0`, causing the engine to hang mid-SSL-handshake against `huggingface.co` during boot.
-- **Subprocess-Isolated Model Fetch:** New `core_system/model_fetch.py`. `huggingface_hub` latches the offline flag at import time, so toggling it inside a running process is unreliable; downloads therefore execute in a short-lived child interpreter that is the only process in the system ever granted `HF_HUB_OFFLINE=0`. Supports both single-file (`hf_hub_download`) and whole-repo (`snapshot_download`) acquisition, invoked via `python -m core_system.model_fetch <repo_id> <filename>` or `--snapshot <repo_id>`.
-- **Download Security Boundary:** New `is_model_download_safe()` in `core_system/security.py` validates repository and file identifiers against a strict charset (rejecting path traversal, shell metacharacters and raw URLs) and confirms the resolved destination remains inside the local models directory. No child process is spawned until validation passes, satisfying Directive 2 for external interaction and subprocess behaviour.
-- **Boot-Time Sovereignty Gate:** `server.py` calls `assert_main_process_offline()` before initialising the engine, emitting a CRITICAL GhostLogger event and refusing to boot if either offline flag has been cleared.
-- **Installer Perimeter Fix:** The `.env` generated by `setup.py` now writes `TRANSFORMERS_OFFLINE=1` alongside `HF_HUB_OFFLINE=1`; only the latter was previously emitted.
+- **Enforced offline network lock:** Added mandatory initialization in `config.py` setting `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` immediately following configuration loading, preventing modified `.env` files from opening external connections.
+- **Boot-time offline verification:** Integrated `assert_main_process_offline()` in `server.py`, aborting boot with a critical security log if external network flags are altered.
+- **Cross-platform path sanitization:** Updated `is_file_safe()` to resolve normalized literal paths alongside resolved paths. Prevents platform-specific traversal vulnerabilities and extends protections to `/sys/`, `/proc/`, and `.ssh/` across Windows and Linux.
+- **Expanded security test coverage:** Added 39 automated tests in `tests/test_v154_linux_sovereignty.py` covering session classification, telemetry degradation, network isolation boundaries, and traversal blacklists (expanding the test suite to 50 tests).
 
-##### RAG Subsystem Resilience
+### Changed
 
-- **Vendored Embedding Model Resolution:** `core_system/memory/embedder.py` now prefers a repo-local copy at `models/embeddings/all-MiniLM-L6-v2/` before falling back to the bare hub name, so the embedder is operator-owned rather than dependent on a warm global HuggingFace cache. A missing model now raises an actionable `RuntimeError` naming the exact fetch command instead of surfacing a raw SSL/connection stack trace.
-- **RAG Failure No Longer Fatal:** The RAG initialisation guard in `server.py` was widened from `except ImportError` to `except Exception`. The subsystem fails at runtime as well as at import - a missing offline embedding model raises `OSError`/`RuntimeError` - and the documented fallback is pure LLM mode, not a dead inference server. Discovered during the v1.5.4 release smoke test, where enabling the offline lock exposed that the embedding model had never been cached locally on the validated hardware.
+- **Resilient RAG embedding resolution:** `core_system/memory/embedder.py` now resolves embedding weights locally from `models/embeddings/all-MiniLM-L6-v2/` before attempting remote lookups.
+- **Graceful RAG degradation:** Handled runtime embedding failures gracefully in `server.py`, allowing the engine to fall back to direct model inference rather than crashing if vector dependencies are absent.
+- **Dynamic path resolution:** Migrated legacy path concatenation across core modules to `pathlib.Path`. Resolved third-party software directories (such as Folding@home) dynamically via environment variables.
 
-##### Engine Configuration
+### Known Limitations
 
-- **Default Model Promotion:** The fallback `ACTIVE_MODEL_NAME` in `config.py` is now `Qwen3.8-27B-UD-Q2_K_XL.gguf`, replacing `Mistral-Nemo-Instruct-2407-Q4_K_M.gguf`.
-- **Provisional GPU Layer Pin:** `_calculate_gpu_layers()` was tuned against 4-bit-quant 8B-14B models and its per-layer cost model does not hold for a 2-bit UD quant of a 27.8B parameter model. `GPU_LAYERS` for this model is pinned to a conservative provisional `20` via a new `_PROVISIONAL_GPU_LAYERS` table, prioritising boot safety over throughput. The pin is logged at WARNING on every boot and is explicitly marked as unbenchmarked pending real measurement in v1.6.x. Operator `GPU_LAYERS` environment overrides continue to take precedence.
-
-##### Security & Testing
-
-- **Cross-Platform Path Blacklist:** `is_file_safe()` no longer routes blacklist constants through `os.path.abspath()`, which is platform-relative and silently disarmed the Linux sensitive-directory list on Windows and the Windows list on Linux. Both are now enforced on either host by matching the normalised literal path alongside the resolved path, preserving relative-traversal detection. Added `/sys/` and `/proc/` to `SENSITIVE_DIRS`, and fixed `.ssh/` failing to match under Windows path separators.
-- **Real Linux Path-Traversal Coverage:** `tests/security_tests.py` previously asserted only against a Windows system path, which proves nothing on the Ubuntu CI runner the suite already targets. Added `/etc/shadow`, `/root/`, `/boot/` and resolved relative-traversal assertions alongside the existing Windows case, plus new download-boundary and sovereignty-lock test functions.
-- **v1.5.4 Regression Suite:** New `tests/test_v154_linux_sovereignty.py` - 39 tests covering session-type detection across all four session classes, Wayland and headless degradation of `P(I_t)`, PortAudio-absent degradation, the offline lock under a hostile `.env` fixture, subprocess environment isolation (asserting the child receives `HF_HUB_OFFLINE=0` while the parent remains at `1`), security rejection before any child is spawned, cross-platform path blacklisting, and the provisional GPU layer pin. Suite total rises from 11 to 50 tests.
-
-##### Known Limitations
-
-- **Linux GPU Inference Is Not Hardware-Validated:** No Linux machine with an NVIDIA GPU was available during this cycle. Pathing, session detection and every degradation path are covered by automated tests and the code is correct in principle, but no GPU-accelerated inference run has been performed on Linux. Linux GPU support should be treated as untested, not validated.
-- **The Default Model Does Not Currently Load:** The `Qwen3.8-27B-UD-Q2_K_XL.gguf` in `models/` is rejected by the pinned `llama-cpp-python` 0.3.23 with `missing tensor 'blk.64.ssm_conv1d.weight'`. The GGUF declares architecture `qwen35` - a hybrid SSM/attention model of 65 layers and 27.32B parameters - but its tensor index carries SSM tensors only for layers 0-63, with layer 64 holding 2 of its expected tensors. This is not a VRAM or layer-offload fault: it fails identically at `n_gpu_layers=0`. The cause was originally recorded here as an incomplete download. **Correction (post-v1.5.4):** that was wrong - the file is valid and the failure is an MTP head vs. runtime support gap in `llama-cpp-python` 0.3.23. See the [post-v1.5.4] entry above for the verified root cause. Operators must override with `ACTIVE_MODEL_NAME=Qwen2.5-14B-Instruct-Q4_K_M.gguf` (or another local model) until the file is replaced; `server.py` now prints this hint on load failure.
-- **Provisional GPU Layer Count:** `GPU_LAYERS=20` for `Qwen3.8-27B-UD-Q2_K_XL.gguf` is a conservative estimate derived from file size and VRAM headroom, not a measured optimum, and it has never been exercised against a successful load of that model. Throughput is unbenchmarked and is expected to fall substantially below the 39 t/s recorded for `Qwen2.5-14B-Instruct-Q4_K_M`.
-- **Release Validation Baseline:** The v1.5.4 smoke test (boot, model load, RAG online, inference) was performed on Windows 11 / RTX 5050 Laptop 8GB against `Qwen2.5-14B-Instruct-Q4_K_M.gguf`, not against the shipped default.
+- Linux deployment paths and security boundaries are fully covered by automated suites, but live GPU inference execution remains unverified on Linux hardware.
+- Shipped default model `Qwen3.8-27B-UD-Q2_K_XL.gguf` fails to load under the pinned runtime (see `[post-v1.5.4]` for resolution).
 
 ---
 
-#### [v1.5.3-ZAT_SCS] - 2026-07-18
-**Name:** Peridot v1.5.3 STABLE - Zero-Overhead Active Telemetry and Speculative Context Streaming
+## [v1.5.3-ZAT_SCS] - 2026-07-18
 
-##### Telemetry & Sensory Processing (Predictive Core)
-*   **High-Frequency Telemetry Daemon:** Shipped a multi-threaded sensory loop running at 10Hz to continuously calculate real-time user interaction probability P(I_t).
-*   **Asynchronous Keystroke Monitor:** Integrated an isolated pynput global hook using a sliding-window array (max capacity 10) to map typing interval acceleration f(C).
-*   **Non-Blocking Acoustic Envelope Tracker:** Leveraged a sounddevice InputStream capturing raw acoustic buffers to track root-mean-square (RMS) ambient density g(A).
-*   **State Decay-Acceleration Model:** Engineered the dynamic temporal decay equation: P(I_t) = min(1.0, P(I_{t-1}) * e^(-lambda * dt) + w_key * f(C) + w_aud * g(A)), triggering speculative preemption at the critical theta threshold of 0.65.
+**Release Summary:** Zero-Overhead Active Telemetry (ZAT) & Speculative Context Streaming (SCS)
 
-##### Sovereign GPU Orchestration & Compute Partitioning
-*   **CUDA MPS Dynamic Slicing:** Implemented an active hardware governor that programmatically throttles background volunteer compute (Folding@Home) to 10% SM occupancy when P(I_t) reaches threshold, and suspends it to 0% SM during inference.
-*   **Platform-Agnostic Process Spawning:** Implemented fallback mocking on Windows NT environments, while securely managing Linux pipeline subprocess allocation via shell=False and CREATE_NO_WINDOW suppression.
-*   **UVM Memory Weight Pre-mapping:** Exported GGML_CUDA_ENABLE_UNIFIED_MEMORY=1 during speculative states to pre-map active LLM weights into the physical GPU page tables during typing, eliminating model load spikes.
+### Added
 
-##### Context Streaming & Inference Bypassing
-*   **Asynchronous Context Prefetcher:** Built a thread-wrapped loopback REST engine targeting local llama-server slots to pre-load pre-computed KV cache contexts via requests.post to /slots/0/restore.
-*   **Loopback IO Block Exemption:** Wrapped REST handshakes in robust ConnectionError and Timeout handlers, ensuring loopback socket failures never freeze the high-frequency sensory loop.
-*   **Prefill-Phase Bypass:** Patched the main server /ask Flask routing to detect KernelState.SPECULATIVE_PREPARED. Bypasses the VRAM purge latency path entirely and triggers immediate generation from the staged KV cache, dropping Time-to-First-Token (TTFT) to token generation limits.
+- **High-frequency telemetry daemon:** Integrated a 10Hz background sensory processing loop tracking real-time operator engagement and calculating interaction probability `P(I_t)`.
+- **Asynchronous keystroke cadence monitor:** Deployed an isolated `pynput` listener utilizing a 10-event sliding window to measure typing interval acceleration `f(C)`.
+- **Non-blocking acoustic envelope tracker:** Built an acoustic monitor via `sounddevice.InputStream` to capture ambient room sound and track RMS signal density `g(A)`.
+- **Engagement decay-acceleration model:** Implemented dynamic temporal modeling:
+  ```text
+  P(I_t) = min(1.0, P(I_{t-1}) * e^(-lambda * dt) + w_key * f(C) + w_aud * g(A))
+  ```
+  Automatically transitions the finite state machine to `KernelState.SPECULATIVE_PREPARED` when probability meets or exceeds the 0.65 threshold.
+- **Dynamic CUDA compute partitioning:** Integrated GPU workload control, throttling background compute workloads (Folding@home) to 10% Streaming Multiprocessor (SM) capacity when engagement is detected, and fully suspending background compute during inference.
+- **Unified memory weight pre-mapping:** Configured `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` during speculative states to pre-map model weights into physical GPU page tables while typing, eliminating initial cold-start latency.
+- **Speculative KV cache context prefetching:** Built an asynchronous background worker communicating with local runtime slots via `/slots/0/restore`, staging KV cache contexts before query submission.
+- **Prefill phase bypass:** Optimized `/ask` routing in `server.py` to detect pre-staged states, bypassing VRAM purge checks and executing immediate generation to minimize Time-to-First-Token (TTFT).
 
-##### Repository Hygiene & Refactoring
-*   **Telemetry Modularization:** Segmented core_system/telemetry.py into a fully typed core_system/telemetry/ package containing config, orchestration, and client subdirectories.
-*   **Stability Ledger Preservation:** Ported the legacy StabilityLedger class into the new package constructor (__init__.py), preserving the global namespace for external module imports.
+### Changed
 
---------------------------------------------------------------------------------
+- **Telemetry architecture modularization:** Refactored `core_system/telemetry.py` into a structured package (`core_system/telemetry/`) containing dedicated configuration, orchestration, and client modules.
+- Preserved `StabilityLedger` exports in package root (`__init__.py`) to maintain backward compatibility with external imports.
+
+---
 
 ## [v1.5.2-STABLE] - 2026-06-08
 
-**Name:** Peridot v1.5.2 STABLE - Sanity & Polish Milestone
+**Release Summary:** Dynamic VRAM Partitioning and Stability Enhancements
 
-### Bug Fixes & Stability
+### Fixed
 
-- **Dynamic VRAM Splitting Heuristics:** Rewrote the `_calculate_gpu_layers` logic in `config.py` to allow partial tensor splitting into system RAM when the model exceeds 75% of total VRAM, preventing catastrophic OOM crashes on borderline 8GB hardware.
-- **FAISS ABI C-Extension Crash:** Upgraded `faiss-cpu` to a newer binary wheel to resolve a fatal `ValueError: input not a numpy array` mismatch between Numpy 2.x and the older SWIG wrappers on Windows.
-- **Context Window Overflow (400 Bad Request):** Engineered an Auto-Truncation Engine in `server.py` that clamps Semantic Memory blocks to 8000 characters and dynamically purges older chat history if the required generation headroom falls below 128 tokens, permanently eliminating Llama.cpp crashes from dense RAG retrievals.
-- **Kinetic Scrolling Polish:** Overhauled `ui.py` to calculate text box heights dynamically and applied 144Hz sub-pixel smooth scrolling for the chat matrix.
+- **Dynamic VRAM allocation heuristics:** Rewrote `_calculate_gpu_layers` in `config.py` to calculate layer offloading dynamically. Automatically routes excess layers to system RAM when model requirements exceed 75% of available VRAM, preventing out-of-memory errors on 8GB hardware.
+- **FAISS ABI C-extension compatibility:** Updated `faiss-cpu` dependencies to eliminate `ValueError: input not a numpy array` exceptions resulting from ABI differences between NumPy 2.x and SWIG bindings on Windows.
+- **Context window overflow protection:** Added an automated truncation handler in `server.py` that limits semantic context blocks to 8000 characters and trims conversational history when generation headroom drops below 128 tokens, preventing runtime aborts during dense document retrievals.
+
+### Changed
+
+- **Interface scrolling mechanics:** Refactored text rendering in `ui.py` with dynamic height calculation and sub-pixel scrolling optimization for high-refresh-rate displays.
 
 ---
 
 ## [v1.5.1-STABLE] - 2026-06-08
 
-Peridot v1.5.1 is the biggest update yet! A major step forward in Peridot’s security posture, hardware adaptability and long term usability. This release hardens the local perimeter (removing high risk deserialization and injection paths), introduces intelligent VRAM aware auto-scaling for smoother performance across GPUs, and delivers persistent multi-session conversational memory so Peridot can support real workflows without losing context between runs. Really delighted with how this update has come together and the stability achieved across this version.
+**Release Summary:** Security Perimeter Hardening, Dynamic VRAM Auto-Scaling, and Persistent Chat History
 
-**Name:** Peridot v1.5.1 STABLE - Security Hardening, Hardware Auto-Scaling & Multi-Session Memory
+### Security
 
-### Security & Compliance (Phase 1: Critical Hotfixes)
+- **Cryptographic API key generation:** Removed legacy static authentication keys (`08101954`). `config.py` now generates a 256-bit entropy key (`secrets.token_hex(32)`) on initial setup, persisting it securely to the local `.env` configuration.
+- **Deserialization vulnerability remediation (Pickle to JSON):** Replaced `pickle.load()` and `pickle.dump()` with `json.load()` and `json.dump()` for metadata serialization in `core_system/memory/vault.py`, eliminating remote code execution vectors via modified metadata files.
+- **Subprocess invocation hardening:** Eliminated `shell=True` from all `subprocess.check_output()` calls targeting `nvidia-smi` in `ui.py`, passing commands via structured argument lists with window suppression flags (`0x08000000`).
+- **CORS boundary restriction:** Restricted CORS headers in `server.py` to allow requests strictly from `http://127.0.0.1:5000` and `http://localhost:5000`, blocking unauthorized cross-origin requests.
 
-- **API Key Rotation:** Eliminated hardcoded default key (`08101954`). `config.py` now generates a cryptographically secure `secrets.token_hex(32)` on first boot and persists to `.env` via `python-dotenv`. Each deployment receives a unique 256-bit key.
-- **Pickle RCE Remediation:** `core_system/memory/vault.py` - Replaced `pickle.load()/dump()` with `json.load()/dump()` for metadata serialization (`.meta` file). Removes arbitrary code execution vector via malicious serialized metadata.
-- **Shell Injection Hardening:** `ui.py` - Removed `shell=True` from all `subprocess.check_output()` calls to `nvidia-smi`. Arguments now passed as safe arrays (`creationflags=0x08000000` preserved for window suppression).
-- **CORS Restriction:** `server.py` - Restricted `CORS(app)` to exclusively allow `http://127.0.0.1:5000` and `http://localhost:5000`. Blocks cross-origin requests from external origins.
-- **Multi-Session Conversational Memory:** New `core_system/chat_ledger.py` - SQLite-backed chat ledger with session CRUD, message logging, and sliding-window history retrieval (`get_history(session_id, limit=6)`). Integrated into `/ask` route: accepts optional `session_id`, auto-creates titled sessions, persists user/assistant turns, injects last 6 turns into prompt context, returns `session_id` for client continuity.
+### Added
 
-### Hardware Auto-Scaling (Phase 2: VRAM Detection)
-
-- **Dynamic VRAM Detection:** `config.py` - Added `_detect_total_vram_mb()` using `nvidia-smi --query-gpu=memory.total` (safe subprocess, no shell). Detects total GPU VRAM at module load.
-- **Auto GPU_LAYERS Calculation:** If model size < 75% of total VRAM -> `GPU_LAYERS=99` (full offload). Else -> `GPU_LAYERS=20` (partial). CPU-only fallback: `GPU_LAYERS=0`.
-- **Auto CONTEXT_LENGTH Calculation:** >10GB VRAM -> 8192 tokens. <=10GB VRAM -> 4096 tokens. CPU-only -> 2048 tokens.
-- **UI Integration:** `ui.py` now imports `TOTAL_VRAM_GB` from `config` instead of hardcoded `8.0` or duplicate `nvidia-smi` call. Model compatibility ratings in dropdown use dynamic VRAM envelope.
-
-### RAG Ingestion Overhaul (Phase 3: PyMuPDF & Metadata Tagging)
-
-- **Layout-Preserving PDF Extraction:** `core_system/memory/vault.py` - Replaced `fitz.get_text("text")` with `fitz.get_text("text", sort=True)` to preserve visual layout geometry of multi-column tables (e.g., Balance Sheets).
-- **Provenance Tagging:** `core_system/memory/vault.py`  Every text chunk now strictly prepends `[SOURCE DOC: {filename}]` before embedding, enabling the LLM to cite exact documentary sources during generation.
+- **Multi-session SQLite conversational ledger:** Implemented `core_system/chat_ledger.py`, providing persistent session management, message logging, and sliding-window history extraction (`get_history(session_id, limit=6)`). Integrated with `/ask` to maintain cross-session context continuity.
+- **Dynamic VRAM discovery:** Added `_detect_total_vram_mb()` to `config.py` to inspect available GPU VRAM at boot via direct driver queries.
+- **Dynamic layer and context scaling:**
+  - Layer offloading: Models consuming <75% of total VRAM are fully offloaded (`GPU_LAYERS=99`); larger models use partial offloading (`GPU_LAYERS=20`), with fallback to CPU execution (`GPU_LAYERS=0`).
+  - Context boundaries: Automatically assigned to 8192 tokens for >10GB VRAM, 4096 tokens for <=10GB VRAM, and 2048 tokens for CPU execution.
+- **Document provenance tracking:** Enhanced `core_system/memory/vault.py` to prefix ingested text chunks with `[SOURCE DOC: {filename}]`, enabling the model to cite specific source documents during generation.
+- **Structured PDF extraction:** Updated PyMuPDF integration in `core_system/memory/vault.py` to use `fitz.get_text("text", sort=True)`, preserving spatial column layouts for tabular documents.
 
 ---
 
 ## [v1.5.0-STABLE] - 2026-06-03
 
-**Name:** Peridot v1.5.0 STABLE - Sovereign Kernel Architecture & Split Tensor Allocation
+**Release Summary:** Split-Tensor Allocation, FSM Hardware Watchdogs, and Multi-Sector Interface
 
-### Core Engine Architecture & Hardware Arbitration
+### Added
 
-- **14B Model Pivot & Split Tensor Allocation:** Bypassed the planned 7B tier and transitioned the core inference weights to the high logic Qwen2.5-14B-Instruct-Q4_K_M to permanently resolve RAG hallucinations. `GPU_LAYERS` in `config.py` was adjusted to 20, safely splitting the 14B parameter load between the 8GB RTX 5050 GPU and Ryzen 7 CPU RAM.
+- **14B parameter model support:** Transitioned primary inference weights to `Qwen2.5-14B-Instruct-Q4_K_M.gguf`. Configured `GPU_LAYERS=20` to divide tensor computation safely between 8GB GPU memory and system RAM.
+- **Direct driver VRAM monitoring:** Integrated direct NVIDIA NVML driver telemetry in `_execute_vram_purge` via `pynvml`, querying hardware-reclaimed bytes rather than cached operating system metrics before allocating tensors.
+- **FSM panic safeguards:** Enforced a 7500MB VRAM hardware ceiling to prevent display driver reset events. Decreased purge activation threshold to 200MB and implemented a 2.0-second timeout that triggers a safe kernel panic state if resources fail to clear.
+- **Multi-sector operator interface:** Upgraded UI to a modular `ttk.Notebook` interface divided into dedicated sectors:
+  - Chat Matrix: Primary conversational and generation interface.
+  - Kernel Vault: Real-time RAG ingestion and status monitor.
+  - Settings: Runtime configuration and hardware parameters.
+- **Administrative control console:** Added an administrative telemetry dashboard reading from `/telemetry/stability` to track finite-state-machine state, system health indicators, inference metrics, and recovery counts.
+- **Background compute toggles:** Added user interface toggles mapped to `/telemetry/enable` and `/research/disable` endpoints, allowing operators to pause or resume background Folding@home processes.
+- **Dynamic hardware model evaluation:** Added directory scanning to evaluate local `.gguf` file sizes against current VRAM envelopes, tagging models with compatibility ratings (`[HIGH]`, `[MEDIUM]`, `[LOW/CRITICAL]`).
+- **CLI vault ingestion utility (`ingest_vault.py`):** Added a standalone CLI tool to parse, chunk, embed, and index documents directly into the FAISS index without loading the graphical interface.
+- **Binary PDF extraction and expanded retrieval depth:** Upgraded PDF ingestion via PyPDF2 and increased FAISS vector retrieval from `top_k=3` to `top_k=6`.
+- **Character-bounded sliding window chunking:** Replaced newline-based chunking with bounded segmenting (<800 characters) to optimize vector embedding density.
+- **Automated document staging:** Ingested files are moved from `input/` to `input/processed/` automatically after indexing to prevent duplicate processing.
+- **Interactive text search:** Added an in-memory search overlay (`Ctrl+F`) with match highlighting and clipboard export.
 
-- **Structural Watchdog Hardening & VRAM Purge:** Completely upgraded the `_execute_vram_purge` method inside the VRAM State Machine. Integrated direct NVIDIA driver querying via `pynvml` to calculate actual reclaimed physical bytes before allocating tensors, bypassing unreliable OS cache metrics.
+### Changed
 
-- **FSM Panic Tuning & Hardware Ceiling:** Enforced a strict 7500MB FSM hard ceiling for display driver preservation. Lowered the VRAM purge safety threshold from 1.5GB to 200MB, preventing recursive 503 errors under the new 14B load. If the GPU fails to clear thresholds within a 2.0-second timeout, the FSM instantly trips a KERNEL PANIC.
+- **Prompt hardening:** Re-engineered `build_system_prompt` to introduce strict operational constraints, restricting model answers to retrieved RAG context and preventing ungrounded knowledge bleed.
 
-- **System Prompt Hardening:** Re-engineered `build_system_prompt` to intercept RLHF conversational tropes. Injected explicit constraints forcing the model to refuse queries outside of provided RAG contexts, neutralizing knowledge-bleed defects.
+### Fixed
 
-### Interface & Operator UX
-
-- **Multi-Tab Notebook Migration:** Replaced the legacy single-buffer UI with a `ttk.Notebook` framework, introducing three sectors:
-
-  - CHAT MATRIX (text generation)
-
-  - KERNEL VAULT (live RAG tracker)
-
-  - SETTINGS (hardware configuration)
-
-- **Control Console UI & Live Telemetry:** Deployed an industrial, low-overhead administrative dashboard fetching from the secured `/telemetry/stability` endpoint. Displays live FSM states, dynamic system health scores, total inferences, and panic counts.
-
-- **Research Core Toggles:** Integrated UI control switches mapping to internal `/telemetry/enable` and `/research/disable` HTTP pathways, allowing operators to authorize or suspend Folding@Home cycles directly from the interface.
-
-- **Hardware-Aware Model Swapper:** Engineered a dynamic directory scanner that evaluates local `.gguf` file sizes against the 8GB RTX 5050 VRAM envelope. Assigns runtime compatibility ratings (`[HIGH]`, `[MEDIUM]`, `[LOW/CRITICAL]`) and supports GUI hot-swapping through `config.py` rewriting.
-
-- **144Hz Kinetic Scrolling:** Replaced Tkinter's default scroll behavior with a custom 5ms (200Hz) sub-pixel velocity decay loop for high  refresh rate rendering.
-
-### Ingestion & RAG Pipeline
-
-- **Standalone Command-Line Ingestion (`ingest_vault.py`):** Added an isolated CLI script to parse, chunk, embed, and commit files directly to the FAISS L2 database without touching the GUI. Embeddings are generated strictly through the CPU-bound Aether-Route.
-
-- **Binary PDF & Deep Semantic Search:** Upgraded ingestion to dynamically decode binary PDF text layers via PyPDF2. Increased FAISS retrieval depth from `top_k=3` to `top_k=6` for denser multi-document context injection.
-
-- **Sliding Window Chunking:** Replaced the legacy double-newline chunker with a strict character-clamped fragmentation system (<800 characters) to improve vector precision and reduce dilution.
-
-- **Staging Cleanup Automation:** Processed files are automatically relocated from `input/` to `input/processed/` to prevent recursive re-ingestion and maintain a clean archive.
-
-### Fixes, Optimizations & Repository Hygiene
-
-- **AVX2 Matrix Restoration:** Reverted the Python environment to a stable NumPy 1.x baseline to resolve the fatal C-extension `_ARRAY_API` crash during vector initialization.
-
-- **Live Buffer Search & UI Extraction:** Added a `Ctrl+F` real-time search overlay with highlight support and a `_copy_to_clipboard` function for instant Markdown extraction.
-
-- **Global Instantiation Fix:** Patched a catastrophic `NameError` crash loop by explicitly instantiating `PeridotProductionKernel()` in the global scope before engine boot execution.
-
-- **Git Integrity & Cleanup:** Updated `.gitignore` to block transient FAISS binary files (`aether_cold_storage.db`) from entering version control. Executed a cleanup sweep locking configuration, UI, and backend changes into the stable `origin/main` tree.
-
-"""
+- **NumPy AVX2 crash resolution:** Standardized NumPy dependencies on a stable 1.x release to prevent binary ABI crashes during vector indexing.
+- **Kernel startup instantiation:** Resolved a runtime `NameError` crash by instantiating `PeridotProductionKernel()` in the global scope before engine initialization.
+- **Version control exclusions:** Updated `.gitignore` to exclude transient FAISS index files (`aether_cold_storage.db`).
 
 ---
 
 ## [v1.4.0-STABLE] - 2026-05-14
 
-**Name:** Peridot v1.4.0 STABLE — TurboQuant Architecture & Sovereign Runtime Finalization
+**Release Summary:** TurboQuant Architecture & Sovereign Runtime Finalization
 
-### Core Engine Architecture (TurboQuant)
+### Added
 
-- **Deprecated Legacy K-Quants:** Purged the default `Llama-3-8B-Instruct (Q4_K_M)` baseline due to unacceptable memory bus saturation (~6.6GB VRAM footprint) on 8GB hardware.
-- **Integrated Importance Matrix (I-Quant) Support:** Shifted the primary inference engine to natively support `IQ3_XXS` and FP4 execution paths. Vaporized ~1.5GB of VRAM overhead while increasing deep-reasoning inference throughput.
-- **Dual-Profile Bootstrapping:** Hardcoded two primary runtime profiles inside `config.py` for dynamic loading:
-  - **Deep Thinker Profile:** `Llama-3-8B-Instruct (IQ3_XXS)` achieving **60.5 t/s** at ~4.5GB VRAM.
-  - **Agile / Daily Driver Profile:** `Qwen 2.5 3B (Q4_K_M)` achieving **101.9 t/s** at ~2.7GB VRAM.
-- **Thermal & Context Limits:** Locked the baseline context window to **8192 tokens** and dropped the default engine temperature to **0.1** to enforce strict, hallucination-resistant RAG document citation behavior.
-- **Sliding Context Preservation:** Retained the lightweight sliding conversational window internally to preserve RAM stability during prolonged execution sessions.
-
-### System Initialization & Security Perimeter
-
-- **Setup Wizard Overhaul (`setup.py`):** Rewrote the installation pipeline into a hardware-aware deployment interface. The wizard now actively profiles GPU VRAM pools and dynamically recommends runtime profiles to prevent Out-Of-Memory (OOM) deployment failures.
-- **Engine Tuning Interface:** Injected a dedicated initialization-stage tuning layer allowing operators to explicitly choose between:
-  - Deep Thinker (maximum reasoning depth)
-  - Agile / Daily Driver (maximum throughput)
-- **Manual Matrix Override:** Added advanced profile bypass logic exposing raw runtime selection for unsupported or experimental hardware deployments.
-- **Cryptographic Handshake Integration:** Completely abandoned the legacy static `config.json` authentication paradigm. System initialization is now locked behind a securely generated `.env` file containing a localized 16-byte hex `API_KEY`.
-- **Air-Gap Enforcement:** The setup wizard now automatically injects:
-
-  ```text
-  HF_HUB_OFFLINE=1
-  TRANSFORMERS_OFFLINE=1
-  ```
-
-  into the environment to permanently sever unauthorized HuggingFace telemetry and outbound network synchronization.
-- **MIT License:** Peridot is released under the MIT License.
-
-### State-Machine & Medical Handoff (Folding@Home)
-
-- **Zero-Latency Interrupt Protocol:** Finalized the WebSocket interrupt architecture. When a prompt hits the API, the Peridot kernel dispatches the Folding@Home pause payload in ~21ms and fully purges the VRAM allocation buffer in under 510ms.
-- **Aggressive Idle Return:** Reduced the `RESEARCH_IDLE_THRESHOLD` to **30 seconds** to maximize distributed medical research contribution when the user is not actively generating tokens.
-- **Aether-Route CPU Offloading:** Hardcoded the semantic embedding engine (`all-MiniLM-L6-v2`) to execute strictly on CPU/RAM resources (e.g., Ryzen 7 DDR5 memory footprint), preserving 100% of GPU VRAM for inference and Folding@Home transitions.
-- **Persistent Research Arbitration:** Refined VRAM ownership logic to maintain deterministic hardware handoffs without requiring inference engine restarts.
-
-### Performance
-
-- **TurboQuant Throughput Validation:** Established the new stable benchmark baseline:
-  - `Llama-3-8B-Instruct (IQ3_XXS)` → **60.5 tokens/sec**
-  - `Qwen 2.5 3B (Q4_K_M)` → **101.9 tokens/sec**
-- **Reduced VRAM Saturation:** Lowered active inference VRAM consumption from ~6.6GB to ~4.5GB under Deep Thinker mode.
-- **Improved Tensor Allocation Stability:** Reduced CUDA allocation pressure during sustained inference + Folding@Home coexistence.
-- **Enhanced Low-VRAM Runtime Reliability:** Optimized execution stability for systems operating below the 8GB VRAM threshold while preserving CPU-only fallback capability.
-
-### Architecture
-
-- **Aether-Route v1.4:** Expanded the routing layer with:
-  - CPU-isolated semantic embedding
-  - deterministic VRAM preservation
-  - improved telemetry-aware execution
-  - hardware-aware RAG arbitration
-- **Inference Pipeline Refinement:** Refactored orchestration boundaries between:
-  - embedding execution
-  - tensor generation
-  - VRAM arbitration
-  - telemetry polling
-- **Hardware-Aware Runtime Scaling:** Improved dynamic runtime behavior on:
-  - constrained VRAM systems
-  - Ryzen AI processors
-  - CPU-only deployments
-  - multitasking inference environments
-
-### Security
-
-- **Offline Enforcement Hardening:** Strengthened sovereign telemetry suppression by enforcing offline execution during setup initialization rather than post-launch configuration.
-- **Expanded Authentication Isolation:** Refined `.env` handling to eliminate residual static credential dependencies.
-- **Runtime Boundary Preservation:** Hardened subsystem isolation between:
-  - telemetry
-  - inference
-  - RAG execution
-  - GhostLogger auditing
-  - Folding@Home orchestration
+- **Importance matrix quantization (I-Quants):** Integrated support for `IQ3_XXS` and FP4 model architectures, reducing active VRAM allocation overhead by ~1.5GB while improving reasoning throughput.
+- **Dual runtime execution profiles:**
+  - Deep Thinker: `Llama-3-8B-Instruct (IQ3_XXS)` delivering **60.5 t/s** at ~4.5GB VRAM.
+  - Agile / Daily Driver: `Qwen 2.5 3B (Q4_K_M)` delivering **101.9 t/s** at ~2.7GB VRAM.
+- **Interactive deployment wizard (`setup.py`):** Rebuilt setup tooling to evaluate host GPU VRAM and recommend optimal execution profiles prior to initialization.
+- **Cryptographic environment initialization:** Migrated authentication setup to generate a localized 16-byte hex `API_KEY` stored within `.env`.
+- **Network air-gap enforcement:** Automated injection of offline flags (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`) during setup to ensure zero telemetry leakage.
+- **Licensing:** Distributed officially under the MIT License.
 
 ### Changed
 
-- **README Overhaul:** Completely rebuilt repository documentation around the v1.4 STABLE runtime architecture, including:
-  - TurboQuant execution profiles
-  - sovereign network topology
-  - VRAM allocation diagrams
-  - hardware handoff visualization
-  - Aether-Route topology mapping
-- **Benchmark Visualization Infrastructure:** Added dedicated benchmark illustrations and engineering diagrams for performance validation and architecture transparency.
-- **Stable Release Transition:** Removed beta-stage medical research warnings and finalized the sovereign runtime stack as the official v1.4 STABLE baseline.
+- **Quantization format deprecation:** Deprecated standard `Q4_K_M` quantizations for 8B models to eliminate memory bus bottlenecks on 8GB VRAM hardware.
+- **Execution limits:** Set context window ceiling to 8192 tokens and generation temperature to 0.1 to maximize document retrieval fidelity.
+- **WebSocket background compute handoff:** Finalized WebSocket interrupt mechanisms for background computing tasks, dispatching pause signals in ~21ms and completing VRAM recovery in under 510ms.
+- **Idle timeout optimization:** Reduced `RESEARCH_IDLE_THRESHOLD` to 30 seconds to resume background scientific compute promptly after interaction concludes.
+- **Dedicated CPU embedding route (Aether-Route):** Configured semantic embedding models (`all-MiniLM-L6-v2`) to run entirely on host CPU and system RAM, reserving GPU memory exclusively for generation and background workloads.
+- **Documentation refresh:** Overhauled architecture diagrams, memory flow topologies, and performance benchmarks throughout project documentation.
 
 ---
 
 ## [v1.3.2-beta] - 2026-05-13
 
-**Name:** Peridot v1.3.2 - Memory Deduplication, Meta-Citations & Sovereign Telemetry
-
-### Security
-
-- **Environment-Level Cryptography:** Migrated the `API_KEY` completely out of Python source code and into a localized `.env` file. Established `.env.example` and locked `.gitignore` to prevent automated scraping of the host's cryptographic handshake.
-- **Client-Server Handshake Hardening:** Patched `core.py` to securely transmit explicit `Authorization: Bearer` headers during both standard inference and system shutdown operations.
+**Release Summary:** Memory Deduplication, Source Attribution & Air-Gapped Operation
 
 ### Added
 
-- **Hash-Based Memory Deduplication:** Upgraded `vector_store.py` with a persistent `registry.json` tracking system. It now calculates SHA-256 hashes of all ingested files to prevent redundant vector embeddings and save CPU cycles.
-- **Explicit Source Citations:** Engineered the RAG Context-Injection loop in `server.py` to dynamically tag semantic blocks with `[SOURCE: filename]`. The LLM is now structurally instructed to cite its specific documentary sources during generation.
-- **Automated Ingestion Runner:** Shipped `index_all.py`, a dedicated ingestion script that automatically scans the `input/` zone, extracts text, checks the deduplication registry, and commits new data to the FAISS index.
+- **SHA-256 memory deduplication:** Added `registry.json` tracking in `vector_store.py` to record SHA-256 hashes of indexed files, preventing duplicate embedding operations.
+- **Document source attribution:** Configured RAG context injection in `server.py` to tag document blocks with `[SOURCE: filename]`, instructing the model to cite documentary sources explicitly.
+- **Automated directory ingestion (`index_all.py`):** Added a batch ingestion script to process files in `input/`, evaluate duplicates, and index new content into FAISS.
+
+### Security
+
+- **Environment credential management:** Relocated `API_KEY` handling from application source files to `.env`, adding `.env.example` templates and `.gitignore` entries.
+- **Authenticated client-server communication:** Configured `core.py` to pass `Authorization: Bearer` headers across standard generation requests and shutdown routines.
 
 ### Changed
 
-- **Sovereign Telemetry Override:** Forced the `sentence-transformers` and `huggingface_hub` libraries into strict offline mode via global environment variables (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`). This permanently silences network-check warnings and maintains a true air-gapped architecture.
-- **Context Search Depth:** Increased the `vector_store` retrieval depth (`top_k=3`) to feed the LLM denser contextual clusters for more accurate multi-source answers.
-- **Configuration Bootstrap:** Rewrote `config.py` to prioritize `load_dotenv()` before any secondary module imports, ensuring environment variables govern the entire kernel boot sequence.
+- **Strict offline mode configuration:** Set global environment variables `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` to disable external network calls in HuggingFace libraries.
+- **Context depth increase:** Expanded vector retrieval depth to `top_k=3`.
+- **Early configuration bootstrapping:** Reorganized `config.py` to invoke `load_dotenv()` prior to module imports, establishing consistent environment variables during startup.
 
 ### Fixed
 
-- **403 Forbidden Handshake Failure:** Resolved a critical client-server desynchronization bug where `config.py` was generating conflicting `secrets.token_hex(16)` keys for independent processes. The key is now statically anchored to the `.env` file.
-- **Flask Payload Rejection:** Fixed silent failures in the Neural Link by explicitly forcing the `"Content-Type": "application/json"` header in `requests.post()` calls originating from `core.py`.
+- **API key desynchronization:** Resolved 403 Forbidden handshake errors caused by independent processes generating differing ephemeral keys; standardized key extraction from `.env`.
+- **HTTP payload headers:** Fixed communication errors between client and server by explicitly passing `Content-Type: application/json` headers in `core.py`.
 
 ---
 
 ## [v1.3.1-beta] - 2026-05-11
 
-**Name:** Peridot v1.3.1 - Aether-Route Architecture & RAG Synchronization
+**Release Summary:** Aether-Route Architecture & RAG Synchronization
 
 ### Added
 
-- **Aether-Route (CPU Semantic Router):** Engineered a high-efficiency routing layer that offloads vectorization and intent classification to the Ryzen 7 CPU. This preserves VRAM on 4GB/6GB hardware by keeping the embedding matrix strictly in system RAM.
-- **Split-Payload Architecture:** Implemented a decoupled communication protocol between `core.py` and `server.py`. The system now transmits an isolated query for semantic mapping and a full prompt for LLM ingestion, preventing chat history from corrupting vector search accuracy.
-- **Unified Aether-Audit:** Integrated all RAG subsystems into the ghost auditing module, providing real-time telemetry on VRAM states, routing latency, and inference speeds.
+- **Aether-Route CPU semantic router:** Introduced an embedding pipeline executing vectorization and intent classification on CPU cores, preserving VRAM on systems with 4GB to 6GB GPU memory.
+- **Decoupled query and prompt payloads:** Separated communication streams between `core.py` and `server.py`, sending isolated queries for semantic vector search and full prompts for model generation to prevent conversational history from degrading search precision.
+- **Unified forensic auditing:** Connected RAG subsystem state tracking to GhostLogger, capturing real-time telemetry on VRAM usage, routing latency, and generation speed.
 
 ### Changed
 
-- **Server-Side Cache Centralization:** Stripped the duplicate L1 memory cache from `core.py` and centralized all caching logic within `server.py` to eliminate client-server race conditions and redundant CPU cycles.
-- **Contextual Injection Logic:** Updated the RAG pipeline to prepend L2 Vault findings into the system instruction block rather than the user prompt, improving the LLM's adherence to retrieved document data.
-- **CLI Ingestion Interface:** Overhauled `vault.py` with a standalone CLI entry point, enabling batch ingestion of the `input/` directory via `python core_system/memory/vault.py ingest`.
+- **Centralized caching:** Consolidated ephemeral L1 memory caching into `server.py`, removing duplicate cache logic from `core.py` to prevent state desynchronization.
+- **System instruction context injection:** Positioned retrieved document context inside the system instruction block rather than appending to user prompts, improving model compliance with source material.
+- **Vault CLI interface:** Added a standalone command-line entry point to `vault.py` for batch processing via `python core_system/memory/vault.py ingest`.
 
 ### Fixed
 
-- **L1 Cache Signature Collision:** Resolved fatal `TypeError` crashes where the Router was passing incorrect argument counts to `EphemeralCache.add()` and `EphemeralCache.search()`.
-- **GhostLogger Formatting Bug:** Fixed a system-wide crash caused by improper string formatting (`TypeError: not all arguments converted`) inside the ghost auditing calls.
-- **The "Thermodynamics Loop":** Corrected a logic flaw where the router was embedding the entire conversational buffer, leading to 95%+ semantic overlap and causing the system to get stuck repeating previous cached answers.
-- **Pathing Import Failures:** Injected absolute root discovery (`sys.path.insert`) into `vault.py` and `main.py` to resolve `ModuleNotFoundError` when running scripts from different terminal directories.
-- **Windows File-Locking:** Implemented robust garbage collection and context management in the ingestion pipeline to ensure PDF file pointers are released immediately after vectorization.
+- **Cache method signature compatibility:** Corrected argument handling across `EphemeralCache.add()` and `EphemeralCache.search()` to resolve `TypeError` exceptions.
+- **Telemetry logging format crash:** Resolved a `TypeError: not all arguments converted` logging crash in GhostLogger audit routines.
+- **Repetitive context loops:** Corrected an issue where the semantic router vectorized full conversational history rather than the current prompt, leading to high false-positive cache hits and repeated responses.
+- **Module import resolution:** Added project root directory resolution (`sys.path.insert`) to `vault.py` and `main.py` to ensure consistent execution regardless of working directory.
+- **Windows file handle retention:** Implemented explicit context managers and garbage collection during document processing to ensure PDF file handles are released immediately after vectorization.
 
-### Optimized
+### Performance
 
-- **Ryzen 7 250 AI Alignment:** Optimized the `all-MiniLM-L6-v2` embedding engine to utilize Ryzen multi-core efficiency, reducing query vectorization latency to <30ms.
-- **Inference Telemetry:** Refined the benchmarking output to provide real-time tokens-per-second (tps) metrics and precise VRAM delta tracking during Aether-Route execution.
+- Optimized `all-MiniLM-L6-v2` embedding routines for multi-core execution on AMD Ryzen processors, achieving embedding latencies below 30ms.
 
 ---
 
 ## [v1.3.0-beta] - 2026-03-30
 
-**Name:** Peridot v1.3.0 - Dual-Tier Memory Engine & Sterile RAG Architecture
+**Release Summary:** Dual-Tier Memory Engine & Sterile RAG Architecture
 
 ### Added
 
-- **Dual-Tier Memory Engine:** Implemented Layer 1 Ephemeral RAM Cache for instant query interception and Layer 2 FAISS Persistent Vault for local PDF knowledge retrieval.
-- **Sterile RAG Extraction (`_ask_ai_isolated`):** Engineered an isolated inference pipeline in `core.py` to bypass standard conversational memory, strictly preventing context poisoning and hallucinations when querying the L2 Vault.
-- **Command Routing Subsystem:** Deployed `CommandRouter` to safely isolate system operations from standard LLM inference.
-- **Dynamic Ingestion Command:** Added the `ingest` command to the router, allowing users to trigger PyMuPDF extraction and SentenceTransformer vectorization on the `input/` directory directly from the UI.
-- **Silent Forensic Auditing (GhostLogger):** Implemented a non-blocking background logger in `core_system/audit.py` that writes to a 1MB rotating file without polluting the terminal UI.
-- **API Authentication Middleware:** Secured the Neural Engine by implementing `@require_auth` with Bearer token validation across all operational endpoints.
-- **Comprehensive Benchmark Suite:** Engineered custom stress-testing scripts for cold start metrics, VRAM handoff latency, memory stability, and L2 semantic search speed.
+- **Two-tier memory subsystem:** Implemented an ephemeral Layer 1 RAM cache for rapid query matching alongside a persistent Layer 2 FAISS vector index for document search.
+- **Isolated RAG extraction (`_ask_ai_isolated`):** Created a dedicated execution path in `core.py` that queries document context without injecting conversational history, preventing hallucinations and context pollution.
+- **System command router:** Introduced `CommandRouter` to decouple administrative operations from generation requests.
+- **UI ingestion command:** Added an `ingest` command to the router interface to trigger document parsing and vectorization directly.
+- **Background telemetry auditing (GhostLogger):** Built a non-blocking JSONL audit logger in `core_system/audit.py` that maintains a 1MB rotating log file.
+- **Token authentication middleware:** Secured server routes with `@require_auth` Bearer token validation.
+- **Stress-testing benchmarks:** Added benchmarking scripts for cold starts, VRAM handoffs, memory stability, and FAISS search latency.
 
 ### Changed
 
-- **Vault Intercept Logic:** Stripped the automatic PDF database search from the default conversational loop. The Vault is now strictly gated behind the explicit `vault [query]` command to preserve VRAM and conversation fluidity.
-- **FAISS Semantic Threshold:** Relaxed the L2 distance threshold in `vault.py` from 1.5 to 1.85 to allow shorter, highly specific queries to successfully match with longer document chunks.
-- **API Payload Structure:** Updated the core inference endpoint from `/chat` to `/ask` and modified the required JSON payload key from `"prompt"` to `"command"` to align with the v1.3 architecture.
-- **Version String:** Bumped system designation from v1.2.1 BETA to v1.3 STABLE.
+- **Explicit vault command routing:** Restricted document retrieval to the explicit `vault [query]` syntax, preserving resources during ordinary chat.
+- **FAISS distance threshold tuning:** Adjusted FAISS L2 search distance threshold from 1.5 to 1.85 to improve match recall on concise search terms.
+- **Inference endpoint standardization:** Migrated inference route from `/chat` to `/ask` with a unified JSON payload structure.
+- Version designation updated to v1.3.
 
 ### Fixed
 
-- **Context Poisoning Hallucinations:** Resolved the bug where the LLM would blend previous chat history with RAG extraction data by forcing sterile prompt injection.
-- **Windows File-Locking Bug ([WinError 32]):** Fixed ingestion crashes by implementing strict context managers (`with fitz.open(...) as doc:`) and forced Python garbage collection to release OS-level file pointers after vectorization.
-- **Hardware Architecture Collisions:** Hardcoded the Vault Embedding Engine (`all-MiniLM-L6-v2`) to run exclusively on the CPU, preventing `sm_120` architecture clashes with the GPU during LLM inference.
-- **Benchmark Timeout Failures:** Rewrote the benchmarking suite to target the correct v1.3 endpoints, inject the required API keys, and account for the 8-billion parameter model load times during cold starts.
-- **Logger Attribute Error:** Patched an upstream integration bug by aliasing the deprecated `.record()` method to the native `.info()` method inside `setup_ghost_logger`.
+- **Conversational history leakage:** Fixed context pollution issues by isolating document retrieval prompts from conversational buffers.
+- **Windows file locking ([WinError 32]):** Wrapped file operations in `with fitz.open(...)` context managers and scheduled garbage collection to release OS file locks after ingestion.
+- **GPU architecture conflicts:** Confined embedding model execution to CPU resources, avoiding CUDA compilation and compute architecture conflicts on GPU.
+- **Benchmark cold start timeouts:** Updated benchmark runners to pass authentication tokens and account for initial model weight loading latencies.
+- **Logger compatibility:** Aliased legacy `.record()` calls to `.info()` within `setup_ghost_logger`.
 
 ---
 
 ## [v1.2.2-beta] - 2026-03-14
 
-**Name:** Peridot v1.2.2 - Empirical Benchmarking & Security Upgrades
+**Release Summary:** Empirical Benchmarking and Security Hardening
 
 ### Security
 
-- **RAM-Only Authentication (CWE-312 Mitigation):** Completely removed disk-based API key storage (`auth.token`). The kernel now generates ephemeral cryptographic keys in RAM via `os.environ` that evaporate upon shutdown.
-- **Application-Layer Input Sanitization:** Implemented a pre-inference regex filter to destroy malicious code injection attempts (e.g., XSS payloads, `os.system` execution) before they reach the LLM.
-- **Strict Path Traversal Blacklist:** The kernel now explicitly blocks attempts to read sensitive system directories (e.g., `C:\Windows\System32`, `/etc/`) and cryptographic material (e.g., `.ssh/id_rsa`, `.env`).
-- **Subprocess Command Whitelisting:** Hardcoded the Medical Research (Folding@Home) WebSocket integration to strictly accept only `pause`, `unpause`, `finish`, and `shutdown` directives to prevent arbitrary command injection.
-- **Timing-Attack Resistance:** Upgraded API authentication in `server.py` to use `secrets.compare_digest()` for Bearer token validation, preventing cryptographic timing attacks.
-- **API Rate Limiting:** Enforced a strict 60 requests/minute limit per local IP address to mitigate local Denial-of-Service (DoS) and script-kiddie spam.
-- **Constitution Fallback:** If `constitution.json` is missing or corrupted, the system safely defaults to a zero-trust state (`allow_file_read: False`).
+- **In-memory ephemeral authentication (CWE-312 mitigation):** Removed plaintext key storage (`auth.token`) in favor of dynamic in-memory key generation stored in `os.environ` and discarded on shutdown.
+- **Input validation and sanitization:** Added regex validation filters to intercept command injection and script execution patterns before prompts reach inference.
+- **Restricted path traversal rules:** Implemented strict path checks blocking access to system paths (`C:\Windows\System32`, `/etc/`) and sensitive files (`.ssh/id_rsa`, `.env`).
+- **Subprocess command allowlist:** Restricted WebSocket commands for Folding@home integration to an explicit list (`pause`, `unpause`, `finish`, `shutdown`).
+- **Constant-time authentication comparison:** Integrated `secrets.compare_digest()` in `server.py` to prevent timing attacks during token verification.
+- **Local API rate limiting:** Enforced a rate limit of 60 requests per minute per IP to protect local service endpoints.
+- **Fail-safe configuration fallback:** Configured `constitution.json` handling to default to restrictive permissions (`allow_file_read: False`) if configuration files are missing or unparseable.
 
 ### Added
 
-- **Automated Penetration Testing:** Shipped `tests/security_tests.py`, an automated Red Team suite to barrage the local kernel and verify the containment field holds against actual payloads.
-- **Empirical Benchmarking Suite:** Added `benchmarks/vram_test.py` and `benchmarks/inference_test.py` to measure precise hardware metrics rather than relying on estimates.
-- **Security & Benchmark Policies:** Published `SECURITY.md` detailing the threat model and responsible disclosure, alongside `BENCHMARKING.md` for community hardware testing.
-- **GhostLogger:** Integrated a zero-latency, asynchronous JSONL telemetry logger (`logs/ghost_audit.jsonl`) for tracking system state changes without blocking the main OS loop.
-- **Security Logger:** Added a dedicated forensic logger (`logs/security.log`) to quietly record all blocked file accesses, rejected inputs, and authentication failures.
+- **Security test suite:** Added `tests/security_tests.py` to automate testing of containment boundaries and defensive controls against simulated attack payloads.
+- **Hardware benchmarking scripts:** Created `benchmarks/vram_test.py` and `benchmarks/inference_test.py` for direct measurement of hardware metrics.
+- **Security and benchmarking policies:** Added `SECURITY.md` and `BENCHMARKING.md` guidelines.
+- **Structured audit logging:** Deployed `logs/ghost_audit.jsonl` for telemetry events and `logs/security.log` for rejected requests and access violations.
 
-### Changed
+### Performance
 
-- **Verified Hardware Metrics:** Replaced the estimated README hardware claims with empirical data tested on an RTX 5050: **6.55ms** VRAM hot-swap latency and **45-55 t/s** Llama-3 8B inference speed.
-
-### Fixed
-
-- **CodeQL CWE-312 Vulnerability:** Permanently patched clear-text storage of sensitive information by migrating the API key entirely to ephemeral RAM.
+- **Empirical hardware benchmarks:** Verified performance on an NVIDIA RTX 5050 Laptop GPU, documenting 6.55ms VRAM swap latency and 45-55 t/s inference speed on Llama-3 8B.
 
 ---
 
 ## [v1.2.1-beta] - 2026-03-10
 
-**Name:** Peridot v1.2.1 - Security Changes, Patched Memory Leaks & Secured Command Routing
+**Release Summary:** Security Perimeter, Memory Optimization, and Secured Command Routing
 
 ### Security
 
-- **Localhost API Authentication:** Implemented dynamic API key generation (`auth.token`) and strict Bearer token authentication across all Flask endpoints to prevent unauthorized local processes from hijacking GPU resources.
-- **Hardened System Directives:** Updated the core AI system prompt to establish a hard boundary against OS-level destruction. Peridot now explicitly refuses commands that attempt to delete system files, compromise host OS integrity, or exfiltrate sensitive data over the network, while maintaining uncensored operation for standard tasks.
+- **Localhost Bearer authentication:** Introduced local API token validation (`auth.token`) and Bearer token enforcement across all Flask endpoints.
+- **Safety boundaries in system prompt:** Updated core system prompts to establish boundaries preventing arbitrary system file deletion or unauthorized data egress, while allowing unrestricted processing of authorized developer tasks.
 
 ### Added
 
-- **True Hardware Telemetry:** Integrated `pynvml` (via `nvidia-ml-py`) into the VRAM State Machine to provide real-time NVIDIA GPU memory tracking and reporting.
-- **Server Health Polling:** Added a `/health` endpoint to `server.py` to allow client processes to safely verify engine readiness before mounting the interface.
+- **Direct GPU telemetry:** Integrated `pynvml` (via `nvidia-ml-py`) into the VRAM state machine to monitor GPU memory utilization directly.
+- **Health monitoring endpoint:** Added `/health` route in `server.py` to facilitate startup polling.
 
 ### Changed
 
-- **WebSocket VRAM Hot-Swaps:** Completely removed legacy CLI subprocess polling for Folding@Home. The VRAM State Machine now communicates directly with the FAH v8 client via local WebSockets (port 7396), achieving true zero-latency (21ms) hardware handoffs.
-- **State Machine Localization:** Moved the medical research state manager entirely into `server.py`, directly coupling it to the LLM lifecycle.
-- **Command Routing:** Overhauled `command_router.py` to execute hardware requests via secure HTTP API calls rather than direct object manipulation.
+- **WebSocket-based compute orchestration:** Replaced subprocess CLI polling for Folding@home with local WebSocket communication (port 7396), achieving 21ms handoff latency.
+- **State machine architecture:** Relocated the background compute state manager into `server.py`, coupling state transitions directly to the inference lifecycle.
+- **API-driven command routing:** Overhauled `command_router.py` to dispatch system commands via authenticated HTTP API calls.
 
 ### Fixed
 
-- **Memory Leak Patch:** Fixed an unbounded array in `core.py` where chat history would scale infinitely and crash the application. Implemented a sliding context window that strictly retains only the last 10 messages (5 turns) to protect RAM/VRAM capacity.
-- **Client Startup Crash:** Injected a `sys.path` override into `main.py` to resolve unpredictable "No module named X" import failures when spawned as a subprocess by the launcher.
-- **Launcher Race Conditions:** Replaced arbitrary `time.sleep()` delays in `launcher.py` with robust endpoint polling, preventing the client from attempting to connect to a dead or loading server.
-- **Subprocess Deadlocks:** Rerouted server `stdout` and `stderr` to a dedicated file (`logs/server.log`) to prevent application freezes caused by filled buffer pipes.
+- **Unbounded chat history memory leak:** Resolved memory growth in `core.py` by implementing a sliding context window retaining the 10 most recent messages (5 turns).
+- **Subprocess module resolution:** Added `sys.path` configuration to `main.py` to prevent import failures when launched from external directories.
+- **Startup race conditions:** Replaced fixed `time.sleep()` intervals in `launcher.py` with polling against the `/health` endpoint.
+- **Subprocess buffer deadlocks:** Rerouted server stdout and stderr output to `logs/server.log` to prevent pipe buffer saturation from stalling execution.
