@@ -240,6 +240,18 @@ class IdMapIndex:
         else:
             return len(self._id_to_idx)
 
+    @property
+    def ntotal(self) -> int:
+        """
+        FAISS-compatible alias for `size`.
+
+        This class stands in for a FAISS IndexIDMap, so callers reach for the
+        FAISS spelling. Without this the `status` and `ingest` commands both
+        died on AttributeError. Aliasing here fixes every caller at once and
+        keeps the next FAISS-shaped access working too.
+        """
+        return self.size
+
     def save(self, path: str) -> None:
         """
         Save the index to disk.
