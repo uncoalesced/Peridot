@@ -76,3 +76,6 @@ SKILL.md
 
 # Cowork agent working folder (meta-docs, not shipped product)
 cowork/
+
+# Scratch handoff docs for other agents/tools working this repo
+.temp/
