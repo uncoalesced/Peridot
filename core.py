@@ -21,8 +21,13 @@ from core_system.memory.vault import PersistentVault
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
 
 from core_system.memory.chat_ledger import get_chat_ledger
+from core_system.prompting.constitution import parse_kernel_response
 
 ACTIVE_API_KEY = API_KEY
+
+# A launch more than this far after the last message starts a fresh session
+# instead of continuing the previous one.
+SESSION_RESUME_WINDOW_S = int(os.getenv("SESSION_RESUME_WINDOW_S", str(6 * 3600)))
 
 def safe_import(module_path, class_names):
     try:
@@ -60,8 +65,12 @@ class PeridotCore:
 
     def _ensure_active_session(self):
         if self.current_session_id is None:
+            # Resume only a *recent* session. The old code took the newest row
+            # unconditionally, so one session created months ago kept winning
+            # forever: every launch appended into it, its stale title stuck,
+            # and its ancient turns were replayed as prompt context.
             sessions = self.chat_ledger.list_sessions(limit=1)
-            if sessions:
+            if sessions and (time.time() - sessions[0]["updated_at"]) < SESSION_RESUME_WINDOW_S:
                 self.current_session_id = sessions[0]["session_id"]
                 self.logger.info(f"Resumed session: {self.current_session_id[:8]}", source="CORE")
             else:
@@ -165,7 +174,8 @@ class PeridotCore:
         self._ensure_active_session()
         
         self.chat_ledger.add_message(self.current_session_id, "user", user_text)
-        
+        self._autotitle_session(user_text)
+
         history = self.chat_ledger.get_history(self.current_session_id, limit=6)
         
         prompt_segments = []
@@ -178,9 +188,30 @@ class PeridotCore:
         response = self._send_to_server(query=user_text, prompt=full_prompt, session_id=self.current_session_id)
         
         if "[SYSTEM ERROR]" not in response and "[HTTP ERROR]" not in response:
-            self.chat_ledger.add_message(self.current_session_id, "assistant", response)
-            
+            # Persist ONLY the answer body, never the [ANALYSIS] scaffolding or
+            # a <think> fragment. Stored turns are replayed verbatim as
+            # assistant turns on the next request, so a stored empty or
+            # degenerate turn teaches the model in-context that a blank reply
+            # is the house style. That feedback loop is what produced the
+            # self-sustaining run of empty responses on 2026-08-20.
+            _analysis, body = parse_kernel_response(response)
+            if body and "[KERNEL FAULT]" not in body:
+                self.chat_ledger.add_message(self.current_session_id, "assistant", body)
+            else:
+                self.logger.warning(
+                    "Empty kernel body; turn not persisted to ledger.", source="CORE"
+                )
+
         return response
+
+    def _autotitle_session(self, user_text):
+        """Name a session after its first real prompt instead of 'New Session'."""
+        session = self.chat_ledger.get_session(self.current_session_id)
+        if not session or session.get("title") != "New Session":
+            return
+        title = " ".join(user_text.split())[:48].strip()
+        if title:
+            self.chat_ledger.update_session_title(self.current_session_id, title)
 
     def _ask_ai_isolated(self, prompt):
         return self._send_to_server(query=prompt, prompt=prompt)
