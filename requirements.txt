@@ -86,10 +86,10 @@ Werkzeug==3.1.6
 
 # Platform-isolated Deep Learning Matrix
 # Windows uses validated CUDA 12.4 wheels; Linux/macOS CI stays on standard CPU-compatible PyPI wheels.
-torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0+cu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
+torch==2.14.0 @ https://download.pytorch.org/whl/cu124/torch-2.6.0+cu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
 torchaudio @ https://download.pytorch.org/whl/cu124/torchaudio-2.6.0+cu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
 torchvision @ https://download.pytorch.org/whl/cu124/torchvision-0.21.0+cu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
-torch==2.6.0 ; sys_platform != 'win32'
+torch==2.14.0==2.6.0 ; sys_platform != 'win32'
 torchaudio==2.6.0 ; sys_platform != 'win32'
 torchvision==0.21.0 ; sys_platform != 'win32'
 
