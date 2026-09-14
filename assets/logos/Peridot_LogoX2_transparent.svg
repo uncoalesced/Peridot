@@ -1,0 +1,9 @@
+<svg viewBox="0 0 900 900" xmlns="http://www.w3.org/2000/svg">
+<polygon points="450.0,450.0 450.0,120.0 735.8,285.0" fill="#5D6E48"/>
+<polygon points="450.0,450.0 735.8,285.0 735.8,615.0" fill="#748E54"/>
+<polygon points="450.0,450.0 735.8,615.0 450.0,780.0" fill="#A4B68F"/>
+<polygon points="450.0,450.0 450.0,780.0 164.2,615.0" fill="#5D6E48"/>
+<polygon points="450.0,450.0 164.2,615.0 164.2,285.0" fill="#748E54"/>
+<polygon points="450.0,450.0 164.2,285.0 450.0,120.0" fill="#A4B68F"/>
+<circle cx="450.0" cy="450.0" r="62.0" fill="#B28F4B"/>
+</svg>
