@@ -10,7 +10,7 @@
 ```
 
 <div align="center">
-  <img src="assets/logos/Peridot_LogoX1_transparent.svg" alt="Peridot" width="400">
+  <img src="assets/logos/Peridot_LogoX2_transparent.svg" alt="Peridot" width="400">
 </div>
 
 
