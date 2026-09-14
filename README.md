@@ -9,6 +9,11 @@
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 ```
 
+<div align="center">
+  <img src="assets/logos/Peridot_LogoX1_transparent.svg" alt="Peridot" width="400">
+</div>
+
+
 ### `SOVEREIGN LOCAL AI KERNEL — v1.5.4 STABLE`
 
 ### `PERIDOT SOVEREIGN KERNEL v1.5.4-STABLE [ZAT-SCS]`
