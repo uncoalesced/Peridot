@@ -6,6 +6,14 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
+# NOTE: this file was named setup.py until the v1.5.4 cleanup. It is an
+# interactive first-run installer, not packaging metadata -- it contains no
+# setuptools.setup() call. Because pyproject.toml declares
+# build-backend = "setuptools.build_meta", setuptools' run_setup() exec'd this
+# file with __name__ == "__main__" on every wheel build, which launched the
+# wizard mid-build and failed with a UnicodeEncodeError on the banner.
+# Renaming it fixes the build. Run it directly:  python install_wizard.py
+
 """
 PERIDOT SETUP WIZARD v1.5.4 - ZAT-SCS
 Intelligent hardware detection, VRAM profiling, and engine configuration
@@ -16,8 +24,6 @@ import os
 import sys
 import platform
 import subprocess
-import json
-import time
 import secrets
 from pathlib import Path
 from typing import Dict
