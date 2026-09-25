@@ -24,7 +24,7 @@ huggingface_hub>=0.24.0,<2.0
 idna==3.18
 itsdangerous==2.2.0
 Jinja2==3.1.6
-joblib==1.5.3
+joblib==1.6.0
 license-expression==30.4.4
 # PyPI/cu121-wheel fallback only. This wheel's llama.cpp core predates qwen35
 # (Qwen3.5+ MTP) support, causing "missing tensor 'blk.64.ssm_conv1d.weight'"
