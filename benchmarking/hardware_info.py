@@ -15,29 +15,12 @@ Gathers system-level telemetry for benchmark contextualization.
 import platform
 import subprocess
 import psutil
-import sys
-from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# PATH BOOTSTRAPPING
-# -----------------------------------------------------------------------------
-benchmarking_dir = Path(__file__).parent.parent.absolute()
-utils_path = benchmarking_dir / "utils"
-
-if str(utils_path) not in sys.path:
-    sys.path.insert(0, str(utils_path))
-
-try:
-    from benchmark_utils import logger
-except ImportError:
-    import logging
-
-    logger = logging.getLogger("hardware_info")
-
-try:
-    import pynvml
-except ImportError:
-    pynvml = None
+# The shared logger import used to sit behind a sys.path prologue that pointed
+# at <repo>/utils -- one directory too high, a path that does not exist -- so
+# the ImportError branch always won and this module silently ran on a bare
+# logging.getLogger. It is now a plain package import.
+from benchmarking.utils.benchmark_utils import get_vram_mb, logger
 
 
 def _get_cpu_info():
@@ -70,29 +53,12 @@ def _get_cpu_info():
 
 def _get_gpu_info():
     """Telemetry for NVIDIA GPUs via NVML. Bypasses Torch to save VRAM."""
-    gpu_info = {"gpu_name": "Unknown", "gpu_memory_total_gb": 0, "gpu_count": 0}
-
-    if pynvml:
-        try:
-            pynvml.nvmlInit()
-            device_count = pynvml.nvmlDeviceGetCount()
-            gpu_info["gpu_count"] = device_count
-
-            if device_count > 0:
-                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                name = pynvml.nvmlDeviceGetName(handle)
-                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-                gpu_info["gpu_name"] = (
-                    name.decode() if isinstance(name, bytes) else name
-                )
-                gpu_info["gpu_memory_total_gb"] = round(mem.total / (1024**3), 2)
-
-            pynvml.nvmlShutdown()
-        except Exception as e:
-            logger.warning(f"NVML GPU discovery failed: {e}")
-
-    return gpu_info
+    vram = get_vram_mb()
+    return {
+        "gpu_name": vram["name"],
+        "gpu_memory_total_gb": round(vram["total"] / 1024, 2),
+        "gpu_count": vram["count"],
+    }
 
 
 def get_specs():

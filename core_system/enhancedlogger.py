@@ -113,7 +113,7 @@ def get_instance():
 
 def summarize_logs(lines=10):
     """Returns the last N lines from the text log."""
-    if not os.path.exists(LOG_FILE):
+    if not LOG_FILE.exists():
         return "No logs found."
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
@@ -125,7 +125,7 @@ def summarize_logs(lines=10):
 
 def summarize_logs_json(lines=5):
     """Returns the last N lines from the JSON log."""
-    if not os.path.exists(JSON_LOG_FILE):
+    if not JSON_LOG_FILE.exists():
         return "No JSON logs found."
     try:
         with open(JSON_LOG_FILE, "r", encoding="utf-8") as f:

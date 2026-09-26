@@ -23,28 +23,13 @@ class SovereignGPUOrchestrator:
             else:
                 self.last_activity_time = current_time
 
-    def trigger_active_inference(self):
-        self.current_state = "ACTIVE_INFERENCE"
-        ghost.info("[ZAT-SCS | STATE] Transitioning to ACTIVE_INFERENCE. Suspending F@H.")
-        adjust_gpu_mps(0)
-
-    def return_to_idle(self):
-        self.current_state = "COLD_IDLE"
-        self.last_activity_time = time.time()
-        ghost.info("[ZAT-SCS | STATE] Transitioning back to COLD_IDLE.")
-        if self.kernel:
-            from core_system.kernel import KernelState
-            self.kernel.request_state_change(KernelState.IDLE, "ZAT-SCS predictive decay fallback.")
-        else:
-            adjust_gpu_mps(100)
-
     def _transition_to_speculative(self):
         self.current_state = "SPECULATIVE_PREPARED"
         self.last_activity_time = time.time()
         ghost.info(f"[ZAT-SCS | STATE] P(I_t) >= {SPECULATIVE_THRESHOLD}. Transitioning to SPECULATIVE_PREPARED.")
         
         if self.kernel:
-            # We must import KernelState locally to avoid circular imports if passed
+            # Local import avoids a circular import with core_system.kernel.
             from core_system.kernel import KernelState
             self.kernel.request_state_change(KernelState.SPECULATIVE_PREPARED, "ZAT-SCS predictive preemption triggered.")
         else:

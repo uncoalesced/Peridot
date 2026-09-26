@@ -1,4 +1,5 @@
 import importlib
+import json
 import sys
 import types
 import unittest
@@ -58,7 +59,11 @@ def _install_fake_config():
     config.RESEARCH_IDLE_THRESHOLD = 999
     config.RESEARCH_CHECK_INTERVAL = 10
     config.THREADS = 1
+    config.THREADS_BATCH = 1
     config.BATCH_SIZE = 1
+    config.UBATCH_SIZE = 1
+    config.KV_CACHE_TYPE = "f16"
+    config.ZAT_SCS_ENABLED = False
     config.INPUT_PATH = PROJECT_ROOT / ".tmp_test_input"
     config.PROCESSED_PATH = PROJECT_ROOT / ".tmp_test_processed"
     config.STORAGE_PATH = PROJECT_ROOT / ".tmp_test_storage"
@@ -91,9 +96,22 @@ def _install_common_runtime_stubs():
                 return func
             return decorator
 
+    class FakeJsonResponse(dict):
+        """jsonify() stand-in: indexable like the payload, get_json() like Flask."""
+
+        def get_json(self):
+            return dict(self)
+
+    class FakeStreamResponse:
+        def __init__(self, body, mimetype=None):
+            self.body = body
+            self.mimetype = mimetype
+
     flask.Flask = FakeFlask
+    flask.Response = FakeStreamResponse
+    flask.copy_current_request_context = lambda func: func
     flask.request = types.SimpleNamespace(json={}, headers={}, environ={})
-    flask.jsonify = lambda payload: payload
+    flask.jsonify = lambda payload: FakeJsonResponse(payload)
     sys.modules["flask"] = flask
 
     flask_cors = types.ModuleType("flask_cors")
@@ -180,55 +198,30 @@ def _install_common_runtime_stubs():
     vault_module.PersistentVault = DummyPersistentVault
     sys.modules["core_system.memory.vault"] = vault_module
 
-    rag_cache = types.ModuleType("core_system.rag_cache")
 
-    class DummyAetherCache:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def put(self, *args, **kwargs):
-            pass
-
-    rag_cache.AetherCache = DummyAetherCache
-    sys.modules["core_system.rag_cache"] = rag_cache
+_STUBBED_MODULES = (
+    "server",
+    "benchmarking.mtbf_stress_test",
+    "core_system.kernel",
+    "core_system.memory.vault",
+    "core_system.memory.embedder",
+    "core_system.memory.turbovec_index",
+    "core_system.audit",
+    "core_system.telemetry",
+    "core_system.memory.chat_ledger",
+    "core_system.memory.ephemeral_cache",
+    "config",
+    "dotenv",
+    "fitz",
+)
 
 
 class Agent3RegressionTests(unittest.TestCase):
     def setUp(self):
-        _drop_modules(
-            "server",
-            "benchmarking.mtbf_stress_test",
-            "core_system.kernel",
-            "core_system.memory.vault",
-            "core_system.memory.embedder",
-            "core_system.memory.turbovec_index",
-            "core_system.audit",
-            "core_system.telemetry",
-            "core_system.memory.chat_ledger",
-            "core_system.memory.ephemeral_cache",
-            "core_system.rag_cache",
-            "config",
-            "dotenv",
-            "fitz",
-        )
+        _drop_modules(*_STUBBED_MODULES)
 
     def tearDown(self):
-        _drop_modules(
-            "server",
-            "benchmarking.mtbf_stress_test",
-            "core_system.kernel",
-            "core_system.memory.vault",
-            "core_system.memory.embedder",
-            "core_system.memory.turbovec_index",
-            "core_system.audit",
-            "core_system.telemetry",
-            "core_system.memory.chat_ledger",
-            "core_system.memory.ephemeral_cache",
-            "core_system.rag_cache",
-            "config",
-            "dotenv",
-            "fitz",
-        )
+        _drop_modules(*_STUBBED_MODULES)
 
     def test_rag_search_depth_is_strict_int_and_clamped_during_ask(self):
         _install_common_runtime_stubs()
@@ -264,7 +257,6 @@ class Agent3RegressionTests(unittest.TestCase):
         server.vault = CapturingVault()
         server.embedder = types.SimpleNamespace(embed_query=lambda query: [0.0])
         server.l1_cache = None
-        server.rag_cache = None
         server.chat_ledger = None
         server.llm = FakeLLM()
         server.get_model_format = lambda _model_path: "chatml"
@@ -292,6 +284,73 @@ class Agent3RegressionTests(unittest.TestCase):
             self.assertIs(type(depth), int)
             self.assertGreaterEqual(depth, server.MIN_RETRIEVAL_DEPTH)
             self.assertLessEqual(depth, server.MAX_RETRIEVAL_DEPTH)
+
+    def _server_with_fake_llm(self, history=()):
+        _install_common_runtime_stubs()
+        server = importlib.import_module("server")
+        captured = {}
+
+        class FakeLLM:
+            is_loaded = True
+
+            def token_count(self, text):
+                return 3
+
+            def generate(self, *args, **kwargs):
+                on_chunk = kwargs.get("on_chunk")
+                if on_chunk:
+                    for piece in ("[ANALYSIS]\nx\n[KERNEL_RESPONSE]\n", "Pa", "ris"):
+                        on_chunk(piece)
+                return types.SimpleNamespace(
+                    text="[ANALYSIS]\nx\n[KERNEL_RESPONSE]\nParis",
+                    finish_reason="stop", completion_tokens=2, prompt_tokens=3,
+                )
+
+        def fake_build(**kwargs):
+            captured["history"] = list(kwargs["chat_history"])
+            return "unit-test prompt"
+
+        server.vault = None
+        server.l1_cache = None
+        server.chat_ledger = types.SimpleNamespace(
+            get_history=lambda session_id, limit=6: [dict(m) for m in history]
+        )
+        server.llm = FakeLLM()
+        server.get_model_format = lambda _model_path: "chatml"
+        server.build_full_context = fake_build
+        server.kernel.state = server.KernelState.INFERENCE
+        server.request.json = {"query": "capital of France?", "session_id": "s1"}
+        server.request.headers = {"Authorization": f"Bearer {server.API_KEY}"}
+        server.request.environ = {}
+        return server, captured
+
+    def test_ask_stream_emits_deltas_then_one_final_response(self):
+        server, _ = self._server_with_fake_llm()
+
+        response = server.ask_stream()
+        events = [json.loads(line) for line in response.body]
+
+        deltas = [e["delta"] for e in events if "delta" in e]
+        self.assertEqual("".join(deltas), "[ANALYSIS]\nx\n[KERNEL_RESPONSE]\nParis")
+        self.assertTrue(events[-1]["done"])
+        self.assertEqual(events[-1]["status"], 200)
+        self.assertEqual(events[-1]["session_id"], "s1")
+        self.assertIn("[KERNEL_RESPONSE]\nParis", events[-1]["response"])
+        self.assertEqual(sum(1 for e in events if e.get("done")), 1)
+
+    def test_current_query_is_not_duplicated_from_ledger_history(self):
+        # core.py writes the user turn before calling /ask, so the ledger's
+        # history already ends with it; the prompt must carry it only once.
+        history = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+            {"role": "user", "content": "capital of France?"},
+        ]
+        server, captured = self._server_with_fake_llm(history)
+
+        server.ask()
+
+        self.assertEqual([m["content"] for m in captured["history"]], ["hi", "hello"])
 
     def test_mtbf_send_inference_request_returns_session_id_for_reuse(self):
         _install_fake_config()

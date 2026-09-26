@@ -16,66 +16,71 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-# Path Bootstrapping
 BASE_DIR = Path(__file__).parent.absolute()
-RESULTS_DIR = BASE_DIR / "results"
-REPORT_SCRIPT = BASE_DIR / "generate_report.py"
+PERIDOT_ROOT = BASE_DIR.parent
+# RESULTS_DIR is shared with every benchmark via benchmark_utils; not recomputed here.
+from benchmarking.utils.benchmark_utils import RESULTS_DIR, logger, get_system_info
 
-# Add utils
-sys.path.insert(0, str(BASE_DIR / "utils"))
-try:
-    from benchmark_utils import logger, get_system_info
-except ImportError:
-    print("[ERROR] benchmark_utils.py not found in /utils/")
-    sys.exit(1)
-
-# Ordered benchmarks (dependency-safe order)
+# Ordered benchmarks. Each entry is a module under the `benchmarking` package.
+#
+# Ordering matters: benchmark_cold_start and benchmark_context_scaling both own
+# the server lifecycle -- they kill any running Peridot and start their own --
+# and cold_start does not restart it when it finishes. They used to sit 3rd and
+# 6th, so every benchmark after cold_start hit a dead server and exited 1.
+# Both now run last, after everything that needs a pre-existing live server.
 BENCHMARKS = [
-    ("inference", "benchmark_inference.py"),
-    ("vram_handoff", "benchmark_vram_handoff.py"),
-    ("cold_start", "benchmark_cold_start.py"),
-    ("memory_stability", "benchmark_memory_stability.py"),
-    ("gpu_utilization", "benchmark_gpu_utilization.py"),
-    ("context_scaling", "benchmark_context_scaling.py"),
-    ("sustained_load", "benchmark_sustained_load.py"),
+    ("inference", "benchmark_inference"),
+    ("vram_handoff", "benchmark_vram_handoff"),
+    ("memory_stability", "benchmark_memory_stability"),
+    ("gpu_utilization", "benchmark_gpu_utilization"),
+    ("sustained_load", "benchmark_sustained_load"),
+    ("context_scaling", "benchmark_context_scaling"),
+    ("cold_start", "benchmark_cold_start"),
+    # Owns the GPU exclusively (loads each model in turn), so it runs last.
+    ("model_matrix", "benchmark_model_matrix"),
 ]
 
 
-def run_script(script_name: str) -> bool:
-    script_path = BASE_DIR / script_name
+def run_script(module_name: str) -> bool:
+    """Run one benchmark as `python -m benchmarking.<module>` from the repo root.
 
-    if not script_path.exists():
-        logger.error(f"[MISSING] {script_name}")
+    Invoking by file path put benchmarking/ on sys.path instead of the project
+    root, so the package-relative imports these modules now use would not
+    resolve. -m from PERIDOT_ROOT is the only spelling that satisfies both the
+    `benchmarking.utils...` imports and the root-level `config` import.
+    """
+    if not (BASE_DIR / f"{module_name}.py").exists():
+        logger.error(f"[MISSING] {module_name}.py")
         return False
 
     logger.info("\n" + "=" * 70)
-    logger.info(f"RUNNING: {script_name}")
+    logger.info(f"RUNNING: {module_name}")
     logger.info("=" * 70 + "\n")
 
     try:
         result = subprocess.run(
-            [sys.executable, str(script_path)],
-            cwd=str(BASE_DIR),
+            [sys.executable, "-m", f"benchmarking.{module_name}"],
+            cwd=str(PERIDOT_ROOT),
             timeout=1800,  # 30 min max per benchmark
         )
 
         if result.returncode == 0:
-            logger.info(f"[SUCCESS] {script_name}")
+            logger.info(f"[SUCCESS] {module_name}")
             return True
         else:
-            logger.error(f"[FAILED] {script_name} (code {result.returncode})")
+            logger.error(f"[FAILED] {module_name} (code {result.returncode})")
             return False
 
     except subprocess.TimeoutExpired:
-        logger.error(f"[TIMEOUT] {script_name}")
+        logger.error(f"[TIMEOUT] {module_name}")
         return False
     except Exception as e:
-        logger.error(f"[ERROR] {script_name}: {e}")
+        logger.error(f"[ERROR] {module_name}: {e}")
         return False
 
 
 def generate_report():
-    if not REPORT_SCRIPT.exists():
+    if not (BASE_DIR / "generate_report.py").exists():
         logger.warning("Report generator not found, skipping...")
         return
 
@@ -85,7 +90,9 @@ def generate_report():
 
     try:
         subprocess.run(
-            [sys.executable, str(REPORT_SCRIPT)], cwd=str(BASE_DIR), timeout=120
+            [sys.executable, "-m", "benchmarking.generate_report"],
+            cwd=str(PERIDOT_ROOT),
+            timeout=120,
         )
         logger.info("[SUCCESS] Report generated")
     except Exception as e:

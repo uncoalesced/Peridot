@@ -30,32 +30,21 @@ for any cross-engine comparison, use benchmarking/benchmark_decode_rate.py.
 
 import sys
 import time
-from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# PATH BOOTSTRAPPING FIX
-# -----------------------------------------------------------------------------
-benchmarking_dir = Path(__file__).parent.absolute()
-peridot_root = benchmarking_dir.parent
-utils_path = benchmarking_dir / "utils"
 
-for path in [str(peridot_root), str(utils_path)]:
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-from benchmark_utils import (
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
+    AetherClient,
     BenchmarkResult,
-    repeat_measurement,
-    get_system_info,
+    check_peridot_running,
+    count_tokens_rough,
     format_duration,
     format_throughput,
+    get_system_info,
     logger,
-    AetherClient,
-    check_peridot_running,
 )
 
 # DIRECTORY FIX: Stay inside benchmarking
-RESULTS_DIR = benchmarking_dir / "results"
 
 # Test prompts with expected token ranges
 TEST_WORKLOADS = [
@@ -81,11 +70,6 @@ TEST_WORKLOADS = [
         "expected_tokens": 350,
     },
 ]
-
-
-def count_tokens_rough(text: str) -> int:
-    words = text.split()
-    return int(len(words) * 1.3)
 
 
 def measure_inference_speed(client: AetherClient, prompt: str, max_tokens: int) -> dict:

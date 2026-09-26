@@ -15,50 +15,34 @@ This is Peridot's UNIQUE FEATURE - no other local LLM does medical research inte
 
 import sys
 import time
-from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# PATH BOOTSTRAPPING FIX
-# -----------------------------------------------------------------------------
-benchmarking_dir = Path(__file__).parent.absolute()
-peridot_root = benchmarking_dir.parent
-utils_path = benchmarking_dir / "utils"
-
-for path in [str(peridot_root), str(utils_path)]:
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-from benchmark_utils import (
-    BenchmarkResult,
-    get_system_info,
-    format_duration,
-    logger,
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
     AetherClient,
+    BenchmarkResult,
     check_peridot_running,
+    format_duration,
+    get_system_info,
+    get_vram_mb,
+    logger,
 )
-
-# DIRECTORY FIX: Stay inside benchmarking
-RESULTS_DIR = benchmarking_dir / "results"
 
 
 def get_vram_info():
-    try:
-        import pynvml
+    """VRAM figures in MB, or None when no GPU is readable.
 
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-        free_mb = mem_info.free // (1024 * 1024)
-        used_mb = mem_info.used // (1024 * 1024)
-        total_mb = mem_info.total // (1024 * 1024)
-
-        pynvml.nvmlShutdown()
-
-        return {"free_mb": free_mb, "used_mb": used_mb, "total_mb": total_mb}
-    except Exception as e:
-        logger.error(f"Failed to get VRAM info: {e}")
+    Adapter over the shared NVML helper; this module's call sites index
+    free_mb/used_mb/total_mb and test the result for falsiness.
+    """
+    vram = get_vram_mb()
+    if not vram["total"]:
+        logger.error("Failed to get VRAM info")
         return None
+    return {
+        "free_mb": vram["free"],
+        "used_mb": vram["used"],
+        "total_mb": vram["total"],
+    }
 
 
 def get_base_url(client: AetherClient) -> str:
@@ -240,27 +224,27 @@ def main():
         logger.info("VRAM HANDOFF SUMMARY")
         logger.info("=" * 60 + "\n")
 
-        logger.info(f"Pause command latency:")
+        logger.info("Pause command latency:")
         logger.info(f"  Mean: {statistics.mean(pause_latencies):.2f}ms")
         logger.info(f"  Median: {statistics.median(pause_latencies):.2f}ms")
         logger.info("")
 
-        logger.info(f"VRAM release time (KEY METRIC):")
+        logger.info("VRAM release time (KEY METRIC):")
         logger.info(f"  Mean: {stats['mean']:.2f}ms")
         logger.info(f"  Median: {stats['median']:.2f}ms")
         logger.info(f"  Std Dev: {stats['stdev']:.2f}ms")
         logger.info(f"  Range: {stats['min']:.2f} - {stats['max']:.2f}ms")
         logger.info("")
 
-        logger.info(f"VRAM freed:")
+        logger.info("VRAM freed:")
         logger.info(f"  Mean: {statistics.mean(vram_freed_amounts):.0f}MB")
         logger.info(f"  Median: {statistics.median(vram_freed_amounts):.0f}MB")
         logger.info("")
 
-        logger.info(f"Inference performance after handoff:")
+        logger.info("Inference performance after handoff:")
         logger.info(f"  Mean: {statistics.mean(inference_throughputs):.2f} t/s")
         logger.info(f"  Median: {statistics.median(inference_throughputs):.2f} t/s")
-        logger.info(f"  (No performance degradation)")
+        logger.info("  (No performance degradation)")
         logger.info("")
 
         logger.info("=" * 60)

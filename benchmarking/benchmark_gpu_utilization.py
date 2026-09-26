@@ -16,44 +16,16 @@ import sys
 import time
 import requests
 import threading
-import psutil
-from pathlib import Path
 
-# Force Python to recognize both the Peridot root AND the utils folder
-peridot_root = str(Path(__file__).parent.parent.absolute())
-# FIX: Correctly path to E:\Peridot\benchmarking\utils
-utils_path = str(Path(__file__).parent.absolute() / "utils")
-
-if peridot_root not in sys.path:
-    sys.path.insert(0, peridot_root)
-if utils_path not in sys.path:
-    sys.path.insert(0, utils_path)
 
 from config import AI_SERVER_URL
-from benchmark_utils import BenchmarkResult, get_system_info, logger
-
-# DIRECTORY FIX: Removed one .parent to stay inside the benchmarking directory
-RESULTS_DIR = Path(__file__).parent / "results"
-
-
-def get_ephemeral_key():
-    """Forensically extracts the RAM-only API key from the running server process."""
-    try:
-        for proc in psutil.process_iter(["name", "cmdline"]):
-            cmdline = proc.info.get("cmdline") or []
-            cmd_str = " ".join(cmdline).lower()
-            if "server.py" in cmd_str or "launcher.py" in cmd_str:
-                env = proc.environ()
-                key = env.get("API_KEY") or env.get("PERIDOT_AUTH_TOKEN")
-                if key:
-                    return key
-    except Exception as e:
-        logger.debug(f"Process memory inspection failed: {e}")
-
-    # Fallback if extraction fails
-    from config import API_KEY
-
-    return API_KEY
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
+    BenchmarkResult,
+    get_ephemeral_key,
+    get_system_info,
+    logger,
+)
 
 
 class GPUMonitor:
@@ -66,6 +38,11 @@ class GPUMonitor:
         self.running = False
         self.thread = None
 
+        # Deliberately NOT benchmark_utils.get_vram_mb(): that helper does a
+        # full nvmlInit/query/nvmlShutdown per call, which is both wrong and
+        # expensive inside a 0.5s sampling loop, and it reports memory only.
+        # This monitor holds one handle open and samples utilisation,
+        # temperature and power. Different job, not a duplicate.
         try:
             import pynvml
 
@@ -281,14 +258,14 @@ def main():
     logger.info("GPU UTILIZATION SUMMARY")
     logger.info("=" * 60 + "\n")
 
-    logger.info(f"Idle GPU utilization:")
+    logger.info("Idle GPU utilization:")
     logger.info(f"  Mean: {idle_stats['utilization']['mean']:.1f}%")
     logger.info(
         f"  Range: {idle_stats['utilization']['min']:.1f}% - {idle_stats['utilization']['max']:.1f}%"
     )
     logger.info("")
 
-    logger.info(f"Active GPU utilization (during inference):")
+    logger.info("Active GPU utilization (during inference):")
     logger.info(f"  Mean: {active_stats['utilization']['mean']:.1f}%")
     logger.info(f"  Median: {active_stats['utilization']['median']:.1f}%")
     logger.info(
@@ -302,18 +279,18 @@ def main():
     elif active_stats["utilization"]["mean"] > 50:
         logger.info("[OK] Good GPU utilization (>50%)")
     else:
-        logger.warning(f"[WARN] Low GPU utilization (<50%)")
+        logger.warning("[WARN] Low GPU utilization (<50%)")
 
     logger.info("")
 
-    logger.info(f"Temperature:")
+    logger.info("Temperature:")
     logger.info(f"  Idle: {idle_stats['temperature']['mean']:.1f}°C")
     logger.info(f"  Active: {active_stats['temperature']['mean']:.1f}°C")
     logger.info(f"  Peak: {active_stats['temperature']['max']:.1f}°C")
     logger.info("")
 
     if "power" in active_stats:
-        logger.info(f"Power consumption:")
+        logger.info("Power consumption:")
         logger.info(f"  Average: {active_stats['power']['mean']:.1f}W")
         logger.info(f"  Peak: {active_stats['power']['max']:.1f}W")
         logger.info("")

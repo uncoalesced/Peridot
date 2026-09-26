@@ -6,24 +6,25 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
+import json
 import requests
 import sys
 import time
 import os
-import logging
 import importlib
 
 from core_system.enhancedlogger import logger
 from core_system.command_router import CommandRouter
 from core_system.research import MedicalResearchModule
 from core_system.security import sanitize_input, load_constitution
-from core_system.memory.vault import PersistentVault
-from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY
+from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY, SERVER_HOST, SERVER_PORT
 
 from core_system.memory.chat_ledger import get_chat_ledger
-from core_system.prompting.constitution import parse_kernel_response
+from core_system.prompting.constitution import parse_kernel_response, stream_visible_body
 
 ACTIVE_API_KEY = API_KEY
+INGEST_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ingest"
+STREAM_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ask/stream"
 
 # A launch more than this far after the last message starts a fresh session
 # instead of continuing the previous one.
@@ -54,14 +55,36 @@ class PeridotCore:
         self.research = MedicalResearchModule(core=self)
         self.command_router = CommandRouter(core=self)
         
-        # [v2.0] Layer 2 Persistent PDF Vault
-        self.vault = PersistentVault()
-        
+        # [v2.0] Layer 2 Persistent PDF Vault -- owned by the server process.
+        # Loaded here lazily, only for the `vault <query>` command (see the
+        # `vault` property): building it pulls torch + sentence-transformers
+        # into the UI process at startup for nothing else.
+        self._vault = None
+
         # Phase 4: Chat Ledger for persistent multi-session memory
         self.chat_ledger = get_chat_ledger()
         self._ensure_active_session()
         
         self.logger.info("Kernel logic initialised.", source="CORE")
+
+    @property
+    def vault(self):
+        if self._vault is None:
+            from core_system.memory.vault import PersistentVault
+            self._vault = PersistentVault()
+        return self._vault
+
+    def ingest_via_server(self) -> int:
+        """Run ingestion in the server process, which owns the searched index.
+
+        Ingesting into a UI-side PersistentVault wrote to disk but left the
+        server's in-memory index stale, so new documents were invisible to RAG
+        until the server restarted. Returns the server's sector count.
+        """
+        headers = {"Authorization": f"Bearer {ACTIVE_API_KEY}"}
+        r = requests.post(INGEST_URL, headers=headers, timeout=3600)
+        r.raise_for_status()
+        return r.json().get("sectors", 0)
 
     def _ensure_active_session(self):
         if self.current_session_id is None:
@@ -126,7 +149,9 @@ class PeridotCore:
         if ears_class:
             try:
                 self.ears = ears_class()
-                self.ears.load_model_async(callback=lambda s: self._notify("Audio", s))
+                # Whisper loads on the first voice command, not at startup.
+                if self.ui:
+                    self.ui.display_system_message(">> Audio Subsystem: [STANDBY - loads on first use]")
             except Exception as e:
                 self.logger.error(f"Audio initialisation failed: {e}")
                 self._notify("Audio", False, "Initialisation error")
@@ -138,7 +163,7 @@ class PeridotCore:
         if self.ui:
             self.ui.display_system_message(f">> {name} Subsystem: [{status}]")
 
-    def respond_to_input(self, text):
+    def respond_to_input(self, text, on_delta=None):
         if not text.strip():
             return
 
@@ -154,8 +179,8 @@ class PeridotCore:
         if clean_text.lower() == "/ingest":
             self.logger.info("Manual ingestion sequence triggered.", source="CORE")
             try:
-                self.vault.ingest_directory()
-                return "Vault ingestion sequence completed. Check terminals for chunk metrics."
+                sectors = self.ingest_via_server()
+                return f"Vault ingestion sequence completed ({sectors} sectors). Check terminals for chunk metrics."
             except Exception as e:
                 return f"[SYSTEM FAULT] Ingestion failed: {e}"
 
@@ -166,26 +191,22 @@ class PeridotCore:
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        response = self._ask_ai_with_memory(clean_text)
+        response = self._ask_ai_with_memory(clean_text, on_delta=on_delta)
         
         return response
 
-    def _ask_ai_with_memory(self, user_text):
+    def _ask_ai_with_memory(self, user_text, on_delta=None):
         self._ensure_active_session()
         
         self.chat_ledger.add_message(self.current_session_id, "user", user_text)
         self._autotitle_session(user_text)
 
-        history = self.chat_ledger.get_history(self.current_session_id, limit=6)
-        
-        prompt_segments = []
-        for msg in history:
-            role_header = "[USER]" if msg['role'] == 'user' else "[PERIDOT]"
-            prompt_segments.append(f"{role_header}\n{msg['content']}\n")
-            
-        full_prompt = "\n".join(prompt_segments)
-
-        response = self._send_to_server(query=user_text, prompt=full_prompt, session_id=self.current_session_id)
+        # The server rebuilds history itself from the ledger by session_id (in
+        # the model's own chat format); a client-side transcript used to be
+        # built and sent here as "prompt" and was never read.
+        response = self._send_to_server(
+            query=user_text, session_id=self.current_session_id, on_delta=on_delta
+        )
         
         if "[SYSTEM ERROR]" not in response and "[HTTP ERROR]" not in response:
             # Persist ONLY the answer body, never the [ANALYSIS] scaffolding or
@@ -214,23 +235,47 @@ class PeridotCore:
             self.chat_ledger.update_session_title(self.current_session_id, title)
 
     def _ask_ai_isolated(self, prompt):
-        return self._send_to_server(query=prompt, prompt=prompt)
+        return self._send_to_server(query=prompt)
 
-    def _send_to_server(self, query, prompt, session_id=None):
+    def _send_to_server(self, query, session_id=None, on_delta=None):
+        """POST the query; with on_delta, stream it via /ask/stream.
+
+        on_delta(visible_text) is called with the answer text shown so far
+        (reasoning and [ANALYSIS] scaffolding hidden). Either way the return
+        value is the final formatted response, same as /ask's.
+        """
         try:
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {ACTIVE_API_KEY}"
             }
-            
-            payload = {"query": query, "prompt": prompt}
+
+            payload = {"query": query}
             if session_id:
                 payload["session_id"] = session_id
-            r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=900)
+
+            if on_delta is None:
+                r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=900)
+                r.raise_for_status()
+                return r.json().get("response", "No response from brain.")
+
+            r = requests.post(STREAM_URL, json=payload, headers=headers, timeout=900, stream=True)
             r.raise_for_status()
-            
-            return r.json().get("response", "No response from brain.")
-            
+            raw = ""
+            for line in r.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                event = json.loads(line)
+                if "delta" in event:
+                    raw += event["delta"]
+                    on_delta(stream_visible_body(raw))
+                elif event.get("done"):
+                    status = event.get("status", 200)
+                    if status >= 400:
+                        return f"[HTTP ERROR] {status}: {event.get('error') or event.get('response', '')}"
+                    return event.get("response", "No response from brain.")
+            return "[SYSTEM ERROR] Stream ended without a final response."
+
         except requests.exceptions.HTTPError as e:
             if r.status_code == 403:
                 return "[SECURITY BLOCK] API Key rejected. Handshake failed. Ensure ACTIVE_API_KEY matches server."
@@ -252,7 +297,7 @@ class PeridotCore:
                 "Authorization": f"Bearer {ACTIVE_API_KEY}"
             }
             requests.post(SHUTDOWN_URL, headers=headers, timeout=2)
-        except Exception as e:
+        except Exception:
             pass
 
         sys.exit(0)

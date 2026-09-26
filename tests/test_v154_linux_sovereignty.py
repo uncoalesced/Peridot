@@ -369,75 +369,28 @@ def test_model_download_destination_confined(tmp_path):
 QWEN_27B = "Qwen3.8-27B-UD-Q2_K_XL.gguf"
 
 
-def test_default_model_is_loadable_by_the_pinned_runtime():
+def test_default_model_is_the_benchmarked_27b():
     """
-    The 27B was reverted as default post-v1.5.4: llama-cpp-python 0.3.23 cannot
-    load it (declares qwen35.nextn_predict_layers=1, an MTP head at block 64,
-    which the runtime builds as a standard hybrid layer and then demands a
-    nonexistent ssm_conv1d tensor). Verified against a byte-exact re-download.
+    History: the 27B was reverted as default post-v1.5.4 because
+    llama-cpp-python 0.3.23 could not load its Q2_K_XL quant (MTP head at block
+    64). Re-promoted 2026-09-25 as the IQ1_S quant, only after the conditions
+    that revert set were met: a runtime that loads it (source build of
+    llama-cpp-python ea3b56bd on CUDA 13.1, scripts/build_llama_cpp_python.ps1)
+    and a real benchmark (23.6 t/s fully offloaded, decode_rate_20260925_224748).
 
-    Guard the revert so the 27B is not silently re-promoted before the runtime
-    can actually load it.
+    Guards against silently landing on either old default: the unloadable
+    Q2_K_XL, or the 14B that only fits 28/48 layers on 8GB (5.3 t/s).
     """
     if "ACTIVE_MODEL_NAME" in os.environ:
         pytest.skip("operator override active")
-    assert config.ACTIVE_MODEL_NAME != QWEN_27B, (
-        "Qwen3.8-27B is not loadable by the pinned llama-cpp-python. "
-        "Do not restore it as default until MTP (nextn_predict_layers) support "
-        "lands and a real benchmark exists."
-    )
-    assert config.ACTIVE_MODEL_NAME == "Qwen2.5-14B-Instruct-Q4_K_M.gguf"
+    assert config.ACTIVE_MODEL_NAME != QWEN_27B
+    assert config.ACTIVE_MODEL_NAME == "Qwen3.8-27B-UD-IQ1_S.gguf"
 
 
-def test_qwen_27b_has_a_provisional_pin():
-    """Pin is retained but dormant -- ready for when MTP support lands."""
-    if QWEN_27B not in config._PROVISIONAL_GPU_LAYERS:
-        pytest.skip(
-            "Q2_K_XL superseded on disk by Qwen3.8-27B-UD-IQ1_S.gguf, which the "
-            "auto heuristic already fully offloads -- see config.py's "
-            "_PROVISIONAL_GPU_LAYERS comment."
-        )
-    pinned = config._PROVISIONAL_GPU_LAYERS[QWEN_27B]
-    assert 0 < pinned < 99, "Provisional pin must be a partial offload, not full-GPU"
-
-
-def test_qwen_27b_gguf_still_declares_an_mtp_head():
-    """
-    Pins the actual root cause so a future re-download or runtime bump can be
-    checked against it. Reads GGUF metadata directly -- no model load, no GPU.
-
-    If this ever fails because nextn_predict_layers is gone, the file changed
-    and the 27B is worth re-testing as default.
-    """
-    gguf = config.MODEL_DIR / QWEN_27B
-    if not gguf.exists():
-        pytest.skip("Qwen3.8-27B GGUF not present locally")
-
-    raw = gguf.read_bytes()[:2_000_000]
-    assert b"GGUF" == raw[:4], "not a GGUF container"
-    assert b"qwen35.nextn_predict_layers" in raw, (
-        "MTP head marker absent -- the file changed; re-test whether "
-        "llama-cpp-python can load it now."
-    )
-    assert b"qwen35.block_count" in raw
-
-
-def test_provisional_pin_is_lower_than_the_unvalidated_heuristic():
-    """
-    Guards the whole point of the pin: the auto-heuristic was tuned on 4-bit
-    8B-14B models and reads high for a 2-bit 27.8B. If a future edit makes the
-    pin the looser of the two, boot safety is gone.
-    """
-    if QWEN_27B not in config._PROVISIONAL_GPU_LAYERS:
-        pytest.skip(
-            "Q2_K_XL superseded on disk by Qwen3.8-27B-UD-IQ1_S.gguf, which the "
-            "auto heuristic already fully offloads -- see config.py's "
-            "_PROVISIONAL_GPU_LAYERS comment."
-        )
-    model_mb = 10700   # measured size of the shipped Q2_K_XL file
-    vram_mb = 8151     # RTX 5050 Laptop, the validated reference GPU
-    heuristic = config._calculate_gpu_layers(model_mb, vram_mb)
-    assert config._PROVISIONAL_GPU_LAYERS[QWEN_27B] <= heuristic
+def test_iq1s_default_fully_offloads_on_reference_gpu():
+    """IQ1_S (5905MB) needs no provisional pin: the heuristic offloads it fully on 8GB."""
+    assert "Qwen3.8-27B-UD-IQ1_S.gguf" not in config._PROVISIONAL_GPU_LAYERS
+    assert config._calculate_gpu_layers(5905, 8151) == 99
 
 
 def test_cpu_only_host_still_gets_zero_layers():

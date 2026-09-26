@@ -180,6 +180,10 @@ class BaseInferenceProvider(ABC):
         if not self.is_loaded:
             raise ProviderLoadError(f"{type(self).__name__} is not loaded.")
 
+        # Optional per-chunk callback, so a caller can stream text to a client
+        # while still getting the timed GenerationResult at the end.
+        on_chunk = params.pop("on_chunk", None)
+
         prompt_tokens = self.token_count(prompt)
 
         start = time.perf_counter()
@@ -190,6 +194,8 @@ class BaseInferenceProvider(ABC):
             if first_token_at is None:
                 first_token_at = time.perf_counter()
             chunks.append(chunk)
+            if on_chunk is not None:
+                on_chunk(chunk)
 
         end = time.perf_counter()
         text = "".join(chunks)

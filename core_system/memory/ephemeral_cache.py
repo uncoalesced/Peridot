@@ -69,7 +69,7 @@ class EphemeralCache:
             response: The AI's response text
         """
         emb = self._get_normalized_embedding(query)
-        # Use query hash as stable ID for potential future deletion
+        # ID encodes the position in self.responses; search() parses it back.
         cache_id = f"cache_{len(self.queries)}"
         self.index.add_with_ids(emb, [cache_id])
         self.queries.append(query)
@@ -95,8 +95,7 @@ class EphemeralCache:
         if len(distances) == 0:
             return None
 
-        # Convert L2 distance to similarity score
-        # For normalized vectors: cosine_sim = 1 - (distance^2 / 2)
+        # Map L2 distance to a (0, 1] similarity score
         best_distance = float(distances[0])
         best_score = 1.0 / (1.0 + best_distance)
 

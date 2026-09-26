@@ -106,6 +106,18 @@ def get_model_format(model_path: Path) -> str:
         return "mistral"
     return "chatml"
 
+# FreeThink registry (v1.6.x): tokenizer.ggml.pre values of models that reason
+# natively in <think>...</think> and then answer. Parentheses gets one entry
+# here once its GGUF metadata is known -- no new code path.
+_THINKING_VOCAB_PRE: frozenset[str] = frozenset({"qwen35"})
+
+
+def model_supports_thinking(model_path: Path) -> bool:
+    """True for models with native <think> reasoning (see _THINKING_VOCAB_PRE)."""
+    _arch, vocab_pre = _read_gguf_metadata(model_path)
+    return vocab_pre in _THINKING_VOCAB_PRE
+
+
 def get_chat_template(model_format: str) -> dict:
     """Return correct chat template tokens for the given model format."""
     if model_format == "llama3":
@@ -141,10 +153,18 @@ def get_chat_template(model_format: str) -> dict:
 def build_system_prompt(
     context_str: str = "",
     model_format: str = "chatml",
+    thinking: bool = False,
 ) -> str:
     """
     Surgically compiles the hard constitution boundaries with live RAG vectors.
     Forces dual-phase reasoning loop, preventing language bleed.
+
+    thinking=True (FreeThink scaffold bypass, for model_supports_thinking()
+    models): the model's own <think> block replaces the [ANALYSIS] /
+    [KERNEL_RESPONSE] mandate, so that mandate and every rule demanding it are
+    left out. Measured 2026-09-25 on Qwen3.8-27B: with the mandate, 4 of 6
+    short questions closed an empty <think> and then stopped with no answer
+    (each costing a retry); the same questions without it answered directly.
     """
     constitution = load_constitution()
     perimeter = constitution.get("system_perimeter", {})
@@ -156,12 +176,19 @@ def build_system_prompt(
     protocol = exec_proto.get("structure", "Output must follow [ANALYSIS] and [KERNEL_RESPONSE] blocks strictly.")
     constraints = exec_proto.get("behavioral_constraints", [])
 
+    if thinking:
+        scaffold = ("[ANALYSIS]", "[KERNEL_RESPONSE]")
+        rules = [r for r in rules if not any(tag in r for tag in scaffold)]
+        constraints = [c for c in constraints if not any(tag in c for tag in scaffold)]
+        protocol = ("Reason privately inside <think></think>, then give the answer "
+                    "directly after </think>. No headers or preamble.")
+
     tmpl = get_chat_template(model_format)
 
     sys_prompt = tmpl["sys_start"]
     sys_prompt += f"CORE IDENTITY: {identity}\n"
     sys_prompt += f"LANGUAGE CONSTRAINT: {lang_guard}\n\n"
-    sys_prompt += f"STRUCTURAL PARSE MANDATE:\n{protocol}\n\n"
+    sys_prompt += f"{'RESPONSE FORMAT' if thinking else 'STRUCTURAL PARSE MANDATE'}:\n{protocol}\n\n"
 
     if rules or constraints:
         sys_prompt += "BEHAVIORAL CONSTRAINTS & HARD RULES:\n"
@@ -183,14 +210,6 @@ def build_system_prompt(
 
     sys_prompt += tmpl["sys_end"]
     return sys_prompt
-
-def get_assistant_start(model_format: str) -> str:
-    """Get the assistant start token for the model format."""
-    return get_chat_template(model_format)["assistant_start"]
-
-def get_stop_tokens(model_format: str) -> list:
-    """Get stop tokens for the model format."""
-    return get_chat_template(model_format)["stop_tokens"]
 
 # --- RESPONSE CONTRACT PARSING ---------------------------------------------
 # The constitution mandates that every reply is [ANALYSIS] ... [KERNEL_RESPONSE]
@@ -239,6 +258,27 @@ def parse_kernel_response(raw: str) -> tuple[str, str]:
         return analysis, strip_reasoning(body)
 
     return "", text
+
+
+def stream_visible_body(raw: str) -> str:
+    """
+    The part of a partially streamed completion that is safe to show live.
+
+    Hides reasoning (<think>, closed or not) and the [ANALYSIS] preamble:
+    nothing is visible until [KERNEL_RESPONSE] appears, unless the model is
+    answering without the scaffold at all. A half-streamed tag ("[ANA",
+    "<thi") also stays hidden. The final text is still rendered from
+    parse_kernel_response() once the stream completes.
+    """
+    text = strip_reasoning(raw or "")
+    if "[KERNEL_RESPONSE]" in text:
+        return text.partition("[KERNEL_RESPONSE]")[2].lstrip()
+    head = text.lstrip()
+    if head.startswith("[ANALYSIS]") or any(
+        tag.startswith(head) for tag in ("[ANALYSIS]", "[KERNEL_RESPONSE]", _THINK_OPEN)
+    ):
+        return ""
+    return text
 
 
 def format_kernel_response(analysis: str, body: str) -> str:

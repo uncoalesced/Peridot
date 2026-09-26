@@ -12,6 +12,7 @@ import logging
 import secrets
 import subprocess
 from pathlib import Path
+import psutil
 from dotenv import load_dotenv, set_key
 
 # Initialize basic logging for the bootstrap phase
@@ -23,11 +24,20 @@ logger = logging.getLogger("Peridot-Config")
 # -----------------------------------------------------------------------------
 def _detect_total_vram_mb() -> int:
     """
-    Detect total GPU VRAM in MB using nvidia-smi.
+    Detect total GPU VRAM in MB via NVML, falling back to nvidia-smi.
     Returns 0 if detection fails (CPU-only or no NVIDIA GPU).
     Cross-platform: works on Windows NT and Linux/Unix.
+
+    NVML first because this runs at import in every process (launcher, server,
+    UI): measured 2026-09-25, nvidia-smi took ~1.7s per call vs ~0.1s for NVML.
     """
-    import sys
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        return int(pynvml.nvmlDeviceGetMemoryInfo(handle).total // (1024 * 1024))
+    except Exception:
+        pass
     try:
         # Safe subprocess call without shell=True
         cmd = ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"]
@@ -127,7 +137,8 @@ load_dotenv(override=True)
 #
 # huggingface_hub reads these at *import* time, so this must run before any
 # transformers / sentence-transformers / huggingface_hub import. config is the
-# first Peridot module imported by server.py, main.py and setup.py, so this is
+# first Peridot module imported by server.py, main.py and install_wizard.py,
+# so this is
 # the earliest reliable point.
 #
 # Model downloads are NOT done here. They run in an isolated child process
@@ -173,7 +184,17 @@ for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH
 # Unblocked by llama-cpp-python >= a release with qwen35 MTP support (0.3.35 is
 # current; 0.3.23 is pinned). That upgrade requires a cuBLAS rebuild and belongs
 # with the v1.6.x inference-provider work, not a patch bump.
-ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen2.5-14B-Instruct-Q4_K_M.gguf")
+#
+# 2026-09-25: unblocked. scripts/build_llama_cpp_python.ps1 builds
+# llama-cpp-python ea3b56bd (llama.cpp fb34fc262) with native sm_120 kernels on
+# CUDA 13.1, and the on-disk quant is now UD-IQ1_S (5.9GB, nextn_predict_layers
+# 0 -- no MTP head). Measured on RTX 5050 Laptop 8GB, fully offloaded:
+# 23.6 t/s decode, ~500 t/s prefill on a 1.7k-token prompt
+# (benchmarking/results/decode_rate_20260925_224748.json,
+# decode_sweep_20260925_225519.json) -- vs 5.3 t/s / 34 t/s for the 14B, which
+# only fits 28 of 48 layers. Requires the source build: the PyPI 0.3.23 wheel
+# still cannot load it (fall back with ACTIVE_MODEL_NAME=Qwen2.5-14B-...).
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen3.8-27B-UD-IQ1_S.gguf")
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
 # Dynamic hardware-aware configuration
@@ -195,11 +216,48 @@ else:
 GPU_LAYERS: int = int(os.getenv("GPU_LAYERS", str(_default_gpu_layers)))
 
 # CONTEXT_LENGTH: Auto-calculate based on total VRAM
-CONTEXT_LENGTH: int = int(os.getenv("CONTEXT_LENGTH", str(_calculate_context_length(_TOTAL_VRAM_MB))))
+# Measured context windows per model, by VRAM size, overriding the generic
+# heuristic. KV bytes per token are model-specific (the 27B is hybrid Gated
+# DeltaNet: only its attention layers keep a KV cache), so a VRAM-only rule
+# either wastes most of the window or overflows. Measured 2026-09-25, RTX 5050
+# 8GB, KV q8_0, fully offloaded -- VRAM used: 4k 6626MB, 8k 6766MB, 16k 7030MB,
+# 32k 7596MB, 64k saturated. 16k leaves ~1.1GB for the desktop and the
+# watchdog's total-100MB margin; 32k would leave ~550MB.
+_MEASURED_CONTEXT: dict[tuple[str, int], int] = {
+    # (model, minimum total VRAM MB) -> context length
+    ("Qwen3.8-27B-UD-IQ1_S.gguf", 8000): 16384,
+}
+_measured_context = max(
+    (ctx for (name, min_vram), ctx in _MEASURED_CONTEXT.items()
+     if name == ACTIVE_MODEL_NAME and _TOTAL_VRAM_MB >= min_vram),
+    default=None,
+)
+if _measured_context and os.getenv("KV_CACHE_TYPE", "f16") == "f16":
+    # The table was measured with q8_0 KV; f16 roughly doubles the attention KV
+    # (27B f16: 8k 7006MB, 16k 7510MB -- 16k would leave only ~640MB).
+    _measured_context //= 2
+CONTEXT_LENGTH: int = int(os.getenv(
+    "CONTEXT_LENGTH", str(_measured_context or _calculate_context_length(_TOTAL_VRAM_MB))
+))
 
 MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "1024"))
-THREADS: int = int(os.getenv("THREADS", "8"))
+# Decode threads = physical cores (hyperthreads contend for the same FPUs and
+# slow token generation); batch/prefill threads may use every logical core.
+_PHYSICAL_CORES: int = psutil.cpu_count(logical=False) or os.cpu_count() or 8
+THREADS: int = int(os.getenv("THREADS", str(_PHYSICAL_CORES)))
+THREADS_BATCH: int = int(os.getenv("THREADS_BATCH", str(os.cpu_count() or _PHYSICAL_CORES)))
 BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "1024"))
+# Physical micro-batch per GPU launch. Smaller than BATCH_SIZE shrinks the CUDA
+# compute buffer, leaving VRAM for layers/KV. Tuned by
+# `python -m benchmarking.benchmark_decode_rate --sweep`.
+UBATCH_SIZE: int = int(os.getenv("UBATCH_SIZE", "512"))
+# KV cache precision: f16 | q8_0 | q4_0 (quantized needs flash attention, which
+# the provider always enables). Default f16: measured 2026-09-25, q8_0 costs no
+# speed (23.2 vs 23.5 t/s) but on the 1.6-bit Qwen3.8-27B-UD-IQ1_S it made the
+# model stop after 2-3 tokens under the full system prompt on 6/6 samples,
+# vs 1/6 with f16. Quantizing KV on top of an extreme weight quant is not free.
+# q8_0 remains a valid override for less aggressively quantized models.
+KV_CACHE_TYPE: str = os.getenv("KV_CACHE_TYPE", "f16")
 
 # Sampling. These are calibration knobs, not constants -- every env var below
 # still overrides. The defaults were near-greedy (temp 0.1 / top_p 0.9), which
@@ -226,7 +284,12 @@ SHUTDOWN_URL: str = f"http://{SERVER_HOST}:{SERVER_PORT}/shutdown"
 ENV_PATH = ROOT_PATH / ".env"
 if not os.getenv("API_KEY"):
     new_key = secrets.token_hex(32)
-    logger.warning(f"No API_KEY found. Generated new secure key: {new_key}")
+    # Never log the key itself. This previously interpolated `new_key` into the
+    # message, so a live 64-character credential was written to stdout and to
+    # logs/ on first boot -- in both the server and the client process, since
+    # each imports config.py independently. The key is persisted to .env below;
+    # that file is the intended place to read it from.
+    logger.warning("No API_KEY found. Generated a new secure key and wrote it to .env")
     if ENV_PATH.exists():
         set_key(str(ENV_PATH), "API_KEY", new_key)
     else:
@@ -240,6 +303,12 @@ os.environ["PERIDOT_AUTH_TOKEN"] = API_KEY
 # --- MEDICAL RESEARCH CLUSTER (FAH v8) ---
 RESEARCH_IDLE_THRESHOLD: int = int(os.getenv("RESEARCH_IDLE_THRESHOLD", "30")) # Time (s) before VRAM yields
 RESEARCH_CHECK_INTERVAL: int = int(os.getenv("RESEARCH_CHECK_INTERVAL", "10")) # Polling rate (s)
+
+# ZAT-SCS predictive preemption (always-on mic RMS stream + global keyboard hook
+# at 10Hz, pre-warming the GPU before a prompt is sent). Opt-in: with the
+# F@H handoff no longer costing ~2s per request, its benefit is small, and an
+# always-open microphone/keyboard hook is not a default a sovereign app should ship.
+ZAT_SCS_ENABLED: bool = os.getenv("ZAT_SCS_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
 
 # -----------------------------------------------------------------------------
 # HARDWARE TELEMETRY EXPORTS (for UI and other modules)

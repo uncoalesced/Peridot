@@ -17,7 +17,7 @@
 """
 PERIDOT SETUP WIZARD v1.5.4 - ZAT-SCS
 Intelligent hardware detection, VRAM profiling, and engine configuration
-Supports NVIDIA GPUs, AMD GPUs, and CPU-only fallback
+Supports NVIDIA GPUs and CPU-only fallback
 """
 
 import os
@@ -30,8 +30,6 @@ from typing import Dict
 import urllib.request
 
 class Colors:
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
     CYAN = '\033[96m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'

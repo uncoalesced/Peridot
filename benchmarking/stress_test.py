@@ -5,7 +5,6 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
-import os
 import sys
 import time
 import requests
@@ -16,19 +15,22 @@ from pathlib import Path
 # Move up one directory level from benchmarking/ to locate project configuration roots
 _BENCHMARK_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = _BENCHMARK_DIR.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
 # Real-time asset mapping to scrape the internal backend secret keys
 API_KEY = "DEV_FALLBACK"
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 5000
 
-# 1. First Attempt: Extract live key directly from core config environment
+# 1. First Attempt: Extract live key directly from core config environment.
+# Read config.API_KEY, not os.getenv("API_KEY"): config.py mints and persists a
+# key when none is set, so the environment can legitimately be empty while
+# config still holds the live key. This previously did os.getenv() and assigned
+# None over the DEV_FALLBACK, which the `except ImportError` cannot catch --
+# skipping the .env fallback below and sending "Authorization: Bearer None".
 try:
     import config
 
-    import os
-    API_KEY = os.getenv("API_KEY")
+    API_KEY = config.API_KEY or API_KEY
     SERVER_HOST = getattr(config, "SERVER_HOST", SERVER_HOST)
     SERVER_PORT = getattr(config, "SERVER_PORT", SERVER_PORT)
 except ImportError:

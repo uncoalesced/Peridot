@@ -48,7 +48,7 @@ class MedicalResearchModule:
         try:
             info = pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
             return info.free // 1024 // 1024
-        except Exception as e:
+        except Exception:
             return 0
 
     def check_installation(self) -> bool:

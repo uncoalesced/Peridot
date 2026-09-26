@@ -13,9 +13,7 @@ Stores sessions and messages in SQLite for sovereignty and auditability.
 import sqlite3
 import uuid
 import time
-from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 
 from config import STORAGE_PATH
 from core_system.audit import ghost
@@ -67,12 +65,19 @@ class ChatLedger:
         """
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA foreign_keys = ON")
+        # Durable in WAL mode (set in _init_db) at one fsync per checkpoint
+        # instead of one per commit.
+        conn.execute("PRAGMA synchronous = NORMAL")
         conn.row_factory = sqlite3.Row
         return conn
 
     def _init_db(self):
         """Initialize the SQLite database with sessions and messages tables."""
         with self._connect() as conn:
+            # Persistent per database file. The server (history reads) and the
+            # UI process (turn writes) share this file; WAL lets a reader and a
+            # writer proceed concurrently instead of hitting "database is locked".
+            conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
@@ -128,7 +133,7 @@ class ChatLedger:
         if ghost:
             try:
                 ghost.info(f"CHAT_LEDGER | Created session {session_id[:8]}: {title}")
-            except Exception as e:
+            except Exception:
                 pass
         return session_id
 

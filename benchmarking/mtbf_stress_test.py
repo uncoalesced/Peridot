@@ -12,18 +12,16 @@ Tests hardware handoff reliability and autonomous RAG degradation under sustaine
 import json
 import time
 import requests
-import threading
 from datetime import datetime
 from pathlib import Path
 import sys
 
 # Add project root to path
 ROOT_PATH = Path(__file__).parent.parent.resolve()
-sys.path.insert(0, str(ROOT_PATH))
 
 from config import (
     SERVER_HOST, SERVER_PORT, API_KEY,
-    RESEARCH_IDLE_THRESHOLD, RESEARCH_CHECK_INTERVAL
+    RESEARCH_IDLE_THRESHOLD
 )
 
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
@@ -116,7 +114,6 @@ def stress_test_loop(duration_seconds: int):
     session_id = None  # We'll reuse session for continuity
 
     while time.time() < end_time:
-        loop_start = time.time()
 
         # 1. Send heavy inference request (triggers potential handoff)
         heavy_resp = send_inference_request(HEAVY_PROMPT, session_id)
@@ -203,11 +200,10 @@ def stress_test_loop(duration_seconds: int):
             # Small delay between rapid queries
             time.sleep(0.5)
 
-        # Calculate remaining time to maintain approximate cycle timing
-        cycle_elapsed = time.time() - loop_start
-        # Target cycle time: research threshold + request overhead + burst
-        # We'll just sleep a bit to avoid hammering
-        time.sleep(max(0, 2))
+        # Brief pause between cycles so the server is not hammered back to back.
+        # A previous revision computed the elapsed cycle time here to hold a
+        # target cadence; that was never wired to the sleep, so it is gone.
+        time.sleep(2)
 
     log_event("stress_test_end", {
         "total_duration_seconds": time.time() - start_time,

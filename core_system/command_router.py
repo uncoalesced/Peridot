@@ -77,8 +77,7 @@ class CommandRouter:
             self.core.ui.display_system_message(">> Vectorizing data on Ryzen CPU. Please wait...")
         
         try:
-            self.core.vault.ingest_directory()
-            sectors = self.core.vault.index.ntotal if self.core.vault.index else 0
+            sectors = self.core.ingest_via_server()
             return f"[SYSTEM] Ingestion complete. Layer 2 Vault is online with {sectors} secured sectors."
         except Exception as e:
             logger.error(f"Ingestion failed: {e}")
@@ -128,17 +127,18 @@ class CommandRouter:
             else "OFFLINE"
         )
         
-        vault_status = (
-            f"ONLINE ({self.core.vault.index.ntotal} sectors)"
-            if getattr(self.core, "vault", None) and self.core.vault.index
-            else "OFFLINE"
-        )
-        
+        # The vault lives in the server process; its sector count comes back
+        # with /research/status (reading core.vault here would load torch and
+        # the embedder into the UI just to count rows).
+        vault_status = "OFFLINE"
+
         research_status = "UNKNOWN"
         try:
             r = requests.get(f"{BASE_URL}/research/status", headers=HEADERS, timeout=5)
             if r.status_code == 200:
                 data = r.json()
+                if data.get("vault_sectors") is not None:
+                    vault_status = f"ONLINE ({data['vault_sectors']} sectors)"
                 if data.get("enabled"):
                     research_status = "FOLDING" if data.get("active") else "IDLE MONITORING"
                 else:

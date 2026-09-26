@@ -14,52 +14,20 @@ Tests for memory leaks by running many consecutive queries.
 
 import sys
 import time
-import psutil
-from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# PATH BOOTSTRAPPING FIX
-# -----------------------------------------------------------------------------
-benchmarking_dir = Path(__file__).parent.absolute()
-peridot_root = benchmarking_dir.parent
-utils_path = benchmarking_dir / "utils"
 
-for path in [str(peridot_root), str(utils_path)]:
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-from benchmark_utils import (
-    BenchmarkResult,
-    get_system_info,
-    format_bytes,
-    logger,
-    ProgressBar,
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
     AetherClient,
+    BenchmarkResult,
+    ProgressBar,
     check_peridot_running,
+    get_peridot_memory,
+    get_system_info,
+    logger,
 )
 
 # DIRECTORY FIX: Stay inside benchmarking
-RESULTS_DIR = benchmarking_dir / "results"
-
-
-def get_peridot_memory():
-    """Get memory usage of Peridot process."""
-    for proc in psutil.process_iter(["pid", "name", "cmdline", "memory_info"]):
-        try:
-            cmdline = proc.info.get("cmdline") or []
-            if cmdline and any(
-                "launcher.py" in str(cmd).lower() or "server.py" in str(cmd).lower()
-                for cmd in cmdline
-            ):
-                mem_info = proc.memory_info()
-                return {
-                    "rss_mb": mem_info.rss / (1024 * 1024),
-                    "vms_mb": mem_info.vms / (1024 * 1024),
-                    "pid": proc.info["pid"],
-                }
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    return None
 
 
 def run_query(client: AetherClient, query_num: int):
@@ -195,7 +163,7 @@ def main():
         if abs(growth) < 50:
             logger.info("[OK] Memory stable (growth < 50 MB)")
         else:
-            logger.warning(f"[WARN] Significant memory growth detected!")
+            logger.warning("[WARN] Significant memory growth detected!")
 
     logger.info("")
 
@@ -211,7 +179,7 @@ def main():
     logger.info("")
 
     if query_times:
-        logger.info(f"Query performance:")
+        logger.info("Query performance:")
         logger.info(f"  Average: {statistics.mean(query_times):.3f}s")
         logger.info(f"  Median: {statistics.median(query_times):.3f}s")
         logger.info(f"  Std Dev: {statistics.stdev(query_times):.3f}s")

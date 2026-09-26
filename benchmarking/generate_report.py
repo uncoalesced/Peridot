@@ -11,17 +11,15 @@ Analyzes results from all benchmarks and creates formatted output.
 """
 
 import json
-import statistics
-import sys
 from pathlib import Path
 from datetime import datetime
 
 # Path Bootstrapping
 BASE_DIR = Path(__file__).parent.absolute()
-RESULTS_DIR = BASE_DIR / "results"
+# Shared with every benchmark via benchmark_utils; not recomputed here.
+from benchmarking.utils.benchmark_utils import RESULTS_DIR  # noqa: E402
 OUTPUT_DIR = BASE_DIR / "reports"
 
-sys.path.insert(0, str(BASE_DIR))
 try:
     import hardware_info
 except ImportError:
@@ -247,7 +245,7 @@ def generate_readme_section():
         total = metadata.get("avg_total_time_s", 0)
 
         output.append(f"- Model load: {startup_time - 1:.1f}s")
-        output.append(f"- Server init: ~1.0s")
+        output.append("- Server init: ~1.0s")
         output.append(f"- **Ready for queries: {startup_time:.1f}s**")
         if first_query:
             output.append(f"- Time to first response: {total:.1f}s")
@@ -489,11 +487,11 @@ def main():
     print("\n" + "=" * 60)
     print("Report generation complete!")
     print("=" * 60)
-    print(f"\nGenerated files:")
+    print("\nGenerated files:")
     print(f"  1. {readme_path}")
-    print(f"     (Copy this section into your main README.md)")
+    print("     (Copy this section into your main README.md)")
     print(f"  2. {benchmarks_path}")
-    print(f"     (Add this file to your repository root)")
+    print("     (Add this file to your repository root)")
     print("\nNext steps:")
     print("  1. Review the generated reports")
     print("  2. Copy README_PERFORMANCE_SECTION.md content into main README.md")

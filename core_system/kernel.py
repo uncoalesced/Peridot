@@ -28,6 +28,9 @@ class SovereignKernel:
     def __init__(self):
         self.state = KernelState.BOOT
         self.state_lock = threading.Lock()
+        # Signalled on every state change, so waiters (server.py's /ask) wake
+        # on the transition instead of polling the state every 100ms.
+        self.state_changed = threading.Condition(self.state_lock)
         self.event_queue = queue.Queue()
         self.is_running = True
         
@@ -51,6 +54,7 @@ class SovereignKernel:
                 return False
                 
             self.state = new_state
+            self.state_changed.notify_all()
             ghost.info(f"[STATE SHIFT] {old_state.name} -> {new_state.name} | {reason}")
             
             # ZAT-SCS Transition Hooks
@@ -71,6 +75,11 @@ class SovereignKernel:
                 adjust_gpu_mps(100)
                 
             return True
+
+    def wait_for_state(self, predicate, timeout: float) -> bool:
+        """Block until predicate(state) holds or timeout elapses; returns the outcome."""
+        with self.state_changed:
+            return self.state_changed.wait_for(lambda: predicate(self.state), timeout)
 
     def memory_watchdog_daemon(self):
         """Dedicated thread polling RTX 5050 VRAM registers every 100ms."""
@@ -100,7 +109,15 @@ class SovereignKernel:
             time.sleep(0.1) # 100ms polling rate
 
     def _execute_vram_purge(self):
-        """Hardware interrupt with actual VRAM verification."""
+        """Hardware interrupt with actual VRAM verification.
+
+        NOTE: in the running application this method is never reached.
+        server.py's PeridotProductionKernel overrides it with a variant that
+        also writes to the stability ledger and uses different reclaim
+        thresholds. This base implementation is exercised only by the
+        __main__ FSM self-test at the bottom of this module. Keep the two in
+        sync, or fold this one into the subclass, before relying on it.
+        """
         ghost.info("[HARDWARE] Sending SIGSTOP to Folding@home daemon...")
         
         # We wait up to 2 seconds for VRAM to physically clear
@@ -142,8 +159,11 @@ class SovereignKernel:
                         self._execute_vram_purge()
                         
                 elif event == "INFERENCE_COMPLETE":
+                    # No settle delay: it used to be time.sleep(2) here, which
+                    # stalled this loop -- a prompt sent within 2s of the last
+                    # reply waited behind it. F@H only resumes after
+                    # RESEARCH_IDLE_THRESHOLD of idleness anyway.
                     self.request_state_change(KernelState.COOLDOWN, "LLM Payload unloaded.")
-                    time.sleep(2)
                     self.request_state_change(KernelState.IDLE, "Returning to standby.")
                     
                 elif event == "FAH_HANG_DETECTED":

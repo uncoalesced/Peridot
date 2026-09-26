@@ -20,67 +20,31 @@ import os
 from pathlib import Path
 
 # Add utils and current dir to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
-sys.path.insert(0, str(Path(__file__).parent))
 
-from benchmark_utils import BenchmarkResult, get_system_info, format_duration, logger
-import api_client
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
+    BenchmarkResult,
+    format_duration,
+    get_system_info,
+    kill_existing_peridot,
+    logger,
+    wait_for_peridot,
+)
+from benchmarking import api_client
 
 # Root path injection to grab the v1.3 Config (if applicable)
-sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
     from config import SERVER_PORT
 except ImportError:
     SERVER_PORT = 5000
 
 # Saving strictly inside the benchmarking directory
-RESULTS_DIR = Path(__file__).parent / "results"
 SERVER_PATH = Path(__file__).parent.parent / "server.py"
 
 
-def kill_existing_peridot():
-    """Kill any existing Peridot processes safely."""
-    import psutil
-
-    killed_count = 0
-    # Optimize by filtering for python processes early if possible
-    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-        try:
-            cmdline = proc.info.get("cmdline")
-            if cmdline and any(
-                name in str(cmd).lower()
-                for cmd in cmdline
-                for name in ["server.py", "launcher.py", "main.py"]
-            ):
-                logger.info(f"Killing existing process: PID {proc.info['pid']}")
-                proc.kill()
-                killed_count += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-
-    if killed_count > 0:
-        logger.info(f"Killed {killed_count} existing Peridot process(es)")
-        # 4 second sleep to allow Windows and the RTX 5050 to fully dump VRAM
-        time.sleep(4)
-
-    return killed_count
-
-
 def wait_for_health(timeout=200):
-    """Wait for Peridot to respond to health check via api_client."""
-    start = time.time()
-
-    while time.time() - start < timeout:
-        try:
-            response = api_client.get_health()
-            if response.get("status") == "healthy" or response:
-                return True
-        except RuntimeError:
-            pass
-        # 2 second sleep to prevent spamming the Flask initialization
-        time.sleep(2)
-
-    return False
+    """Wait for Peridot to answer /health. Polls slowly to avoid hammering Flask."""
+    return wait_for_peridot(timeout=timeout, poll_seconds=2.0)
 
 
 def measure_cold_start():
@@ -137,7 +101,8 @@ def measure_cold_start():
     test_start = time.time()
 
     try:
-        response = api_client.post_chat(
+        # Called for its timing side effect; the body is not inspected.
+        api_client.post_chat(
             message="Acknowledge this cold start test.", max_tokens=20, timeout=120
         )
 
