@@ -95,6 +95,35 @@ def test_clean_history_passes_through_untouched():
     assert _drop_empty_assistant_turns(history) == history
 
 
+def test_stream_visible_body_hides_reasoning_and_scaffold_until_answer():
+    from core_system.prompting.constitution import stream_visible_body as visible
+
+    # Nothing shown while the model is thinking or writing [ANALYSIS] ...
+    assert visible("<think>working it out") == ""
+    assert visible("<thi") == ""
+    assert visible("<think>a</think>\n[ANALYSIS]\nplan") == ""
+    assert visible("[ANA") == ""
+    assert visible("[ANALYSIS]\nplan\n[KERNEL_RESP") == ""
+    # ... then only the answer body, as it grows.
+    assert visible("[ANALYSIS]\nplan\n[KERNEL_RESPONSE]\nPar") == "Par"
+    # A model that skips the scaffold is shown as-is.
+    assert visible("Paris") == "Paris"
+    assert visible("") == ""
+
+
+def test_thinking_models_get_no_scaffold_mandate():
+    from core_system.prompting.constitution import build_system_prompt
+
+    scaffold = build_system_prompt(model_format="chatml")
+    thinking = build_system_prompt(model_format="chatml", thinking=True)
+    assert "[KERNEL_RESPONSE]" in scaffold
+    # Neither the mandate nor any rule that demands it survives the bypass...
+    assert "[ANALYSIS]" not in thinking and "[KERNEL_RESPONSE]" not in thinking
+    assert "</think>" in thinking
+    # ...while identity and the vault context line are kept.
+    assert "CORE IDENTITY" in thinking and "VAULT CONTEXT" in thinking
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -1,10 +1,10 @@
 import requests
-from core_system.telemetry.config.settings import SERVER_HOST, SERVER_PORT
+from core_system.telemetry.config.settings import UPSTREAM_LLAMA_HOST, UPSTREAM_LLAMA_PORT
 from core_system.audit import ghost
 
 class LlamaClient:
     def __init__(self):
-        self.base_url = f"http://{SERVER_HOST}:{SERVER_PORT}"
+        self.base_url = f"http://{UPSTREAM_LLAMA_HOST}:{UPSTREAM_LLAMA_PORT}"
 
     def restore_slot(self, slot_id=0) -> bool:
         try:

@@ -27,23 +27,32 @@ load_dotenv(env_path)
 raw_key = os.environ.get("PERIDOT_AUTH_TOKEN") or os.environ.get("API_KEY") or ""
 API_KEY = raw_key.strip('"').strip("'")
 
-# Never echo the key. It previously went to stdout on every run, putting a live
-# credential into console scrollback and any captured CI log.
-if not API_KEY:
-    raise RuntimeError(
-        "No API key found. Set PERIDOT_AUTH_TOKEN or API_KEY in .env before "
-        "running the benchmarking suite."
-    )
-
 BASE_URL = "http://127.0.0.1:5000"
+
+_NO_KEY_MESSAGE = (
+    "No API key found. Set PERIDOT_AUTH_TOKEN or API_KEY in .env before "
+    "running the benchmarking suite."
+)
 
 
 def get_headers() -> dict:
-    """Construct standard headers for kernel communication."""
-    headers = {"Content-Type": "application/json"}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
-    return headers
+    """Construct standard headers for kernel communication.
+
+    The missing-key check lives here rather than at module scope. Raising at
+    import time meant importing this module -- which benchmark_cold_start and
+    benchmark_context_scaling both do at their own import -- hard-failed before
+    argparse or --help could run, so those scripts could not even be inspected
+    without a configured .env.
+
+    Never echo the key. It previously went to stdout on every run, putting a
+    live credential into console scrollback and any captured CI log.
+    """
+    if not API_KEY:
+        raise RuntimeError(_NO_KEY_MESSAGE)
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}",
+    }
 
 
 def post_chat(message: str, max_tokens: int = 100, timeout: int = 120) -> dict:

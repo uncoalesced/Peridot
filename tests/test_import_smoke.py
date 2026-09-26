@@ -34,6 +34,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {
     "llama.cpp", "venv", ".venv", "backups", "__pycache__", ".git",
     ".pytest_cache", "models", "logs", "storage", "input", "assets", "docs",
+    # setuptools output: stale copies of the tree, not importable by that path.
+    "build", "dist",
 }
 
 # Modules that cannot be imported in a bare test process, with the reason.
@@ -45,7 +47,7 @@ EXPECTED_UNIMPORTABLE = {
     # Exercised instead by tests/test_agent3_rag_mtbf.py against stubs.
     "server": "boots the kernel: NVML, SQLite and the embedder at import time",
     # Interactive first-run installer; prompts on stdin.
-    "setup": "interactive install wizard",
+    "install_wizard": "interactive install wizard",
     # Spawns the server and the Tkinter client as subprocesses.
     "launcher": "process supervisor; spawns server.py and main.py",
     "main": "Tkinter client bootstrap; exits when no server answers /health",
@@ -56,7 +58,7 @@ def _discover():
     modules = []
     for path in sorted(PROJECT_ROOT.rglob("*.py")):
         rel = path.relative_to(PROJECT_ROOT)
-        if any(part in SKIP_DIRS for part in rel.parts):
+        if any(part in SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
             continue
         if rel.parts[0] == "tests":
             continue

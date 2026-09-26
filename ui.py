@@ -7,21 +7,16 @@
 # -----------------------------------------------------------------------------
 
 import tkinter as tk
-from tkinter import font, ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 import threading
 import psutil
-import time
-import subprocess
 import os
 import ctypes
 import requests
 import re
 import webbrowser
 import sys
-import tkinter as tk 
-from tkinter import scrolledtext, font, ttk, messagebox
-from datetime import datetime
 from pathlib import Path
 
 from config import SERVER_HOST, SERVER_PORT, API_KEY, MODEL_PATH, TOTAL_VRAM_GB
@@ -113,7 +108,8 @@ class PeridotUI:
         self.root = tk.Tk()
         self.is_processing = False
         self.research_active = False
-        
+        self._nvml_handle = None  # set on first _update_stats; False = no GPU
+
         # Session State
         self.sessions = []
         self._current_session_menu_index = None
@@ -462,8 +458,13 @@ class PeridotUI:
         # focus-out rather than trying to reach into the widget.
         self.root.bind("<FocusOut>", self._close_dropdown_popdown, add="+")
 
-        # Use dynamic VRAM detection from config (Phase 2: Hardware Auto-Scaling)
+        # Use dynamic VRAM detection from config (Phase 2: Hardware Auto-Scaling).
+        # The rating bands below are fractions of this, not fixed sizes: they
+        # were hardcoded at 4.5/7.0 GB, which only described an 8 GB card and
+        # mis-rated every model on any other GPU.
         total_vram_gb = TOTAL_VRAM_GB if TOTAL_VRAM_GB > 0 else 8.0
+        high_band_gb = total_vram_gb * 0.5625   # 4.5 of 8 GB
+        medium_band_gb = total_vram_gb * 0.875  # 7.0 of 8 GB
 
         # OS-agnostic path resolution using pathlib
         models_dir = Path(__file__).parent.resolve() / "models"
@@ -475,9 +476,9 @@ class PeridotUI:
                 if f.is_file() and (f.suffix == ".gguf" or f.suffix == ".safetensors"):
                     file_size_gb = f.stat().st_size / (1024**3)
 
-                    if file_size_gb < 4.5:
+                    if file_size_gb < high_band_gb:
                         rating = "[HIGH]"
-                    elif file_size_gb < 7.0:
+                    elif file_size_gb < medium_band_gb:
                         rating = "[MEDIUM]"
                     else:
                         rating = "[LOW/CRITICAL]"
@@ -760,7 +761,7 @@ class PeridotUI:
             self.chat.config(state=tk.NORMAL)
             self.chat.delete("1.0", tk.END)
             self.chat.config(state=tk.DISABLED)
-            self.display_system_message(f"New session created.")
+            self.display_system_message("New session created.")
         except Exception as e:
             self.display_system_message(f"Session creation failed: {e}")
 
@@ -1038,17 +1039,54 @@ class PeridotUI:
 
     def _process_async(self, data):
         self.is_processing = True
+        # Live streaming region: everything after this mark is redrawn as the
+        # answer arrives, then replaced by the fully rendered reply in _finish.
+        self.chat.mark_set("stream_start", "end-1c")
+        self.chat.mark_gravity("stream_start", tk.LEFT)
+        pending = {"text": None, "streamed": False}
+        self._stream_state = pending
+
+        def on_delta(visible):
+            # Called from the worker thread; coalesce so a burst of tokens
+            # costs one redraw on the Tk thread, not one per token.
+            first = pending["text"] is None
+            pending["text"] = visible
+            if first:
+                self.root.after(0, self._flush_stream, pending)
+
         def task():
             try:
-                resp = self.core.respond_to_input(data)
+                resp = self.core.respond_to_input(data, on_delta=on_delta)
             except Exception as e:
                 resp = f"[SYSTEM FAILURE] {e}"
             self.root.after(0, self._finish, resp)
         threading.Thread(target=task, daemon=True).start()
 
+    def _flush_stream(self, pending):
+        text, pending["text"] = pending["text"], None
+        if text is None or not self.is_processing:
+            return
+        pending["streamed"] = True
+        self.chat.config(state=tk.NORMAL)
+        self.chat.delete("stream_start", tk.END)
+        if text:
+            self.chat.insert(tk.END, "\n" + text, "ai")
+        else:
+            self.chat.insert(tk.END, "\n>> reasoning...", "system")
+        self.chat.see(tk.END)
+        self.chat.config(state=tk.DISABLED)
+
     # --- MARKDOWN RENDERING PIPELINE ---
     def _finish(self, r):
         self.is_processing = False
+        state = getattr(self, "_stream_state", None)
+        if state and state["streamed"]:
+            # Drop the live preview; the full render below replaces it. Only
+            # when a stream actually drew, so command output (ingest, status)
+            # written during processing is never wiped.
+            self.chat.config(state=tk.NORMAL)
+            self.chat.delete("stream_start", tk.END)
+            self.chat.config(state=tk.DISABLED)
         self._parse_and_write_ai(r)
 
     def _copy_to_clipboard(self, text):
@@ -1212,7 +1250,7 @@ class PeridotUI:
                 panic_count = data.get('metrics', {}).get('panics_triggered', 0)
                 self.lbl_panic_count.config(text=str(panic_count),
                                           fg=COLOR_ERROR if panic_count > 0 else COLOR_ACCENT)
-        except Exception as e:
+        except Exception:
             # If we can't get telemetry, show offline status
             self.lbl_fsm_state.config(text="OFFLINE", fg=COLOR_ERROR)
             self.lbl_health_score.config(text="0%", fg=COLOR_ERROR)
@@ -1239,18 +1277,25 @@ class PeridotUI:
         except Exception:
             pass
 
-        try:
-            # Cross-platform nvidia-smi call - only use CREATE_NO_WINDOW on Windows
-            c = ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"]
-            kwargs = {}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            o = subprocess.check_output(c, **kwargs).decode().strip().split(",")
-            self.bar_vram.update_value((int(o[0]) / int(o[1])) * 100)
-        except Exception:
-            # No NVIDIA GPU, or nvidia-smi absent. CPU/RAM and the backend
-            # telemetry above are unaffected; only the VRAM bar goes stale.
-            pass
+        # NVML, initialised once. This used to spawn nvidia-smi here, on the Tk
+        # main thread, every 1.5s -- measured at ~1.7s per call on Windows, so
+        # the whole window froze for most of every cycle.
+        if self._nvml_handle is None:
+            try:
+                import pynvml
+                pynvml.nvmlInit()
+                self._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            except Exception:
+                # No NVIDIA GPU / driver: stop trying. CPU/RAM and the backend
+                # telemetry above are unaffected; only the VRAM bar stays empty.
+                self._nvml_handle = False
+        if self._nvml_handle:
+            try:
+                import pynvml
+                mem = pynvml.nvmlDeviceGetMemoryInfo(self._nvml_handle)
+                self.bar_vram.update_value(mem.used / mem.total * 100)
+            except Exception:
+                pass
 
         self.root.after(1500, self._update_stats)
 

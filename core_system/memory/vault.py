@@ -17,9 +17,6 @@ Key features:
 - No pickle - uses safetensors for security
 """
 
-import os
-import sys
-import logging
 import json
 try:
     import fitz
@@ -171,11 +168,10 @@ class PersistentVault:
             Number of chunks ingested
         """
         try:
-            full_text = ""
             with fitz.open(pdf_path) as doc:
-                for page in doc:
-                    # Layout preservation for accounting tables
-                    full_text += page.get_text("text", sort=True) + "\n"
+                # Layout preservation for accounting tables. join, not +=:
+                # repeated concatenation is quadratic in document length.
+                full_text = "".join(page.get_text("text", sort=True) + "\n" for page in doc)
 
             chunks = self.chunk_and_tag_text(full_text, pdf_path.name)
             if not chunks:

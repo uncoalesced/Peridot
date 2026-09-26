@@ -1,1 +1,0 @@
-# Deprecated. See telemetry/__init__.py

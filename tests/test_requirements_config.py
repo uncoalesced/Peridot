@@ -1,9 +1,21 @@
+import re
 from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
 
 REQUIREMENTS = Path(__file__).resolve().parents[1] / "requirements.txt"
+
+
+def _canon(name: str) -> str:
+    """PEP 503 name normalisation.
+
+    requirements.txt spells some distributions with underscores
+    (llama_cpp_python, huggingface_hub) while everything else uses hyphens.
+    pip treats those as the same name, so lookups here must too -- a plain
+    .lower() silently misses them.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def _requirement_lines():
@@ -30,20 +42,51 @@ def _parsed_requirements():
 
 def test_requirements_are_valid_pep508_and_use_turbovec():
     requirements = _parsed_requirements()
-    by_name = {req.name.lower(): req for req in requirements}
+    by_name = {_canon(req.name): req for req in requirements}
 
+    # turbovec replaced faiss as the vector index; faiss must not creep back in.
     assert "faiss-cpu" not in by_name
     assert str(by_name["turbovec"].specifier) == "==0.7.1"
-    assert str(by_name["pillow"].specifier) == "==12.2.0"
-    assert str(by_name["pypdf2"].specifier) == "==3.0.1"
-    assert str(by_name["flask-limiter"].specifier), "Flask-Limiter must stay pinned"
+
+    # PyPDF2 used to be asserted here, but nothing imports it -- PDF extraction
+    # goes through PyMuPDF/fitz (core_system/memory/vault.py) -- so it was
+    # dropped when requirements.txt was trimmed to actually-imported packages.
+    assert "pypdf2" not in by_name
+    assert "pymupdf" in by_name, "PDF ingestion depends on PyMuPDF"
+
+    # These must stay pinned, but assert *that* they are pinned rather than to
+    # which version: exact-string assertions here broke on every routine bump
+    # and taught no one anything.
+    for package in ("pillow", "flask-limiter", "numpy", "llama-cpp-python"):
+        specifier = str(by_name[package].specifier)
+        assert specifier.startswith("=="), f"{package} must stay exactly pinned"
+
+
+def test_runtime_requirements_have_no_unimported_extras():
+    """Guard the Phase-4 dependency trim.
+
+    requirements.txt is meant to list only packages first-party code actually
+    imports (plus explicitly-commented compatibility constraints). These were
+    each declared and never imported; they should not silently return.
+    """
+    by_name = {_canon(req.name) for req in _parsed_requirements()}
+    # pyaudio is deliberately absent from this list: speech_recognition's
+    # Microphone imports it at runtime, so it is needed despite no direct import.
+    for package in ("colorama", "torchaudio", "torchvision",
+                    "pip-audit", "cyclonedx-python-lib", "scikit-learn"):
+        assert package not in by_name, (
+            f"{package} is declared but imported nowhere in first-party code; "
+            "dev/audit tooling belongs in pyproject.toml optional-dependencies"
+        )
 
 
 def test_torch_matrix_is_platform_isolated():
     requirements = _parsed_requirements()
 
-    for package in ("torch", "torchaudio", "torchvision"):
-        entries = [req for req in requirements if req.name.lower() == package]
+    # torchaudio/torchvision were dropped from the matrix: declared but never
+    # imported. Only torch keeps the Windows-CUDA / non-Windows-CPU split.
+    for package in ("torch",):
+        entries = [req for req in requirements if _canon(req.name) == package]
         assert len(entries) == 2, f"expected Windows CUDA and non-Windows CPU entries for {package}"
 
         windows_entries = [req for req in entries if req.marker and "sys_platform == \"win32\"" in str(req.marker)]

@@ -1,4 +1,4 @@
-1# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # PERIDOT SOVEREIGN KERNEL | CONVERSATIONAL PROMPT BUILDER
 # Copyright (C) 2026 uncoalesced
 # Engineered by uncoalesced.
@@ -6,13 +6,14 @@
 
 from core_system.prompting.constitution import build_system_prompt
 
-def build_full_context(rag_context, chat_history, current_prompt, model_format):
+def build_full_context(rag_context, chat_history, current_prompt, model_format, thinking=False):
     """
     Assembles the final string sent to the LLM.
     Order: [System Directive + RAG Context] -> [Chat History] -> [Current Prompt]
+    thinking: native-<think> model; see build_system_prompt's scaffold bypass.
     """
     # 1. Base System Prompt (incorporates RAG Context and cleanly closes the system tag)
-    prompt_str = build_system_prompt(context_str=rag_context, model_format=model_format)
+    prompt_str = build_system_prompt(context_str=rag_context, model_format=model_format, thinking=thinking)
     
     # 2. Inject Historical Turns (as distinct conversational role blocks)
     if model_format == "chatml":

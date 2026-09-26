@@ -19,7 +19,6 @@ SENSITIVE_DIRS = ["C:\\Windows\\", "/etc/", "/root/", "/boot/", "/sys/", "/proc/
 
 # Model download boundary (v1.5.4). Downloads run in an isolated child process
 # (see core_system/model_fetch.py); the main process never leaves offline mode.
-APPROVED_MODEL_HOSTS = ["huggingface.co"]
 _REPO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 _FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 

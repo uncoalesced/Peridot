@@ -5,7 +5,6 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
-import sys
 import time
 import os
 import warnings
@@ -66,14 +65,28 @@ class EmbeddingEngine:
         elapsed = (time.time() - start_time) * 1000
         ghost.info(f"EMBEDDER | all-MiniLM-L6-v2 loaded from '{source}' in {elapsed:.2f}ms.")
 
+    # One /ask embeds the same query up to three times (L1 cache lookup, vault
+    # search, L1 cache write). A tiny memo of recent queries makes the repeats
+    # free for every caller without threading vectors through their APIs.
+    _QUERY_MEMO_SIZE = 8
+
     def embed_query(self, text: str) -> np.ndarray:
         """Embeds a single user prompt. Returns a 2D float32 numpy array."""
+        memo = self.__dict__.setdefault("_query_memo", {})
+        cached = memo.get(text)
+        if cached is not None:
+            return cached.copy()  # callers may normalise in place
+
         start_time = time.time()
         vector = self.model.encode(text, convert_to_numpy=True, show_progress_bar=False)
         vector_2d = np.array(vector, dtype=np.float32).reshape(1, -1)
         elapsed = (time.time() - start_time) * 1000
         ghost.info(f"EMBEDDER | Query vectorised in {elapsed:.2f}ms.")
-        return vector_2d
+
+        if len(memo) >= self._QUERY_MEMO_SIZE:
+            memo.pop(next(iter(memo)))  # oldest insertion
+        memo[text] = vector_2d
+        return vector_2d.copy()
 
     def embed_documents(self, texts: list) -> np.ndarray:
         """Batch embed document chunks for the Layer 2 Persistent Vault."""

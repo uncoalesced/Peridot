@@ -65,6 +65,10 @@ class LlamaCppProvider(BaseInferenceProvider):
         n_batch: int = 1024,
         flash_attn: bool = True,
         verbose: bool = False,
+        n_ubatch: int | None = None,
+        n_threads_batch: int | None = None,
+        kv_cache_type: str | None = None,
+        use_mlock: bool = False,
         supports_thinking: bool = False,
         supports_vision: bool = False,
         **engine_options: Any,
@@ -76,6 +80,11 @@ class LlamaCppProvider(BaseInferenceProvider):
         self.n_batch = n_batch
         self.flash_attn = flash_attn
         self.verbose = verbose
+        self.n_ubatch = n_ubatch
+        self.n_threads_batch = n_threads_batch
+        # "f16" / "q8_0" / "q4_0"; None keeps llama.cpp's default (f16).
+        self.kv_cache_type = kv_cache_type
+        self.use_mlock = use_mlock
         self._supports_thinking = supports_thinking
         self._supports_vision = supports_vision
         self._llm: Any = None
@@ -96,7 +105,29 @@ class LlamaCppProvider(BaseInferenceProvider):
             raise ProviderLoadError(f"llama-cpp-python unavailable: {e}") from e
 
         _audit("info", f"PROVIDER | Loading {self.model_path.name} via {self.ENGINE}.")
-        logger.info("Loading %s (n_gpu_layers=%s, n_ctx=%s)", self.model_path.name, self.n_gpu_layers, self.n_ctx)
+        logger.info(
+            "Loading %s (n_gpu_layers=%s, n_ctx=%s, n_batch=%s, n_ubatch=%s, kv=%s, threads=%s/%s)",
+            self.model_path.name, self.n_gpu_layers, self.n_ctx, self.n_batch, self.n_ubatch,
+            self.kv_cache_type or "f16", self.n_threads, self.n_threads_batch,
+        )
+
+        # Only pass knobs that were set, so an older llama-cpp-python that lacks
+        # one of them keeps loading with its own default.
+        tuning: dict[str, Any] = {}
+        if self.n_ubatch:
+            tuning["n_ubatch"] = self.n_ubatch
+        if self.n_threads_batch:
+            tuning["n_threads_batch"] = self.n_threads_batch
+        if self.use_mlock:
+            tuning["use_mlock"] = True
+        if self.kv_cache_type and self.kv_cache_type.lower() != "f16":
+            import llama_cpp
+            ggml_type = getattr(llama_cpp, f"GGML_TYPE_{self.kv_cache_type.upper()}", None)
+            if ggml_type is None:
+                raise ProviderLoadError(f"Unknown KV cache type: {self.kv_cache_type!r}")
+            # Quantized V cache requires flash attention in llama.cpp.
+            tuning["type_k"] = ggml_type
+            tuning["type_v"] = ggml_type
 
         try:
             self._llm = Llama(
@@ -108,6 +139,7 @@ class LlamaCppProvider(BaseInferenceProvider):
                 n_batch=self.n_batch,
                 flash_attn=self.flash_attn,
                 verbose=self.verbose,
+                **tuning,
             )
         except Exception as e:
             # Surfaced as a recoverable error so the kernel stays up. A malformed

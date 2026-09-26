@@ -30,7 +30,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          # Dev tooling (pytest, ruff, pre-commit, detect-secrets, packaging)
+          # is declared in pyproject.toml, so it no longer needs an ad-hoc
+          # `pip install pytest` here.
+          pip install -e ".[dev]"
 
       # Collects tests/ per [tool.pytest.ini_options] in pyproject.toml. The
       # security suite is included: its python_files pattern matches

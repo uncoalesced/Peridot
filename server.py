@@ -5,17 +5,17 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
+import os
 import sys
-import gc
 import logging
 import threading
 import time
-import os
 import json
 import websocket
+import psutil
 import pynvml
-from pathlib import Path
-from flask import Flask, request, jsonify
+import queue
+from flask import Flask, Response, copy_current_request_context, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -28,7 +28,8 @@ load_dotenv()
 from config import (
     MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH,
     TEMPERATURE, TOP_P, TOP_K, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
-    RESEARCH_IDLE_THRESHOLD, THREADS, BATCH_SIZE, INPUT_PATH, PROCESSED_PATH
+    RESEARCH_IDLE_THRESHOLD, THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH_SIZE, KV_CACHE_TYPE,
+    ZAT_SCS_ENABLED,
 )
 
 # --- SOVEREIGNTY GATE ---
@@ -39,14 +40,19 @@ from core_system.model_fetch import assert_main_process_offline
 assert_main_process_offline()
 
 # --- CENTRALIZED PROMPT ENGINE ---
-from core_system.prompting.constitution import get_model_format, parse_kernel_response, format_kernel_response
+from core_system.prompting.constitution import (
+    format_kernel_response,
+    get_model_format,
+    model_supports_thinking,
+    parse_kernel_response,
+)
 from core_system.prompting.builder import build_full_context
 
 # --- v1.6.x INFERENCE PROVIDER ABSTRACTION ---
 # .gguf always routes to LlamaCppProvider today; provider_for() is used (rather
 # than importing LlamaCppProvider directly) so a future ExLlamaV2/.exl2 model
 # picks up its provider automatically once that backend is registered.
-from core_system.providers import provider_for, ProviderLoadError
+from core_system.providers import provider_for
 
 # --- RAG SUBSYSTEM AND v1.5.4 CACHE IMPORTS ---
 try:
@@ -74,11 +80,9 @@ try:
     from core_system.memory.ephemeral_cache import EphemeralCache
     from core_system.memory.vault import PersistentVault
     from core_system.memory.embedder import embedder
-    from core_system.rag_cache import AetherCache
-    
+
     l1_cache = EphemeralCache()
     vault = PersistentVault()
-    rag_cache = AetherCache(max_ram_items=50)
     if ghost:
         try:
             ghost.info("RAG Subsystem Online.")
@@ -97,23 +101,28 @@ except Exception as e:
     print(f">> [WARN] RAG Subsystem offline, continuing in pure LLM mode: {e}")
     l1_cache = None
     vault = None
-    rag_cache = None
     embedder = None
 
 # --- KERNEL FSM IMPORTS ---
 from core_system.kernel import SovereignKernel, KernelState
 
-# --- ZAT-SCS IMPORTS ---
-try:
-    from core_system.telemetry.processor import PhysicalTelemetryEngine
-    from core_system.telemetry.orchestration.fsm import SovereignGPUOrchestrator
-    from core_system.telemetry.client.api import LlamaClient
-    zat_available = True
-except ImportError as e:
-    if ghost:
-        try: ghost.warning(f"[ZAT-SCS] Failed to load modules: {e}")
-        except Exception: pass
-    zat_available = False
+# --- ZAT-SCS IMPORTS (opt-in: ZAT_SCS_ENABLED) ---
+# Not imported at all when disabled, so sounddevice/pynput never load and no
+# microphone stream or keyboard hook is opened.
+zat_available = False
+if ZAT_SCS_ENABLED:
+    try:
+        from core_system.telemetry.processor import PhysicalTelemetryEngine
+        from core_system.telemetry.orchestration.fsm import SovereignGPUOrchestrator
+        from core_system.telemetry.client.api import LlamaClient
+        zat_available = True
+    except ImportError as e:
+        if ghost:
+            try: ghost.warning(f"[ZAT-SCS] Failed to load modules: {e}")
+            except Exception: pass
+elif ghost:
+    try: ghost.info("[ZAT-SCS] Disabled (set ZAT_SCS_ENABLED=1 to enable predictive preemption).")
+    except Exception: pass
 
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
@@ -139,7 +148,26 @@ def get_vram_free() -> int:
     except Exception:
         return 0
 
+FAH_WS_PORT = 7396
+
+def fah_listening() -> bool:
+    """True when a Folding@home v8 client is listening on its websocket port.
+
+    Checked from the socket table instead of by connecting: on Windows a
+    connect to a closed localhost port is retried for ~2s before it fails,
+    which every request used to pay whenever F@H was not running.
+    """
+    try:
+        return any(
+            c.laddr and c.laddr.port == FAH_WS_PORT and c.status == psutil.CONN_LISTEN
+            for c in psutil.net_connections("tcp")
+        )
+    except Exception:
+        return True  # Unknown: fall through to the real connect attempt.
+
 def send_fah_command(cmd_state: str) -> bool:
+    if not fah_listening():
+        return False
     try:
         ws = websocket.create_connection("ws://127.0.0.1:7396/api/websocket", timeout=2.0)
         payload = json.dumps({"cmd": "state", "state": cmd_state})
@@ -157,7 +185,7 @@ class PeridotProductionKernel(SovereignKernel):
             
         if ghost:
             try: ghost.info("HARDWARE | Firing WebSocket SIGSTOP to FAH v8...")
-            except Exception as e: pass
+            except Exception: pass
         start_time = time.time()
         
         initial_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
@@ -189,17 +217,19 @@ class PeridotProductionKernel(SovereignKernel):
             log_msg = f"Hardware yielded. Free VRAM: {free_vram_mb:.0f}MB. Latency: {latency_ms:.0f}ms."
             if ghost:
                 try: ghost.info(f">> {log_msg}")
-                except Exception as e: pass
+                except Exception: pass
             if ledger: ledger.log_handoff(latency_ms, success=True)
             self.request_state_change(KernelState.INFERENCE, log_msg)
         else:
             fail_msg = f"VRAM LOCKOUT: Free VRAM critical at {free_vram_mb:.0f}MB. Threshold: 200MB."
             if ghost:
                 try: ghost.error(f"[KERNEL PANIC] {fail_msg}")
-                except Exception as e: pass
+                except Exception: pass
             if ledger: ledger.log_handoff(latency_ms, success=False)
             self.event_queue.put("FAH_HANG_DETECTED")
-            self.state = KernelState.PANIC
+            with self.state_changed:
+                self.state = KernelState.PANIC
+                self.state_changed.notify_all()
 
 kernel = PeridotProductionKernel()
 
@@ -227,7 +257,7 @@ def idle_monitor():
                         kernel.state = KernelState.FAH_ACTIVE
                         if ghost:
                             try: ghost.info(f"RESEARCH | Idle threshold met. VRAM allocated to FAH. (Free: {get_vram_free()}MB)")
-                            except Exception as e: pass
+                            except Exception: pass
         time.sleep(1)
 
 def boot_engine():
@@ -251,10 +281,14 @@ def boot_engine():
             MODEL_PATH,
             n_ctx=CONTEXT_LENGTH,
             n_threads=THREADS,
+            n_threads_batch=THREADS_BATCH,
             n_gpu_layers=GPU_LAYERS,
             n_batch=BATCH_SIZE,
+            n_ubatch=UBATCH_SIZE,
+            kv_cache_type=KV_CACHE_TYPE,
             flash_attn=True,
             verbose=False,
+            supports_thinking=MODEL_THINKS,
         )
         llm.load()
         print(f">> [SUCCESS] Peridot Brain Online. (Free VRAM: {get_vram_free()}MB)")
@@ -278,6 +312,10 @@ def boot_engine():
         sys.exit(1)
 
 inference_lock = threading.Lock()
+
+# FreeThink registry lookup, once: native <think> models get the scaffold-free
+# system prompt (constitution.build_system_prompt) and report supports_thinking.
+MODEL_THINKS = model_supports_thinking(MODEL_PATH)
 
 def require_auth(f):
     @functools.wraps(f)
@@ -310,11 +348,15 @@ def ingest_vault_nodes():
         return jsonify({"error": "RAG Vault offline."}), 500
     try:
         vault.ingest_directory()
-        return jsonify({"status": "SUCCESS", "message": "Check engine console for ingestion telemetry."}), 200
+        return jsonify({
+            "status": "SUCCESS",
+            "message": "Check engine console for ingestion telemetry.",
+            "sectors": vault.index.size,
+        }), 200
     except Exception as e:
         if ghost:
             try: ghost.error(f"Ingestion Disrupted: {e}")
-            except Exception as e2: pass
+            except Exception: pass
         return jsonify({"error": str(e)}), 500
     
 @app.route("/ask", methods=["POST"])
@@ -322,17 +364,68 @@ def ingest_vault_nodes():
 @queue_requests
 @limiter.limit("60 per minute")
 def ask():
+    return _ask_impl()
+
+
+@app.route("/ask/stream", methods=["POST"])
+@require_auth
+@limiter.limit("60 per minute")
+def ask_stream():
+    """/ask with the answer streamed as NDJSON while it generates.
+
+    Lines are {"delta": "<raw text>"} as tokens arrive, then exactly one
+    {"done": true, "status": <http code>, ...the /ask JSON body...}. Deltas are
+    raw model output (reasoning and scaffolding included); clients show them via
+    constitution.stream_visible_body() and render the final "response" exactly
+    as they would /ask's. Only the primary generation streams: a retry, a cache
+    hit or an error arrives as the final line alone.
+
+    The pipeline runs in a worker thread holding inference_lock for the whole
+    generation, so the lock and the kernel's INFERENCE_COMPLETE (in
+    _ask_impl's finally) span the stream, not just this view's return.
+    """
+    events: "queue.Queue[dict]" = queue.Queue()
+
+    @copy_current_request_context
+    def worker():
+        try:
+            with inference_lock:
+                result = _ask_impl(delta_sink=lambda text: events.put({"delta": text}))
+            body, status = result if isinstance(result, tuple) else (result, 200)
+            events.put({"done": True, "status": status, **(body.get_json() or {})})
+        except Exception as e:
+            if ghost:
+                try: ghost.error(f"CRITICAL    | Component: server_ask_stream | Error: {e}")
+                except Exception: pass
+            events.put({"done": True, "status": 500,
+                        "response": "An internal error occurred during inference. Please check the engine terminal."})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def stream():
+        while True:
+            event = events.get()
+            yield json.dumps(event) + "\n"
+            if event.get("done"):
+                return
+
+    return Response(stream(), mimetype="application/x-ndjson")
+
+
+def _ask_impl(delta_sink=None):
     global last_activity_time
     last_activity_time = time.time()
 
     data = request.json
-    user_query = data.get("query", "")
-    full_prompt = data.get("prompt", "")
     session_id = data.get("session_id", None)
 
-    if not user_query or not full_prompt:
-        user_query = data.get("command", "")
-        full_prompt = user_query
+    # Accept any of the three documented keys. This was previously
+    # `if not user_query or not full_prompt:`, which meant sending "query"
+    # without also sending "prompt" fell through to the "command" fallback and
+    # blanked the query -- so the documented "query" key always returned 400.
+    # The prompt itself is assembled by build_full_context() further down from
+    # user_query, so there is no separate full_prompt to carry here.
+    user_query = data.get("query") or data.get("prompt") or data.get("command") or ""
 
     if not user_query:
         return jsonify({"response": "Empty prompt received."}), 400
@@ -344,6 +437,13 @@ def ask():
         history = chat_ledger.get_history(session_id, limit=6)
     else:
         history = []
+    # core.py writes the user turn to the ledger before calling /ask, so the
+    # history read back already ends with this very query. build_full_context
+    # appends current_prompt itself -- without this trim every prompt carried
+    # the question twice (user Q, user Q, assistant), which also broke KV
+    # prefix reuse across turns.
+    if history and history[-1].get("role") == "user" and history[-1].get("content", "").strip() == user_query.strip():
+        history = history[:-1]
 
     if kernel.state == KernelState.SPECULATIVE_PREPARED:
         if ghost:
@@ -353,37 +453,36 @@ def ask():
     else:
         if ghost:
             try: ghost.info("API | Received payload. Requesting hardware clearance...")
-            except Exception as e: pass
+            except Exception: pass
         kernel.event_queue.put("PROMPT_RECEIVED")
-        
-        timeout = 100
-        while kernel.state != KernelState.INFERENCE:
-            if kernel.state == KernelState.PANIC:
-                return jsonify({"error": "KERNEL PANIC: Hardware failed to yield."}), 503
-            time.sleep(0.1)
-            timeout -= 1
-            if timeout <= 0:
-                kernel.request_state_change(KernelState.PANIC, "FAH Timeout")
-                return jsonify({"error": "KERNEL TIMEOUT: Hardware clearance not granted."}), 504
+
+        cleared = kernel.wait_for_state(
+            lambda s: s in (KernelState.INFERENCE, KernelState.PANIC), timeout=10.0
+        )
+        if kernel.state == KernelState.PANIC:
+            return jsonify({"error": "KERNEL PANIC: Hardware failed to yield."}), 503
+        if not cleared:
+            kernel.request_state_change(KernelState.PANIC, "FAH Timeout")
+            return jsonify({"error": "KERNEL TIMEOUT: Hardware clearance not granted."}), 504
 
     try:
         if l1_cache is not None:
             if ghost:
                 try: ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB")
-                except Exception as e: pass
+                except Exception: pass
                 
             cached_response = l1_cache.search(user_query)
             if cached_response:
                 if ghost:
                     try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
-                    except Exception as e: pass
+                    except Exception: pass
                 return jsonify({"response": cached_response, "session_id": session_id})
 
         context_str = ""
         if vault is not None and embedder is not None:
             if ghost:
                 try: ghost.info("ROUTER | L1 MISS. Searching Semantic Memory...")
-                except Exception as e: pass
+                except Exception: pass
 
             try:
                 query_vector = embedder.embed_query(user_query)
@@ -404,7 +503,7 @@ def ask():
                 # Log retrieval performance for monitoring
                 if ghost:
                     try: ghost.info(f"ROUTER | Semantic retrieval completed in {retrieval_latency_ms:.1f}ms (depth: {current_retrieval_depth})")
-                    except Exception as e: pass
+                    except Exception: pass
 
                 # Autonomous throttling: if retrieval is too slow, reduce depth for next query
                 if retrieval_latency_ms > RETRIEVAL_LATENCY_THRESHOLD_MS:
@@ -412,7 +511,7 @@ def ask():
                     current_retrieval_depth = max(MIN_RETRIEVAL_DEPTH, current_retrieval_depth - 2)
                     if ghost:
                         try: ghost.warning(f"ROUTER | RAG DEGRADATION ACTIVE: High latency detected. Reducing retrieval depth to {current_retrieval_depth}")
-                        except Exception as e: pass
+                        except Exception: pass
                 else:
                     # Recovery: if retrieval is fast, gradually increase depth back to maximum
                     if current_retrieval_depth < MAX_RETRIEVAL_DEPTH:
@@ -423,8 +522,6 @@ def ask():
                     for idx, chunk in enumerate(relevant_context):
                         source_id = f"Vault_Chunk_{idx}"
                         context_segments.append(f"[SOURCE: {source_id}]: {chunk}")
-                        if rag_cache is not None:
-                            rag_cache.put(source_id, [1.0, 0.0])
 
                     context_str = "\n---\n".join(context_segments)
                     if len(context_str) > 8000:
@@ -432,15 +529,15 @@ def ask():
 
                     if ghost:
                         try: ghost.info(f"ROUTER | MEMORY HIT. Injected {len(relevant_context)} blocks.")
-                        except Exception as e: pass
+                        except Exception: pass
                 else:
                     if ghost:
                         try: ghost.info("ROUTER | MEMORY MISS. Proceeding raw.")
-                        except Exception as e: pass
+                        except Exception: pass
             except Exception as e:
                 if ghost:
                     try: ghost.warning(f"ROUTER | RAG DEGRADATION: Semantic Memory Retrieval Failed ({e}). Bypassing injection.")
-                    except Exception as e2: pass
+                    except Exception: pass
                 context_str = ""
 
         model_format = get_model_format(MODEL_PATH)
@@ -461,7 +558,8 @@ def ask():
             rag_context=context_str,
             chat_history=history,
             current_prompt=user_query,
-            model_format=model_format
+            model_format=model_format,
+            thinking=MODEL_THINKS,
         )
 
         start_time = time.time()
@@ -476,7 +574,8 @@ def ask():
                     rag_context=context_str,
                     chat_history=history,
                     current_prompt=user_query,
-                    model_format=model_format
+                    model_format=model_format,
+                    thinking=MODEL_THINKS,
                 )
                 prompt_tokens = llm.token_count(final_prompt)
                 safe_max_tokens = CONTEXT_LENGTH - prompt_tokens - 10
@@ -497,6 +596,7 @@ def ask():
             Without it this bug was undiagnosable from the logs, which only
             ever recorded a token count.
             """
+            streaming = {"on_chunk": delta_sink} if delta_sink and tag == "primary" else {}
             result = llm.generate(
                 prompt_text,
                 max_tokens=token_budget,
@@ -505,6 +605,7 @@ def ask():
                 top_p=TOP_P,
                 top_k=TOP_K,
                 repeat_penalty=REPEAT_PENALTY,
+                **streaming,
             )
             if ghost:
                 try:
@@ -549,7 +650,7 @@ def ask():
         
         if ghost:
             try: ghost.info(f"INFERENCE   | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
-            except Exception as e: pass
+            except Exception: pass
         
         if l1_cache is not None:
             l1_cache.add(user_query, final_response)
@@ -564,25 +665,19 @@ def ask():
         error_msg = str(e)
         if ghost:
             try: ghost.error(f"CRITICAL    | Component: server_ask_route | Error: {error_msg}")
-            except Exception as e2: pass
+            except Exception: pass
         return jsonify({"response": "An internal error occurred during inference. Please check the engine terminal."}), 500
         
     finally:
         if ghost:
             try: ghost.info("API | Payload delivered. Releasing hardware lock...")
-            except Exception as e: pass
-        try:
-            if 'llm' in globals() and llm:
-                llm.reset()
-        except Exception:
-            pass
-        gc.collect()
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
+            except Exception: pass
+        # No llm.reset() / gc / torch.cuda.empty_cache() here any more. reset()
+        # discarded the KV cache, so every turn re-prefilled the system prompt,
+        # RAG context and history from scratch; llama-cpp-python reuses the
+        # longest matching prompt prefix when the cache is left alone. The
+        # torch call freed nothing -- torch holds no CUDA memory (the embedder
+        # runs on CPU). /vram/reclaim still resets on demand.
         kernel.event_queue.put("INFERENCE_COMPLETE")
 
 
@@ -600,15 +695,15 @@ def reclaim_vram():
             pass
         if 'llm' in globals() and llm:
             try: llm.reset()
-            except Exception as e: pass
+            except Exception: pass
         if ghost:
             try: ghost.info("HARDWARE | Manual VRAM Force-Reclaim triggered via UI.")
-            except Exception as e: pass
+            except Exception: pass
         return jsonify({"status": "SUCCESS", "message": "VRAM successfully reclaimed."}), 200
     except Exception as e:
         if ghost:
             try: ghost.error(f"VRAM Reclaim Failed: {e}")
-            except Exception as e2: pass
+            except Exception: pass
         return jsonify({"error": str(e)}), 500
 
 @app.route("/telemetry/stability", methods=["GET"])
@@ -626,18 +721,29 @@ def get_stability_metrics():
 def shutdown():
     send_fah_command("pause")
     kernel.event_queue.put("SHUTDOWN")
-    shutdown_func = request.environ.get('werkzeug.server.shutdown')
-    if shutdown_func:
-        shutdown_func()
+    # werkzeug.server.shutdown was removed in Werkzeug 2.1 (installed: 3.1.8),
+    # so this route used to answer 200 and leave the engine running with the
+    # model still holding VRAM. Unload, then exit once the reply is flushed.
+    def _exit_process():
+        try:
+            if llm is not None:
+                llm.unload()
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Timer(0.5, _exit_process).start()
     return jsonify({"message": "Shutting down Neural Engine..."}), 200
 
 @app.route("/research/status", methods=["GET"])
 @require_auth
 def get_research_status():
     return jsonify({
-        "enabled": research_allowed, 
+        "enabled": research_allowed,
         "active": kernel.state == KernelState.FAH_ACTIVE,
-        "vram_free": get_vram_free()
+        "vram_free": get_vram_free(),
+        # The vault lives in this process only; the UI's `status` reads it here.
+        "vault_sectors": vault.index.size if vault is not None else None,
     })
 
 @app.route("/research/enable", methods=["POST"])

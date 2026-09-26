@@ -28,7 +28,6 @@ class GhostLogger:
         self.log_path = LOG_PATH / log_name
         self.max_bytes = max_bytes
         self._lock = threading.Lock()
-        self.propagate = False # Mock attribute for compatibility
         
         # Ensure log directory exists silently
         try:
@@ -65,22 +64,9 @@ class GhostLogger:
     def critical(self, message): self._write("CRITICAL", message)
     def debug(self, message): self._write("DEBUG", message)
     def record(self, message): self._write("AUDIT", message)
-    
-    # Compatibility methods for logging.Logger surface area
-    def setLevel(self, level): pass
-    def addHandler(self, handler): pass
-    def hasHandlers(self): return True
-    def clearHandlers(self): pass
 
 # Global singleton instance
 ghost = GhostLogger()
-
-def setup_ghost_logger():
-    """Returns the global GhostLogger instance."""
-    return ghost
-
-# Exported aliases
-ghost_log = ghost
 
 if __name__ == "__main__":
     # Internal validation

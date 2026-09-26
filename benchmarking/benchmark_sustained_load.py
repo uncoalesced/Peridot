@@ -14,53 +14,34 @@ Tests performance and stability under extended continuous use.
 
 import sys
 import time
-import psutil
-from pathlib import Path
 from datetime import datetime
 
-# -----------------------------------------------------------------------------
-# PATH BOOTSTRAPPING FIX
-# -----------------------------------------------------------------------------
-benchmarking_dir = Path(__file__).parent.absolute()
-peridot_root = benchmarking_dir.parent
-utils_path = benchmarking_dir / "utils"
 
-for path in [str(peridot_root), str(utils_path)]:
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-from benchmark_utils import (
-    BenchmarkResult,
-    get_system_info,
-    format_duration,
-    logger,
-    ProgressBar,
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
     AetherClient,
+    BenchmarkResult,
     check_peridot_running,
+    count_tokens_rough,
+    format_duration,
+    get_system_info,
+    logger,
+)
+from benchmarking.utils.benchmark_utils import (
+    get_peridot_memory as shared_peridot_memory,
 )
 
 # DIRECTORY FIX: Stay inside benchmarking
-RESULTS_DIR = benchmarking_dir / "results"
 
 
 def get_peridot_memory():
-    """Get memory usage of Peridot process."""
-    for proc in psutil.process_iter(["pid", "name", "cmdline", "memory_info"]):
-        try:
-            cmdline = proc.info.get("cmdline") or []
-            if cmdline and any(
-                "launcher.py" in str(cmd).lower() or "server.py" in str(cmd).lower()
-                for cmd in cmdline
-            ):
-                mem_info = proc.memory_info()
-                return mem_info.rss / (1024 * 1024)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    return None
+    """Resident memory of the Peridot server in MB, or None.
 
-
-def count_tokens_rough(text: str) -> int:
-    return int(len(text.split()) * 1.3)
+    Thin adapter over the shared helper, which returns a dict. This module's
+    call sites all treat the value as a bare float.
+    """
+    mem = shared_peridot_memory()
+    return mem["rss_mb"] if mem else None
 
 
 def run_query(client: AetherClient, prompt: str, max_tokens: int = 100):
@@ -108,7 +89,7 @@ def main():
     duration_minutes = 10
     duration_seconds = duration_minutes * 60
 
-    logger.info(f"Configuration:")
+    logger.info("Configuration:")
     logger.info(f"  Duration: {duration_minutes} minutes ({duration_seconds} seconds)")
     logger.info(f"  Initial memory: {initial_mem:.2f} MB")
     logger.info("")
@@ -243,7 +224,7 @@ def main():
     logger.info(f"Completion: {(total_time/duration_seconds)*100:.1f}%")
     logger.info("")
 
-    logger.info(f"Queries:")
+    logger.info("Queries:")
     logger.info(f"  Total attempted: {query_count}")
     logger.info(f"  Successful: {successful_queries}")
     logger.info(f"  Failed: {failed_queries}")
@@ -255,20 +236,20 @@ def main():
     logger.info("")
 
     if throughputs:
-        logger.info(f"Throughput:")
+        logger.info("Throughput:")
         logger.info(f"  Average: {statistics.mean(throughputs):.2f} t/s")
         logger.info(f"  Median: {statistics.median(throughputs):.2f} t/s")
         logger.info(f"  Std Dev: {statistics.stdev(throughputs):.2f} t/s")
         logger.info(f"  Range: {min(throughputs):.2f} - {max(throughputs):.2f} t/s")
         logger.info("")
 
-        logger.info(f"Response time:")
+        logger.info("Response time:")
         logger.info(f"  Average: {format_duration(statistics.mean(response_times))}")
         logger.info(f"  Median: {format_duration(statistics.median(response_times))}")
         logger.info("")
 
     if memory_samples or final_mem:
-        logger.info(f"Memory:")
+        logger.info("Memory:")
         logger.info(f"  Initial: {initial_mem:.2f} MB")
         if final_mem:
             logger.info(f"  Final: {final_mem:.2f} MB")
@@ -288,7 +269,7 @@ def main():
         last_20 = statistics.mean(throughputs[-20:])
         degradation = ((first_20 - last_20) / first_20) * 100 if first_20 > 0 else 0
 
-        logger.info(f"Performance over time:")
+        logger.info("Performance over time:")
         logger.info(f"  First 20 queries: {first_20:.2f} t/s")
         logger.info(f"  Last 20 queries: {last_20:.2f} t/s")
         logger.info(f"  Change: {degradation:+.1f}%")

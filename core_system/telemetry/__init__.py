@@ -79,12 +79,6 @@ class StabilityLedger:
             self.metrics["total_inferences"] += 1
         self._save_ledger()
 
-    def log_watchdog_mitigation(self):
-        """Records when the FSM successfully blocked a phantom VRAM spike."""
-        with self._lock:
-            self.metrics["vram_spikes_mitigated"] += 1
-        self._save_ledger()
-
     def generate_report(self):
         """Exports the SLA compliance dashboard data."""
         uptime_s = time.time() - self.boot_time

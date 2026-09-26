@@ -11,22 +11,72 @@ requires-python = ">=3.11"
 authors = [
   { name="uncoalesced" }
 ]
+# Kept in step with requirements.txt, which carries the exact pins and the
+# rationale for each entry. This list is the abstract dependency set; that file
+# is the concrete, reproducible one.
+#
+# Corrected here: "colorama" was declared but is imported nowhere, and "pynvml"
+# named the module rather than the distribution that provides it (nvidia-ml-py,
+# which is what requirements.txt installs). Added the runtime dependencies that
+# were missing entirely: websocket-client, python-dotenv, Flask-Limiter,
+# sentence-transformers, safetensors, PyMuPDF, openai-whisper,
+# SpeechRecognition and torch.
 dependencies = [
-    "huggingface_hub",
-    "requests",
-    "colorama",
-    "pynvml",
-    "psutil",
-    "sounddevice",
-    "numpy",
-    "pillow",
-    "flask",
+    "Flask",
     "flask-cors",
-    "llama-cpp-python"
+    "Flask-Limiter",
+    "requests",
+    "websocket-client",
+    "llama-cpp-python",
+    "numpy",
+    "sentence-transformers",
+    "safetensors",
+    "PyMuPDF",
+    "huggingface_hub",
+    "nvidia-ml-py",
+    "psutil",
+    "pillow",
+    "openai-whisper",
+    "SpeechRecognition",
+    "PyAudio",  # runtime import inside speech_recognition.Microphone
+    "sounddevice",
+    "python-dotenv",
+    "torch",
 ]
+
+[project.optional-dependencies]
+# Development and CI tooling. CI previously ran `pip install -r requirements.txt`
+# followed by a bare `pip install pytest`, because pytest was declared in neither
+# manifest, while requirements.txt did pin the pip-audit/cyclonedx SBOM chain
+# that nothing in the repo invokes. Both are fixed: install with
+#   pip install -e ".[dev]"
+dev = [
+    "pytest",
+    "ruff==0.9.6",
+    "pre-commit",
+    "detect-secrets==1.5.0",
+    "packaging",
+]
+# Dependency/vulnerability auditing, run on demand rather than on every CI test.
+audit = [
+    "pip-audit",
+    "cyclonedx-python-lib",
+]
+# Optional accelerators. Each is guarded by try/except in source with a working
+# fallback, so the app runs without them.
+accel = [
+    "turbovec==0.7.1",
+    "pyspellchecker",
+    "pynput",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["assets*", "docs*", "input*", ".github*"]
+# Explicit include: with only an exclude list, find_packages() also walked
+# venv/, backups/ and other non-source trees. These two are the only
+# distributable packages in the repository.
+include = ["core_system*", "benchmarking*"]
+exclude = ["assets*", "docs*", "input*", ".github*", "tests*", "venv*", "backups*"]
 
 [tool.ruff]
 # Vendored upstream checkout; not ours to lint.
@@ -38,8 +88,8 @@ exclude = ["llama.cpp", "venv", ".venv", "backups", ".temp"]
 # opinions, so this can be enforced without a formatting debate.
 #
 # Run it with: python -m ruff check .
-# The pre-commit hook stays commented out until the current findings are
-# cleared -- see the note in .pre-commit-config.yaml.
+# The pre-commit hook is enabled (see .pre-commit-config.yaml); the tree is
+# clean under these rules.
 select = ["F", "E9"]
 
 [tool.pytest.ini_options]

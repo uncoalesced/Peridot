@@ -13,7 +13,7 @@ import json
 import time
 import statistics
 import logging
-import os
+import platform
 import sys
 import requests
 import psutil
@@ -26,8 +26,6 @@ from dotenv import load_dotenv
 # ENVIRONMENT & PATH BOOTSTRAPPING
 # -----------------------------------------------------------------------------
 PERIDOT_ROOT = Path(__file__).parent.parent.parent.absolute()
-if str(PERIDOT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PERIDOT_ROOT))
 
 # Force load the .env file BEFORE importing config
 env_path = PERIDOT_ROOT / ".env"
@@ -43,6 +41,132 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("benchmark_utils")
+
+# Every benchmark writes its JSON here. This was recomputed in 10 separate files.
+RESULTS_DIR = PERIDOT_ROOT / "benchmarking" / "results"
+
+# Process names that indicate a running Peridot instance.
+_PERIDOT_PROCESS_NAMES = ("server.py", "launcher.py", "main.py")
+
+
+def get_vram_mb() -> Dict[str, Any]:
+    """Single NVML query for GPU name and memory, in MB.
+
+    There were seven near-identical copies of this init/handle/query/shutdown
+    dance across benchmarking/. Returns zeros and name "Unknown" when NVML or a
+    GPU is unavailable, so callers never need their own try/except.
+    """
+    result = {"name": "Unknown", "total": 0, "used": 0, "free": 0, "count": 0}
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        try:
+            result["count"] = pynvml.nvmlDeviceGetCount()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode("utf-8", "replace")
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            result.update(
+                name=name,
+                total=mem.total // 1024 // 1024,
+                used=mem.used // 1024 // 1024,
+                free=mem.free // 1024 // 1024,
+            )
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception as exc:
+        logger.warning(f"Could not read GPU info: {exc}")
+    return result
+
+
+def find_peridot_processes() -> List[psutil.Process]:
+    """Return live Peridot processes (server/launcher/main)."""
+    found = []
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            cmd = " ".join(proc.info.get("cmdline") or []).lower()
+            if any(name in cmd for name in _PERIDOT_PROCESS_NAMES):
+                found.append(proc)
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    return found
+
+
+def kill_existing_peridot(settle_seconds: float = 4.0) -> int:
+    """Terminate any running Peridot processes. Returns how many were killed.
+
+    Needed by the cold-start and context-scaling benchmarks, which must own the
+    server lifecycle. Previously duplicated verbatim in both of them.
+    """
+    killed = 0
+    for proc in find_peridot_processes():
+        try:
+            proc.kill()
+            killed += 1
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    if killed:
+        logger.info(f"Terminated {killed} running Peridot process(es)")
+        # Default 4s: Windows plus the RTX 5050 need that long to fully dump
+        # VRAM before a cold-start measurement is meaningful.
+        time.sleep(settle_seconds)
+    return killed
+
+
+def get_peridot_memory() -> Optional[Dict[str, Any]]:
+    """Resident/virtual memory of the running Peridot server, in MB.
+
+    Returns None when no server process is found -- callers test falsiness, so
+    this must not return a zero-filled dict. Previously duplicated in
+    benchmark_memory_stability (dict) and benchmark_sustained_load (bare float).
+    """
+    for proc in find_peridot_processes():
+        try:
+            mem = proc.memory_info()
+            return {
+                "rss_mb": mem.rss / (1024 * 1024),
+                "vms_mb": mem.vms / (1024 * 1024),
+                "pid": proc.pid,
+            }
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    return None
+
+
+def count_tokens_rough(text: str) -> int:
+    """Word-count-based token estimate (words * 1.3).
+
+    WARNING: an estimate only, for HTTP-path benchmarks that have no access to
+    the model tokenizer. It systematically misreports throughput -- see the
+    header of benchmark_inference.py. For a real token count use
+    benchmark_decode_rate.py, which goes through the provider's own tokenizer.
+    Consolidated here from four separate copies so the caveat lives in one place.
+    """
+    return int(len(text.split()) * 1.3)
+
+
+def report_header(title: str, system_info: Optional[Dict[str, Any]] = None) -> None:
+    """Print the standard benchmark banner plus system info."""
+    logger.info("=" * 70)
+    logger.info(title)
+    logger.info("=" * 70)
+    if system_info is None:
+        system_info = get_system_info()
+    logger.info("System:")
+    for key, value in system_info.items():
+        logger.info(f"  {key}: {value}")
+
+
+def report_footer(filepath: Optional[Path] = None) -> None:
+    """Print the standard benchmark completion footer."""
+    logger.info("=" * 70)
+    if filepath is not None:
+        logger.info(f"Benchmark complete. Results saved to: {filepath}")
+    else:
+        logger.info("Benchmark complete.")
+    logger.info("=" * 70)
 
 
 class BenchmarkResult:
@@ -100,16 +224,6 @@ class BenchmarkResult:
         return filepath
 
 
-def timer(func):
-    def wrapper(*args, **kwargs):
-        start = time.time()
-        result = func(*args, **kwargs)
-        elapsed = time.time() - start
-        return result, elapsed
-
-    return wrapper
-
-
 def repeat_measurement(func, runs: int = 10, warmup: int = 2) -> List[float]:
     measurements = []
 
@@ -133,9 +247,6 @@ def repeat_measurement(func, runs: int = 10, warmup: int = 2) -> List[float]:
 
 
 def get_system_info() -> Dict[str, Any]:
-    import platform
-    import psutil
-
     info = {
         "platform": platform.system(),
         "platform_release": platform.release(),
@@ -148,21 +259,9 @@ def get_system_info() -> Dict[str, Any]:
         "python_version": sys.version.split()[0],
     }
 
-    try:
-        import pynvml
-
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        gpu_name = pynvml.nvmlDeviceGetName(handle)
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-        info["gpu_name"] = gpu_name
-        info["gpu_memory_gb"] = round(mem_info.total / (1024**3), 2)
-        pynvml.nvmlShutdown()
-    except Exception as e:
-        logger.warning(f"Could not get GPU info: {e}")
-        info["gpu_name"] = "Unknown"
-        info["gpu_memory_gb"] = 0
+    vram = get_vram_mb()
+    info["gpu_name"] = vram["name"]
+    info["gpu_memory_gb"] = round(vram["total"] / 1024, 2)
 
     return info
 
@@ -207,15 +306,23 @@ def check_peridot_running(base_url: str = AI_SERVER_URL) -> bool:
         return False
 
 
-def wait_for_peridot(base_url: str = AI_SERVER_URL, timeout: int = 30) -> bool:
-    logger.info(f"Waiting for Peridot Neural Engine...")
+def wait_for_peridot(
+    base_url: str = AI_SERVER_URL, timeout: int = 30, poll_seconds: float = 0.5
+) -> bool:
+    """Block until /health answers, or `timeout` elapses.
+
+    `poll_seconds` exists because the cold-start and context-scaling benchmarks
+    start their own server and poll slowly (2s) to avoid hammering Flask while
+    it initialises. They each carried a private copy of this loop.
+    """
+    logger.info("Waiting for Peridot Neural Engine...")
     start = time.time()
 
     while time.time() - start < timeout:
         if check_peridot_running(base_url):
             logger.info("Neural Link Established!")
             return True
-        time.sleep(0.5)
+        time.sleep(poll_seconds)
 
     logger.error(f"Peridot did not respond within {timeout}s")
     return False
@@ -290,11 +397,16 @@ class AetherClient:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
 
-    def send_query(self, query: str, prompt: Optional[str] = None, timeout: int = 180):
-        if prompt is None:
-            prompt = f"<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    def send_query(self, query: str, timeout: int = 180):
+        """Send a query and return the parsed JSON body.
 
-        payload = {"query": query, "prompt": prompt}
+        Deliberately sends only "query". server.py assembles the real prompt
+        via build_full_context() using the loaded model's own chat format, so a
+        client-side template is both unused and a mismatch risk -- this used to
+        hardcode Llama-3 header tokens while the shipped default model is
+        Qwen/chatml.
+        """
+        payload = {"query": query}
         response = self.session.post(self.url, json=payload, timeout=timeout)
         response.raise_for_status()
         return response.json()

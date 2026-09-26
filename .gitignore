@@ -79,3 +79,11 @@ cowork/
 
 # Scratch handoff docs for other agents/tools working this repo
 .temp/
+
+# Python packaging artifacts. `python -m build` produces these at the repo root;
+# it previously failed outright (setuptools exec'd the interactive setup.py
+# wizard mid-build), so nothing here ever needed ignoring before.
+build/
+dist/
+*.egg-info/
+*.whl

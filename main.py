@@ -9,7 +9,6 @@ import sys
 import os
 import time
 import requests
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -20,7 +19,7 @@ try:
     from ui import PeridotUI
     from config import SERVER_HOST, SERVER_PORT
 except ImportError as e:
-    print(f"\n[FATAL] System Integrity Failure: Could not import core modules.")
+    print("\n[FATAL] System Integrity Failure: Could not import core modules.")
     print(f"Error Details: {e}")
     print("Ensure 'core.py' and 'ui.py' are correctly updated.")
     sys.exit(1)

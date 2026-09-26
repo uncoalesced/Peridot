@@ -12,38 +12,20 @@ Benchmark: VRAM Hammer Diagnostic
 Synthetic hardware stress test for Blackwell VRAM flushing.
 """
 
-import sys
 import time
 import torch
-from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# PATH BOOTSTRAPPING
-# -----------------------------------------------------------------------------
-benchmarking_dir = Path(__file__).parent.absolute()
-peridot_root = benchmarking_dir.parent
-utils_path = benchmarking_dir / "utils"
-
-for path in [str(peridot_root), str(utils_path)]:
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-try:
-    import pynvml
-    from benchmark_utils import logger, BenchmarkResult
-except ImportError:
-    print(
-        "[ERROR] Missing dependencies. Ensure pynvml and benchmark_utils are available."
-    )
-    sys.exit(1)
+from benchmarking.utils.benchmark_utils import (
+    BenchmarkResult,
+    RESULTS_DIR,
+    get_vram_mb,
+    logger,
+)
 
 
 def get_vram_used():
-    pynvml.nvmlInit()
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-    pynvml.nvmlShutdown()
-    return info.used / (1024 * 1024)  # Convert to MB
+    """Used VRAM in MB, via the shared NVML helper."""
+    return get_vram_mb()["used"]
 
 
 def run_hammer_test():
@@ -90,7 +72,7 @@ def run_hammer_test():
     final_vram = get_vram_used()
     result.add_measurement(latency)
 
-    logger.info(f"[4/4] Purge Complete.")
+    logger.info("[4/4] Purge Complete.")
     logger.info(f"      Hardware Latency: {latency:.2f} ms")
     logger.info(f"      Final Residual VRAM: {final_vram:.2f} MB")
 
@@ -102,7 +84,7 @@ def run_hammer_test():
             "\n[RESULT] WARN: Residual VRAM detected. Potential driver fragmentation."
         )
 
-    result.save(benchmarking_dir / "results")
+    result.save(RESULTS_DIR)
 
 
 if __name__ == "__main__":

@@ -20,62 +20,26 @@ import statistics
 from pathlib import Path
 
 # Add utils to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
-sys.path.insert(0, str(Path(__file__).parent))
 
-from benchmark_utils import (
+from benchmarking.utils.benchmark_utils import (
+    RESULTS_DIR,
     BenchmarkResult,
-    get_system_info,
+    count_tokens_rough,
     format_duration,
     format_throughput,
+    get_system_info,
+    kill_existing_peridot,
     logger,
+    wait_for_peridot,
 )
-import api_client
+from benchmarking import api_client
 
-RESULTS_DIR = Path(__file__).parent / "results"
 SERVER_PATH = Path(__file__).parent.parent / "server.py"
 
 
-def kill_existing_peridot():
-    """Kill any existing Peridot processes safely."""
-    import psutil
-
-    killed_count = 0
-    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-        try:
-            cmdline = proc.info.get("cmdline")
-            if cmdline and any(
-                name in str(cmd).lower()
-                for cmd in cmdline
-                for name in ["server.py", "launcher.py", "main.py"]
-            ):
-                logger.info(f"Killing existing process: PID {proc.info['pid']}")
-                proc.kill()
-                killed_count += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-
-    if killed_count > 0:
-        logger.info(f"Killed {killed_count} existing Peridot process(es)")
-        time.sleep(4)
-
-    return killed_count
-
-
 def wait_for_health(timeout=200):
-    """Wait for Peridot to respond to health check via api_client."""
-    start = time.time()
-
-    while time.time() - start < timeout:
-        try:
-            response = api_client.get_health()
-            if response.get("status") == "healthy" or response:
-                return True
-        except RuntimeError:
-            pass
-        time.sleep(2)
-
-    return False
+    """Wait for Peridot to answer /health. Polls slowly to avoid hammering Flask."""
+    return wait_for_peridot(timeout=timeout, poll_seconds=2.0)
 
 
 def generate_context(target_tokens: int) -> str:
@@ -93,10 +57,6 @@ def generate_context(target_tokens: int) -> str:
     return context
 
 
-def count_tokens_rough(text: str) -> int:
-    """Rough approximation of token count based on word count."""
-    words = text.split()
-    return int(len(words) * 1.3)
 
 
 def measure_with_context(context_tokens: int, runs: int = 3) -> dict:

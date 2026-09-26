@@ -20,23 +20,32 @@ When the official turbovec package is installed, this wrapper delegates to it.
 For development/testing, a pure-Python fallback is provided.
 """
 
-import os
-import sys
-import json
-import struct
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict
 from core_system.audit import ghost
 
 TURBOVEC_NATIVE = True
 
 # Try to import the official TurboVec package
 # If not available, fall back to pure-Python implementation
+# The native path below calls add_with_ids/search/delete_by_id/get_vector_by_id/
+# save/load/size. turbovec 0.7.1 (the pinned release) instead exposes
+# add_with_ids/search/remove/contains/write/load/prepare, so enabling it just
+# because the import succeeds crashed the vault on first save/delete. Only use
+# a build that actually has the API this wrapper speaks.
+_REQUIRED_NATIVE_API = ("add_with_ids", "search", "delete_by_id", "get_vector_by_id", "save", "load", "size")
 try:
     import turbovec
-    TURBOVEC_NATIVE = True
-    ghost.info("TURBOVEC | Native Rust bindings loaded successfully.")
+    _missing = [name for name in _REQUIRED_NATIVE_API if not hasattr(turbovec.IdMapIndex, name)]
+    if _missing:
+        TURBOVEC_NATIVE = False
+        ghost.warning(
+            f"TURBOVEC | Installed turbovec lacks {_missing}; using the vectorised numpy fallback."
+        )
+    else:
+        TURBOVEC_NATIVE = True
+        ghost.info("TURBOVEC | Native Rust bindings loaded successfully.")
 except ImportError:
     TURBOVEC_NATIVE = False
     ghost.warning("TURBOVEC | Native bindings not found. Using pure-Python fallback.")
@@ -67,7 +76,12 @@ class IdMapIndex:
         self.bit_width = bit_width
         self._id_to_idx: Dict[str, int] = {}  # Maps stable IDs to internal indices
         self._idx_to_id: Dict[int, str] = {}  # Maps internal indices to stable IDs
-        self._vectors: List[np.ndarray] = []   # Stored vectors
+        # Pure-Python fallback storage: one contiguous row-per-vector matrix
+        # (grown by doubling) so search is a single mat-vec, not a Python loop
+        # over N vectors. Deleted rows stay in place and are masked out.
+        self._matrix = np.empty((0, dim), dtype=np.float32)
+        self._alive = np.empty(0, dtype=bool)
+        self._sqnorm = np.empty(0, dtype=np.float32)  # cached ||row||^2
         self._next_idx = 0
 
         if TURBOVEC_NATIVE:
@@ -93,15 +107,33 @@ class IdMapIndex:
             self._native_index.add_with_ids(vectors, ids)
         else:
             # Pure-Python fallback
+            rows = []
             for vec, chunk_id in zip(vectors, ids):
                 if chunk_id not in self._id_to_idx:
-                    idx = self._next_idx
+                    idx = self._next_idx + len(rows)
                     self._id_to_idx[chunk_id] = idx
                     self._idx_to_id[idx] = chunk_id
-                    self._vectors.append(np.array(vec, dtype=np.float32))
-                    self._next_idx += 1
+                    rows.append(np.asarray(vec, dtype=np.float32).reshape(-1))
+            if rows:
+                self._append_rows(np.stack(rows))
 
             ghost.info(f"TURBOVEC | Added {len(ids)} vectors with stable IDs (total: {self._next_idx})")
+
+    def _append_rows(self, rows: np.ndarray) -> None:
+        start, end = self._next_idx, self._next_idx + len(rows)
+        if end > len(self._matrix):
+            capacity = max(end, 2 * len(self._matrix), 64)
+            matrix = np.empty((capacity, self.dim), dtype=np.float32)
+            matrix[:start] = self._matrix[:start]
+            alive = np.zeros(capacity, dtype=bool)
+            alive[:start] = self._alive[:start]
+            sqnorm = np.zeros(capacity, dtype=np.float32)
+            sqnorm[:start] = self._sqnorm[:start]
+            self._matrix, self._alive, self._sqnorm = matrix, alive, sqnorm
+        self._matrix[start:end] = rows
+        self._alive[start:end] = True
+        self._sqnorm[start:end] = np.einsum("ij,ij->i", rows, rows)
+        self._next_idx = end
 
     def list_ids(self) -> list:
         if hasattr(self, "id_to_doc"):
@@ -139,7 +171,10 @@ class IdMapIndex:
         mask_values = list(mask) if mask is not None else None
 
         if TURBOVEC_NATIVE:
-            candidate_count = max(result_limit, self.size)
+            # Unfiltered: exactly k. Filtered in Python below: the whole index,
+            # since any k-prefix could be filtered away entirely.
+            filtered = allowed_ids is not None or mask_values is not None
+            candidate_count = max(result_limit, self.size) if filtered else result_limit
             try:
                 if mask_values is None:
                     distances, ids = self._native_index.search(query_vector, k=candidate_count)
@@ -171,28 +206,39 @@ class IdMapIndex:
             result_scores = [1.0 / (1.0 + distance) for distance in result_distances]
             return result_distances, result_ids, result_scores
 
-        q_vec = np.array(query_vector, dtype=np.float32).flatten()
-        if len(self._vectors) == 0:
+        q_vec = np.asarray(query_vector, dtype=np.float32).reshape(-1)
+        n = self._next_idx
+        valid = self._alive[:n].copy()
+        if mask_values is not None:
+            mask_arr = np.zeros(n, dtype=bool)
+            usable = min(n, len(mask_values))
+            mask_arr[:usable] = np.asarray(mask_values[:usable], dtype=bool)
+            valid &= mask_arr
+        if allowed_ids is not None:
+            allow_arr = np.zeros(n, dtype=bool)
+            allowed_idx = [self._id_to_idx[c] for c in allowed_ids if c in self._id_to_idx]
+            allow_arr[allowed_idx] = True
+            valid &= allow_arr
+
+        n_valid = int(valid.sum())
+        if result_limit == 0 or n_valid == 0:
             return np.array([]), [], []
 
-        pairs = []
-        for idx, vec in enumerate(self._vectors):
-            if vec is None:
-                continue
-            chunk_id = self._idx_to_id.get(idx)
-            if chunk_id is None:
-                continue
-            if allowed_ids is not None and chunk_id not in allowed_ids:
-                continue
-            if mask_values is not None and (
-                idx >= len(mask_values) or not mask_values[idx]
-            ):
-                continue
-            pairs.append((float(np.linalg.norm(q_vec - vec)), idx))
+        # Rank by ||m||^2 - 2 m.q (the ||q||^2 term is constant): one mat-vec
+        # over the contiguous slice -- no fancy-index copy of the matrix -- with
+        # filtered rows pushed to +inf. Exact distances only for the winners.
+        approx = self._sqnorm[:n] - 2.0 * (self._matrix[:n] @ q_vec)
+        approx[~valid] = np.inf
+        if n_valid > result_limit:
+            candidates = np.argpartition(approx, result_limit - 1)[:result_limit]
+        else:
+            candidates = np.flatnonzero(valid)
+        exact = np.linalg.norm(self._matrix[candidates] - q_vec, axis=1)
+        order = np.argsort(exact, kind="stable")
+        top = candidates[order]
 
-        sorted_pairs = sorted(pairs, key=lambda pair: pair[0])[:result_limit]
-        result_distances = np.array([distance for distance, _ in sorted_pairs])
-        result_ids = [self._idx_to_id[index] for _, index in sorted_pairs]
+        result_distances = exact[order].astype(np.float64)
+        result_ids = [self._idx_to_id[int(index)] for index in top]
         result_scores = [1.0 / (1.0 + float(distance)) for distance in result_distances]
         return result_distances, result_ids, result_scores
 
@@ -217,7 +263,7 @@ class IdMapIndex:
                 idx = self._id_to_idx[chunk_id]
                 del self._id_to_idx[chunk_id]
                 del self._idx_to_id[idx]
-                self._vectors[idx] = None  # Mark as deleted
+                self._alive[idx] = False  # Row stays; masked out of search
                 ghost.info(f"TURBOVEC | Deleted chunk with ID: {chunk_id}")
                 return True
             return False
@@ -229,7 +275,7 @@ class IdMapIndex:
         else:
             if chunk_id in self._id_to_idx:
                 idx = self._id_to_idx[chunk_id]
-                return self._vectors[idx]
+                return self._matrix[idx].copy()
             return None
 
     @property
@@ -275,9 +321,9 @@ class IdMapIndex:
 
             # Save vectors as numpy arrays in safetensors format
             valid_vectors = [
-                (idx, vec)
-                for idx, vec in enumerate(self._vectors)
-                if vec is not None and idx in self._idx_to_id
+                (idx, self._matrix[idx])
+                for idx in np.flatnonzero(self._alive[:self._next_idx]).tolist()
+                if idx in self._idx_to_id
             ]
             if valid_vectors:
                 vector_array = np.stack([vec for _, vec in valid_vectors])
@@ -328,7 +374,10 @@ class IdMapIndex:
 
             if vectors_file.exists():
                 tensors = load_file(str(vectors_file))
-                self._vectors = [tensors["vectors"][i] for i in range(len(tensors["vectors"]))]
+                matrix = np.ascontiguousarray(tensors["vectors"], dtype=np.float32)
+                self._matrix = matrix
+                self._alive = np.ones(len(matrix), dtype=bool)
+                self._sqnorm = np.einsum("ij,ij->i", matrix, matrix)
 
             if meta_file.exists():
                 with open(meta_file, "r", encoding="utf-8") as f:

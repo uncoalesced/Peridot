@@ -13,6 +13,7 @@ Run this script to barrage the local kernel with malicious payloads
 and verify the active defense perimeter is holding.
 """
 
+import pytest
 import requests
 import sys
 import os
@@ -91,10 +92,20 @@ def test_api_auth_bypass():
     try:
         # We purposely send a request WITHOUT the Bearer token
         r = requests.post(f"{BASE_URL}/ask", json={"command": "Wake up"}, timeout=2)
-        assert r.status_code in [401, 403], f"FAIL: Expected 401/403, got {r.status_code}. The API is exposed!"
-        print("  [PASS] Unauthorized local API requests blocked.")
     except requests.exceptions.ConnectionError:
-        print("  [SKIP] Inference Server offline. Boot `python launcher.py` in another terminal to test the API.")
+        # pytest.skip, not a bare print: printing "[SKIP]" and returning made
+        # this test PASS VACUOUSLY whenever no server was running -- which is
+        # always the case in CI -- so an exposed /ask endpoint would never have
+        # been caught here. A real skip is visible in the pytest report.
+        pytest.skip(
+            "Inference Server offline. Boot `python launcher.py` in another "
+            "terminal to exercise the live auth check."
+        )
+
+    assert r.status_code in [401, 403], (
+        f"FAIL: Expected 401/403, got {r.status_code}. The API is exposed!"
+    )
+    print("  [PASS] Unauthorized local API requests blocked.")
 
 if __name__ == "__main__":
     print("=====================================")

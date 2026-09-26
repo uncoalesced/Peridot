@@ -5,15 +5,11 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
-# core_system/__init__.py
-# Peridot Core System Package
-
-# Expose key modules for easier importing
-from core_system.command_router import CommandRouter
-from core_system.research import MedicalResearchModule
-
-# If you have these files, uncomment them:
-# from .ethics import EthicsManager
-# from .permissions import PermissionManager
-# from .ears import PeridotEars
-# from .vision import PeridotVision
+# Peridot Core System Package.
+#
+# Intentionally empty. This package used to eagerly re-export CommandRouter and
+# MedicalResearchModule, which meant `import core_system.anything` transitively
+# executed all of config.py's import-time side effects (nvidia-smi subprocess,
+# load_dotenv, directory creation, .env write) plus `import pynvml` -- before the
+# requested module was even loaded. Both symbols are imported directly from their
+# own modules by their real consumers (see core.py).

@@ -9,7 +9,9 @@
 
 # core_system/ears.py
 
-import whisper
+# whisper (and torch under it) is imported in _load_model, on first use: at
+# module level it put torch + a ~460MB model load on every UI startup, voice
+# used or not.
 import speech_recognition as sr
 import threading
 import logging
@@ -22,33 +24,42 @@ class PeridotEars:
     def __init__(self):
         self.model = None
         self.is_loaded = False
+        self._load_lock = threading.Lock()
         self.recognizer = sr.Recognizer()
         self.microphone = sr.Microphone()
 
-    def load_model_async(self, callback=None):
-        """Loads Whisper on CPU to save GPU for the Brain."""
-
-        def _load():
+    def _load_model(self) -> bool:
+        """Loads Whisper on CPU to save GPU for the Brain. Idempotent."""
+        with self._load_lock:
+            if self.is_loaded:
+                return True
             try:
+                import whisper
                 # FORCE CPU DEVICE
                 logger.info("Loading Whisper (Small) on CPU...")
                 self.model = whisper.load_model("small", device="cpu")
-
                 self.is_loaded = True
                 logger.info("Whisper Audio Model Loaded Successfully.")
-                if callback:
-                    callback(True)
+                return True
             except Exception as e:
                 logger.error(f"Failed to load Whisper: {e}")
-                if callback:
-                    callback(False)
+                return False
+
+    def load_model_async(self, callback=None):
+        """Preload Whisper in the background (optional; listen() loads on demand)."""
+
+        def _load():
+            ok = self._load_model()
+            if callback:
+                callback(ok)
 
         threading.Thread(target=_load, daemon=True).start()
 
     def listen(self, duration=5):
         """Records audio for a fixed duration and returns text."""
-        if not self.is_loaded:
-            return "[ERROR] Audio systems initializing... please wait."
+        # First use pays the load here; callers run listen() off the UI thread.
+        if not self.is_loaded and not self._load_model():
+            return "[ERROR] Audio model failed to load. Check the console log."
 
         try:
             with self.microphone as source:
@@ -69,7 +80,7 @@ class PeridotEars:
 
             try:
                 os.remove("temp.wav")
-            except Exception as e:
+            except Exception:
                 pass
 
             return text
