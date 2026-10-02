@@ -38,6 +38,40 @@
 
 ---
 
+<div align="center">
+
+### Watch the v1.6.0 launch video (70 s)
+
+<a href="https://github.com/uncoalesced/Peridot/releases/download/v1.6.0/peridot-v1.6.0.mp4"><img src="assets/video/poster.jpg" alt="Peridot v1.6.0 launch video" width="720"></a>
+
+<sub>Click to play. Also in the repo at <a href="assets/video/peridot-v1.6.0.mp4">assets/video/peridot-v1.6.0.mp4</a>.</sub>
+
+</div>
+
+---
+
+## Contents
+
+**Just want to run it? [Jump to Installation](#installation).**
+
+| Section | What's there |
+|---|---|
+| [Overview](#overview) | What Peridot is and what's new in v1.6.0 |
+| [Performance](#performance) | Benchmarks, VRAM arbitration, runtime guardrails |
+| [Memory](#memory) | Multi-session memory, input handling, auth, GhostLogger |
+| [Interface](#ui) | Glass Box UI: chat, vault, settings, model swapper |
+| [Architecture](#architecture) | How the pieces fit together |
+| [Features](#features) | RAG pipeline, inference engine, Folding@home module |
+| [Hardware](#hardware) | Supported GPUs and CPU fallback |
+| [Installation](#installation) | Prerequisites and setup, step by step |
+| [Roadmap](#roadmap) | What's next |
+| [Philosophy](#philosophy) | Why Peridot is local-first |
+| [License](#license) | License and disclaimer |
+
+---
+
+<a id="overview"></a>
+
 # `> OVERVIEW`
 
 Peridot v1.6.0 is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems. Every inference cycle runs on hardware the operator physically owns, with no cloud dependency, no telemetry and no remote trust assumptions anywhere in the execution path. v1.5.4 added native Linux support (Debian 12, Ubuntu 22.04+, Arch) alongside the existing Windows runtime, and closed a real sovereignty gap where the offline flags could be silently reopened by a stale `.env`.
@@ -126,7 +160,11 @@ Peridot still retains the original sovereign constraints: local inference, permi
 +---------------------------------------------------------+
 ```
 
+> **Disclosure:** Claude did the CI/CD and majority of benchmarking.
+
 ---
+
+<a id="performance"></a>
 
 # `> PERFORMANCE`
 
@@ -251,6 +289,8 @@ The FSM retains a 200MB free VRAM clearance threshold on 8GB targets. If Folding
 
 
 ---
+
+<a id="memory"></a>
 
 # `> SOVEREIGN MULTI-SESSION MEMORY`
 
@@ -413,6 +453,8 @@ For full threat model documentation and disclosure policy, see [`SECURITY.md`](d
 
 ---
 
+<a id="ui"></a>
+
 # `> GLASS BOX UI & OPERATOR INTERFACE`
 
 Peridot v1.5 introduces a redesigned operator interface engineered around transparency, observability and separation of responsibilities.
@@ -571,6 +613,8 @@ Research contribution remains voluntary.
 
 ---
 
+<a id="architecture"></a>
+
 # `> ARCHITECTURE`
 
 Peridot is engineered as a layered sovereign runtime composed of isolated but composable subsystems.
@@ -593,6 +637,8 @@ Deterministic Local Execution
 over abstraction-heavy orchestration.
 
 ---
+
+<a id="features"></a>
 
 # `> CORE ARCHITECTURE & FEATURE MATRIX`
 
@@ -899,6 +945,8 @@ research status
 
 ---
 
+<a id="hardware"></a>
+
 # `> HARDWARE SUPPORT`
 
 | Tier | Hardware | Configuration | Expected Performance |
@@ -931,6 +979,8 @@ CPU only execution paths remain fully supported at reduced throughput.
 **Community Builds:** Maintained by contributors. Community deployment documentation may lag behind stable runtime architecture revisions. See [`COMMUNITY_INSTALL.md`](docs/markdowns/COMMUNITY_INSTALL.md).
 
 ---
+
+<a id="installation"></a>
 
 # `> INSTALLATION`
 
@@ -1066,6 +1116,8 @@ The kernel will initialize using the configured runtime environment.
 
 ---
 
+<a id="roadmap"></a>
+
 # `> ROADMAP`
 
 ```text
@@ -1083,6 +1135,8 @@ The kernel will initialize using the configured runtime environment.
 v1.6.0-beta ships the native engine: `BaseInferenceProvider` is wired into `server.py`, the source-built `llama-cpp-python` runs Qwen3.8-27B fully on 8GB, and FreeThink part 1 (native `<think>` detection, no scaffold mandate for thinking models) is in. Still to come in v1.6.x point releases: FreeThink part 2 (separate reasoning budget, a per-message "show reasoning" toggle, a ledger `reasoning` column), one child process per model with `POST /model/swap` (llama-cpp-python's CUDA context does not reliably release VRAM without a process exit), and episodic self-improvement memory on the same TurboVec index as the RAG vault. TurboQuant and `llama-cpp-python` stay the permanent default underneath; ExLlamaV2/vLLM remain optional additions.
 
 ---
+
+<a id="philosophy"></a>
 
 # `> PHILOSOPHY`
 
@@ -1118,6 +1172,8 @@ That decision belongs to the user, not the developer.
 For our full philosophical reasoning, see [`PHILOSOPHY.md`](docs/markdowns/PHILOSOPHY.md).
 
 ---
+
+<a id="license"></a>
 
 # `> LICENSE & DISCLAIMER`
 

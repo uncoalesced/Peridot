@@ -78,7 +78,7 @@ v1.6.0 is the stable release of the v1.6.0-BETA engine work (native CUDA engine,
 
 #### API
 
-All endpoints except `/health` require the `X-API-KEY` header.
+All endpoints except `/health` require `Authorization: Bearer <API_KEY>`.
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
