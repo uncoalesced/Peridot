@@ -94,9 +94,9 @@ pynput==1.8.2
 
 # --- Platform-isolated deep learning ---
 # Windows uses validated CUDA 12.4 wheels; Linux/macOS stays on standard
-# CPU-compatible PyPI wheels. Only `torch` is imported (benchmark_memory_bandwidth,
+# CPU-compatible PyPI wheels. Only `torch==2.14.0` is imported (benchmark_memory_bandwidth,
 # benchmark_vram_hammer, and server.py's cache-empty path); torchaudio and
 # torchvision were declared but never imported and have been dropped.
 # The "+" must stay URL-encoded (%2B): download.pytorch.org returns 403 for a raw "+".
-torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
-torch==2.6.0 ; sys_platform != 'win32'
+torch==2.14.0 @ https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
+torch==2.14.0==2.6.0 ; sys_platform != 'win32'
