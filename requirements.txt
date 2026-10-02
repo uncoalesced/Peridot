@@ -31,7 +31,7 @@
 Flask==3.1.3
 flask-cors==6.0.5
 Flask-Limiter==4.1.1
-requests==2.33.0
+requests==2.34.2
 websocket-client==1.9.0
 
 # --- Inference engine ---
