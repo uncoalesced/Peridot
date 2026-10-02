@@ -160,7 +160,7 @@ Peridot still retains the original sovereign constraints: local inference, permi
 +---------------------------------------------------------+
 ```
 
-> **Disclosure:** Claude did the CI/CD.
+> **Disclosure:** Claude did the CI/CD and majority of benchmarking.
 
 ---
 
