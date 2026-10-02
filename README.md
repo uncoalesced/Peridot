@@ -42,9 +42,9 @@
 
 ### Watch the v1.6.0 launch video (70 s)
 
-<a href="https://github.com/uncoalesced/Peridot/releases/download/v1.6.0/peridot-v1.6.0.mp4"><img src="assets/video/poster.jpg" alt="Peridot v1.6.0 launch video" width="720"></a>
+<a href="https://github.com/uncoalesced/Peridot/blob/main/assets/video/peridot-v1.6.0.mp4"><img src="assets/video/poster.jpg" alt="Peridot v1.6.0 launch video" width="720"></a>
 
-<sub>Click to play. Also in the repo at <a href="assets/video/peridot-v1.6.0.mp4">assets/video/peridot-v1.6.0.mp4</a>.</sub>
+<sub>Click the image to play it on GitHub. Prefer a file? <a href="https://github.com/uncoalesced/Peridot/releases/download/v1.6.0/peridot-v1.6.0.mp4">Download the MP4</a>.</sub>
 
 </div>
 
