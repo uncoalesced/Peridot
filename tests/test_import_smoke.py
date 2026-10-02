@@ -79,6 +79,20 @@ def _discover():
     return sorted(set(modules))
 
 
+_EMBED_MODEL = PROJECT_ROOT / "models" / "embeddings" / "all-MiniLM-L6-v2"
+
+# Importable only in some environments; skipped (not excluded) elsewhere so
+# they stay covered on Windows dev boxes with the model fetched.
+ENV_DEPENDENT = {
+    "core_system.invocation.tray_win32": (
+        sys.platform != "win32", "Win32-only (ctypes.WINFUNCTYPE)"),
+    **{m: (not _EMBED_MODEL.exists(),
+           "embedding model not fetched (offline-only load at import)")
+       for m in ("core_system.memory.embedder",
+                 "core_system.memory.ephemeral_cache",
+                 "core_system.memory.vault")},
+}
+
 ALL_MODULES = _discover()
 IMPORTABLE = [m for m in ALL_MODULES if m not in EXPECTED_UNIMPORTABLE]
 
@@ -94,6 +108,9 @@ def test_discovery_found_the_source_tree():
 
 @pytest.mark.parametrize("module", IMPORTABLE)
 def test_module_imports(module):
+    skip, reason = ENV_DEPENDENT.get(module, (False, ""))
+    if skip:
+        pytest.skip(reason)
     proc = subprocess.run(
         [sys.executable, "-c", f"import {module}"],
         cwd=PROJECT_ROOT,
