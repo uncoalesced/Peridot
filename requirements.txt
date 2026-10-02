@@ -68,7 +68,7 @@ SpeechRecognition==3.16.1
 # No first-party `import pyaudio`, but speech_recognition.Microphone (ears.py)
 # imports it at runtime; without it voice input fails on a fresh install.
 PyAudio==0.2.14
-sounddevice==0.5.5
+sounddevice==0.5.6
 
 # --- Configuration ---
 python-dotenv==1.2.2
