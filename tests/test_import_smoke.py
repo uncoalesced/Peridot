@@ -36,6 +36,12 @@ SKIP_DIRS = {
     ".pytest_cache", "models", "logs", "storage", "input", "assets", "docs",
     # setuptools output: stale copies of the tree, not importable by that path.
     "build", "dist",
+    # Sovereign Invocation MCP bridge: standalone scripts (no __init__, run by
+    # path), and "mcp" is also a PyPI package name that shadows it on import.
+    # Covered by tests/test_v160_mcp.py, which loads them by file path.
+    "mcp",
+    # Third-party upstream clones kept for porting (gitignored), not Peridot code.
+    "mirror",
 }
 
 # Modules that cannot be imported in a bare test process, with the reason.

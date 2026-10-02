@@ -13,7 +13,6 @@ import logging
 from pathlib import Path
 
 # --- CONFIGURATION ---
-DANGEROUS_PATTERNS = [r"<script", r"eval\(", r"__import__", r"os\.system", r"subprocess\."]
 FILE_BLACKLIST = [".env", ".ssh/", "id_rsa", "passwords.txt", "private.key", "auth.token"]
 SENSITIVE_DIRS = ["C:\\Windows\\", "/etc/", "/root/", "/boot/", "/sys/", "/proc/"]
 
@@ -49,17 +48,19 @@ def log_event(event_type: str, details: str, severity: str = "INFO"):
 
 # --- CORE SECURITY FUNCTIONS ---
 
+# One message must leave room in the 8k-token context for the system prompt,
+# history and the answer: ~6k tokens of input, ~4 chars/token.
+MAX_INPUT_CHARS = 24000
+
+
 def sanitize_input(user_input: str) -> tuple[str, bool]:
     """Task 1: Input Sanitization"""
-    if len(user_input) > 10000:
+    if len(user_input) > MAX_INPUT_CHARS:
         log_event("INPUT_REJECTED", "Payload too large", "WARNING")
         return "", False
-    
-    for pattern in DANGEROUS_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
-            log_event("INPUT_REJECTED", f"Dangerous pattern detected: {pattern}", "WARNING")
-            return "", False
-            
+
+    # v1.6.0: no content filtering. Prompt text is never executed, so keyword
+    # blocking only refused legitimate questions (e.g. about subprocess.run).
     # Clean up null bytes
     return user_input.replace("\x00", ""), True
 

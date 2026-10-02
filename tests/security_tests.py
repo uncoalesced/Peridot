@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # config MUST be imported first: it force-sets the offline sovereignty lock.
 from config import SERVER_HOST, SERVER_PORT
-from core_system.security import sanitize_input, is_file_safe, is_model_download_safe
+from core_system.security import MAX_INPUT_CHARS, sanitize_input, is_file_safe, is_model_download_safe
 from core_system.model_fetch import assert_main_process_offline
 
 BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
@@ -82,10 +82,11 @@ def test_sovereignty_lock():
 
 def test_input_sanitization():
     print("[TEST] Input Sanitization...")
-    assert not sanitize_input("<script>alert('xss')</script>")[1], "FAIL: XSS payload allowed!"
-    assert not sanitize_input("import os; os.system('rm -rf /')")[1], "FAIL: OS execution payload allowed!"
-    assert sanitize_input("What is the capital of France?")[1], "FAIL: Normal query falsely blocked!"
-    print("  [PASS] Malicious code injection destroyed.")
+    assert not sanitize_input("x" * (MAX_INPUT_CHARS + 1))[1], "FAIL: Oversized payload allowed!"
+    assert sanitize_input("x" * MAX_INPUT_CHARS)[1], "FAIL: Payload at the limit rejected!"
+    assert sanitize_input("How does subprocess.run differ from os.system?")[1], "FAIL: Coding question blocked!"
+    assert sanitize_input("a\x00b") == ("ab", True), "FAIL: Null bytes not stripped!"
+    print("  [PASS] Size cap and null-byte strip enforced; no content filtering.")
 
 def test_api_auth_bypass():
     print("[TEST] API Authentication Bypass...")

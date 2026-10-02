@@ -11,9 +11,10 @@ import sys
 import logging
 import secrets
 import subprocess
+import time
 from pathlib import Path
 import psutil
-from dotenv import load_dotenv, set_key
+from dotenv import dotenv_values, load_dotenv, set_key
 
 # Initialize basic logging for the bootstrap phase
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | [CONFIG] %(message)s")
@@ -194,7 +195,31 @@ for directory in (LOG_PATH, BACKUP_PATH, PROCESSED_PATH, MODEL_DIR, STORAGE_PATH
 # decode_sweep_20260925_225519.json) -- vs 5.3 t/s / 34 t/s for the 14B, which
 # only fits 28 of 48 layers. Requires the source build: the PyPI 0.3.23 wheel
 # still cannot load it (fall back with ACTIVE_MODEL_NAME=Qwen2.5-14B-...).
-ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME", "Qwen3.8-27B-UD-IQ1_S.gguf")
+DEFAULT_MODEL_NAME = "Qwen3.8-27B-UD-IQ1_S.gguf"
+_PREVIOUS_DEFAULT_MODEL = "Qwen2.5-14B-Instruct-Q4_K_M.gguf"
+
+
+def _resolve_default_model(model_dir: Path) -> str:
+    """Default model, or a local stand-in when it isn't downloaded.
+
+    A v1.5.4 install upgraded by `git pull` has the 14B but not the 27B, and no
+    ACTIVE_MODEL_NAME in .env -- without this the server hard-exits on boot.
+    Only used when ACTIVE_MODEL_NAME is unset; an explicit choice is never
+    second-guessed.
+    """
+    if (model_dir / DEFAULT_MODEL_NAME).exists():
+        return DEFAULT_MODEL_NAME
+    if (model_dir / _PREVIOUS_DEFAULT_MODEL).exists():
+        fallback = _PREVIOUS_DEFAULT_MODEL
+    else:
+        fallback = next((p.name for p in sorted(model_dir.glob("*.gguf"))), DEFAULT_MODEL_NAME)
+    if fallback != DEFAULT_MODEL_NAME:
+        logger.warning(f"{DEFAULT_MODEL_NAME} not found in {model_dir}; using {fallback}. "
+                       "Run install_wizard.py to get the default model.")
+    return fallback
+
+
+ACTIVE_MODEL_NAME: str = os.getenv("ACTIVE_MODEL_NAME") or _resolve_default_model(MODEL_DIR)
 MODEL_PATH: Path = MODEL_DIR / ACTIVE_MODEL_NAME
 
 # Dynamic hardware-aware configuration
@@ -269,7 +294,11 @@ KV_CACHE_TYPE: str = os.getenv("KV_CACHE_TYPE", "f16")
 TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.6"))
 TOP_P: float = float(os.getenv("TOP_P", "0.95"))
 TOP_K: int = int(os.getenv("TOP_K", "20"))
-REPEAT_PENALTY: float = float(os.getenv("REPEAT_PENALTY", "1.1"))
+# Qwen recommends no repeat penalty for thinking models: 1.1 penalises the
+# tokens the reasoning just used, which the answer then needs to repeat.
+from core_system.prompting.constitution import model_supports_thinking  # noqa: E402 - stdlib-only module
+REPEAT_PENALTY: float = float(os.getenv(
+    "REPEAT_PENALTY", "1.0" if model_supports_thinking(MODEL_PATH) else "1.1"))
 
 # --- NETWORK & SECURITY ---
 SERVER_HOST: str = os.getenv("SERVER_HOST", "127.0.0.1")
@@ -282,20 +311,59 @@ SHUTDOWN_URL: str = f"http://{SERVER_HOST}:{SERVER_PORT}/shutdown"
 # --- CRYPTOGRAPHIC HANDSHAKE ---
 # Generate secure API key on first boot if missing
 ENV_PATH = ROOT_PATH / ".env"
+
+
+def _env_file_key():
+    return dotenv_values(ENV_PATH).get("API_KEY") if ENV_PATH.exists() else None
+
+
+def _ensure_api_key():
+    """Mint API_KEY exactly once across processes.
+
+    Server and UI each import config; on first boot both used to generate a
+    different key and the last writer won, leaving the other process with a
+    key the server rejects. An O_EXCL lock file serialises the mint; losers
+    poll .env until the winner's key appears.
+    """
+    lock = BASE_DIR / ".env.lock"
+    deadline = time.monotonic() + 5
+    while True:
+        key = _env_file_key()
+        if key:
+            return key
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if time.monotonic() < deadline:
+                time.sleep(0.1)
+                continue
+            # ponytail: holder died mid-mint, so treat the lock as stale; a
+            # second waiter racing this unlink is possible but needs a crash first.
+            lock.unlink(missing_ok=True)
+            continue
+        try:
+            key = _env_file_key()  # re-read: a peer may have minted while we waited
+            if key:
+                return key
+            key = secrets.token_hex(32)
+            # Never log the key itself. This previously interpolated `new_key` into the
+            # message, so a live 64-character credential was written to stdout and to
+            # logs/ on first boot. The key is persisted to .env below; that file is
+            # the intended place to read it from.
+            logger.warning("No API_KEY found. Generated a new secure key and wrote it to .env")
+            if ENV_PATH.exists():
+                set_key(str(ENV_PATH), "API_KEY", key)
+            else:
+                with open(ENV_PATH, "w", encoding="utf-8") as f:
+                    f.write(f"API_KEY={key}\n")
+            return key
+        finally:
+            os.close(fd)
+            lock.unlink(missing_ok=True)
+
+
 if not os.getenv("API_KEY"):
-    new_key = secrets.token_hex(32)
-    # Never log the key itself. This previously interpolated `new_key` into the
-    # message, so a live 64-character credential was written to stdout and to
-    # logs/ on first boot -- in both the server and the client process, since
-    # each imports config.py independently. The key is persisted to .env below;
-    # that file is the intended place to read it from.
-    logger.warning("No API_KEY found. Generated a new secure key and wrote it to .env")
-    if ENV_PATH.exists():
-        set_key(str(ENV_PATH), "API_KEY", new_key)
-    else:
-        with open(ENV_PATH, "w", encoding="utf-8") as f:
-            f.write(f"API_KEY={new_key}\n")
-    os.environ["API_KEY"] = new_key
+    os.environ["API_KEY"] = _ensure_api_key()
 
 API_KEY: str = os.getenv("API_KEY")
 os.environ["PERIDOT_AUTH_TOKEN"] = API_KEY

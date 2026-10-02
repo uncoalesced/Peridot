@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.4 | RUNTIME REQUIREMENTS
+# PERIDOT SOVEREIGN KERNEL v1.6.0 | RUNTIME REQUIREMENTS
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
@@ -35,10 +35,10 @@ requests==2.33.0
 websocket-client==1.9.0
 
 # --- Inference engine ---
-# PyPI/cu121-wheel fallback only. This wheel's llama.cpp core predates qwen35
-# (Qwen3.5+ MTP) support, causing "missing tensor 'blk.64.ssm_conv1d.weight'"
-# on Qwen3.8-27B load. Run scripts/build_llama_cpp_python.ps1 to build against
-# the vendored llama.cpp/ checkout instead, which has qwen35 support.
+# PyPI fallback only: runs the small/14B models, NOT the default Qwen3.8-27B
+# (its llama.cpp core predates qwen35 support). The 27B needs the source build,
+# scripts/build_llama_cpp_python.ps1 (llama-cpp-python ea3b56bd, CUDA 13.1 --
+# 13.2 miscompiles IQ quants), which install_wizard.py offers on NVIDIA/Windows.
 llama_cpp_python==0.3.23
 
 # --- RAG / embeddings / vector storage ---
@@ -84,10 +84,11 @@ tokenizers>=0.20,<0.23
 # --- Optional accelerators / degradable features ---
 # Each of these is imported inside a try/except and the code has a working
 # fallback when it is absent:
-#   turbovec        -> pure-Python index fallback (turbovec_index.TURBOVEC_NATIVE)
 #   pyspellchecker  -> ui.py sets SPELLCHECK_AVAILABLE = False
 #   pynput          -> keyboard telemetry degrades, WEIGHT_KEY drops to 0
-turbovec==0.7.1
+# turbovec is not listed: the released 0.7.1 API doesn't match what
+# turbovec_index.py's native path calls, so it is refused and the vectorised
+# numpy fallback runs anyway. Re-add once the native adapter exists.
 pyspellchecker==0.9.0
 pynput==1.8.2
 
@@ -96,5 +97,6 @@ pynput==1.8.2
 # CPU-compatible PyPI wheels. Only `torch` is imported (benchmark_memory_bandwidth,
 # benchmark_vram_hammer, and server.py's cache-empty path); torchaudio and
 # torchvision were declared but never imported and have been dropped.
-torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0+cu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
+# The "+" must stay URL-encoded (%2B): download.pytorch.org returns 403 for a raw "+".
+torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
 torch==2.6.0 ; sys_platform != 'win32'

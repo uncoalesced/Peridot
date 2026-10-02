@@ -14,11 +14,11 @@
 </div>
 
 
-### `SOVEREIGN LOCAL AI KERNEL — v1.5.4 STABLE`
+### `SOVEREIGN LOCAL AI KERNEL — v1.6.0 STABLE`
 
-### `PERIDOT SOVEREIGN KERNEL v1.5.4-STABLE [ZAT-SCS]`
+### `PERIDOT SOVEREIGN KERNEL v1.6.0 [AGENTIC]`
 
-[![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff88?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
+[![STATUS](https://img.shields.io/badge/STATUS-STABLE-00ff19?style=for-the-badge&labelColor=0a0a0a)](https://github.com/uncoalesced/Peridot/releases)
 [![PLATFORM](https://img.shields.io/badge/PLATFORM-WINDOWS_%7C_LINUX-0078D4?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/COMMUNITY_INSTALL.md)
 [![PRIVACY](https://img.shields.io/badge/PRIVACY_AIR_GAPPED-ff4444?style=for-the-badge&labelColor=0a0a0a)](docs/markdowns/SECURITY.md)
 
@@ -40,9 +40,19 @@
 
 # `> OVERVIEW`
 
-Peridot v1.5.4-STABLE is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems. Every inference cycle runs on hardware the operator physically owns, with no cloud dependency, no telemetry and no remote trust assumptions anywhere in the execution path. v1.5.4 adds native Linux support (Debian 12, Ubuntu 22.04+, Arch) alongside the existing Windows runtime, and closes a real sovereignty gap where the offline flags could be silently reopened by a stale `.env`.
+Peridot v1.6.0 is a sovereign local AI kernel engineered for fully offline inference, hardware-aware GPU arbitration and predictive context preparation on operator owned systems. Every inference cycle runs on hardware the operator physically owns, with no cloud dependency, no telemetry and no remote trust assumptions anywhere in the execution path. v1.5.4 added native Linux support (Debian 12, Ubuntu 22.04+, Arch) alongside the existing Windows runtime, and closed a real sovereignty gap where the offline flags could be silently reopened by a stale `.env`.
 
-ZAT-SCS stands for Zero-Overhead Active Telemetry and Speculative Context Streaming, introduced in v1.5.3 and still Peridot's flagship subsystem: a predictive preemption layer that monitors physical interaction signals before a prompt is submitted, prepares the GPU and context path in advance, and removes the normal prefill delay when the operator commits a query during the prepared state.
+**v1.6.0-beta** is the native-engine release: the default model is now **Qwen3.8-27B (UD-IQ1_S)**, fully GPU-resident on an 8GB card through a source-built `llama-cpp-python` with native CUDA kernels — **23.6 tokens/sec decode and ~500 tokens/sec prefill**, up from 5.3 and 34 on the old 14B default. Answers stream token by token, the per-request latency tax is gone, and vector search is 30x faster. It is a beta because the 27B install path has so far been validated on one machine (RTX 5050 Laptop, 8GB); see CHANGELOG.md.
+
+**v1.6.0 (stable)** makes Peridot agentic, without giving up sovereignty:
+
+- **Uncensored kernel.** Peridot no longer tells the model to refuse anything, and no longer rejects prompts by keyword. What a model will or won't say is now down to the model you load.
+- **Skills and plugins**, saved locally under `extensions/`. Call them with `/name` or let the model call them itself (Qwen `<tool_call>`, up to 8 steps). Plugins need your approval, run in a sandboxed child process, and lose their approval if their files change.
+- **Web search (beta), off by default.** A bundled plugin (DuckDuckGo, or your own SearXNG) with a global WEB toggle and a per-message SEARCH button. Opt in at install time or later from the Extensions tab.
+- **Sovereign Invocation.** Claude Code, Codex, Gemini CLI or any MCP client can hand a job to Peridot (`mcp/peridot_mcp.py`). Your local model works on folders you allowlisted; by default you approve a redacted summary before anything goes back. A small tray Relay starts the engine on demand and frees the GPU when idle. See [`mcp/README.md`](mcp/README.md).
+- **A faster, cleaner UI** in the Peridot brand palette, with new Extensions and Settings panels and file attach.
+
+ZAT-SCS stands for Zero-Overhead Active Telemetry and Speculative Context Streaming, introduced in v1.5.3. As of v1.6.0 it is **opt-in** (`ZAT_SCS_ENABLED=1` in `.env`; off by default, so no microphone stream or keyboard hook starts at boot). It is a predictive preemption layer that monitors physical interaction signals before a prompt is submitted, prepares the GPU and context path in advance, and removes the normal prefill delay when the operator commits a query during the prepared state.
 
 The ZAT-SCS telemetry path runs a 10Hz Physical Telemetry Engine as a background daemon thread. It fuses two local only signals:
 
@@ -99,7 +109,7 @@ Peridot still retains the original sovereign constraints: local inference, permi
 | - Async /slots/0/restore KV cache prefetch              |
 |    |                                                    |
 |    v                                                    |
-| AETHER-ROUTE v1.5.4                                     |
+| AETHER-ROUTE v1.6.0                                     |
 | - Semantic Routing                                      |
 | - Dynamic VRAM Arbitration                              |
 | - CPU-Offloaded Embedding Pipeline                      |
@@ -108,8 +118,8 @@ Peridot still retains the original sovereign constraints: local inference, permi
 |    v                                                    |
 | /ask PREFILL BYPASS ROUTE                               |
 | - Direct generation from prepared state                 |
-| - Qwen2.5-14B-Instruct-Q4_K_M                           |
-| - Split-Tensor Allocation, GPU_LAYERS = 20              |
+| - Qwen3.8-27B-UD-IQ1_S (default)                        |
+| - Fully GPU-resident on 8GB, streamed via /ask/stream   |
 |    |                                                    |
 |    v                                                    |
 | GHOSTLOGGER AND STABILITY LEDGER                        |
@@ -126,13 +136,13 @@ Measured on real hardware. No overclocking. No cherry picked runs.
 
 - **GPU:** NVIDIA GeForce RTX 5050 Laptop (8GB VRAM)
 - **CPU:** AMD Ryzen 7 250 AI
-- **Model:** Qwen2.5-14B-Instruct-Q4_K_M
+- **Model:** Qwen3.8-27B-UD-IQ1_S (v1.6.0 default)
 
 ---
 
 ## ZAT-SCS Telemetry Daemon
 
-Peridot v1.5.4 ships a high frequency telemetry daemon that runs independently from prompt submission and inference generation. The daemon is launched as a background thread by the Physical Telemetry Engine after the server boots and continuously samples local interaction signals at 10Hz.
+Peridot ships an opt-in (`ZAT_SCS_ENABLED=1`) high frequency telemetry daemon that runs independently from prompt submission and inference generation. The daemon is launched as a background thread by the Physical Telemetry Engine after the server boots and continuously samples local interaction signals at 10Hz.
 
 The daemon lifecycle is intentionally isolated:
 
@@ -159,9 +169,20 @@ WEIGHT_AUD = 0.35
 ```text
 GPU:          RTX 5050 Laptop (8GB)
 CPU:          Ryzen 7 250 AI
-Model:        Qwen2.5-14B-Instruct-Q4_K_M
-Throughput:   ~39 tokens/sec
+Model:        Qwen3.8-27B-UD-IQ1_S, all layers on GPU, 8k context, f16 KV
+Engine:       llama-cpp-python ea3b56bd, source-built, CUDA 13.1, sm_120
+Decode:       23.6 tokens/sec (was 5.3 on Qwen2.5-14B, 28/48 layers on GPU)
+Prefill:      ~500 tokens/sec on a 1.7k-token prompt (was ~34)
 Execution:    Fully Local
+```
+
+Measured with `benchmarking/benchmark_decode_rate.py` (isolated decode, no HTTP, no cache). The earlier ~39 tokens/sec figure was retracted: it measured semantic-cache hits, not inference.
+
+```text
+/ask turn 1:         18.8s -> 2.2s
+per-request handoff: ~2000ms -> 0-4ms
+vector search 100k:  258ms -> 8.4ms per query
+server cold start:   33.7s -> 24.1s
 ```
 
 ---
@@ -199,7 +220,7 @@ Inference execution always takes priority.
 
 ## Speculative Context Restoration Pipeline
 
-Peridot v1.5.4 extends the FSM with an asynchronous context restoration path for speculative prompt preparation. When telemetry pushes the kernel into `KernelState.SPECULATIVE_PREPARED`, the orchestrator launches the context streaming path without blocking the 10Hz monitoring loop.
+Peridot v1.5.4 extended the FSM with an asynchronous context restoration path for speculative prompt preparation. When telemetry pushes the kernel into `KernelState.SPECULATIVE_PREPARED`, the orchestrator launches the context streaming path without blocking the 10Hz monitoring loop.
 
 The speculative restoration sequence is:
 
@@ -214,7 +235,7 @@ This keeps speculative KV cache restoration non-blocking. If the loopback llama-
 
 ## Split-Tensor Runtime Guardrails
 
-The validated v1.5.4 inference target is:
+The v1.5.4 inference target (still the fallback when the 27B cannot run) was:
 
 ```text
 Model:        Qwen2.5-14B-Instruct-Q4_K_M
@@ -256,21 +277,9 @@ The ledger fetches up to twelve recent messages, reverses them back into chronol
 
 ## Input Sanitization
 
-All prompts are sanitized before entering the inference pipeline.
+Prompts are size-capped (10,000 characters) and stripped of null bytes before entering the inference pipeline. Since v1.6.0 there is **no content filtering**: prompt text is never executed, so keyword blocking only refused legitimate questions (for example, anything mentioning `subprocess.run`). Execution boundaries live where execution happens: the plugin sandbox, the file allowlist for Sovereign Invocation, and the path blacklist.
 
-Blocked patterns include:
-
-```python
-<script>         # XSS attacks
-eval()           # Arbitrary code execution
-os.system()      # Shell injection
-__import__       # Python import abuse
-subprocess.      # Subprocess exploitation
-```
-
-Malicious prompts are rejected before execution and logged asynchronously through GhostLogger.
-
-Security violations are isolated to:
+Security events are logged asynchronously through GhostLogger to:
 
 ```text
 logs/ghost_audit.log
@@ -343,12 +352,29 @@ v1.5.3 adds predictive preemption and speculative context streaming:
 
 ### v1.5.4-STABLE
 
-v1.5.4 adds Linux support and closes a real sovereignty gap:
+v1.5.4 added Linux support and closed a real sovereignty gap:
 
 - Native Linux support (Debian 12, Ubuntu 22.04+, Arch). Session type (`x11`/`wayland`/`headless`/`native`) is detected at boot; under Wayland, `pynput`'s global keyboard hook cannot receive input by design, so the ZAT-SCS keyboard term degrades to zero rather than crashing or silently going stale.
 - `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE` are now force-locked to `1` immediately after `.env` is loaded — a hand-edited or stale `.env` can no longer reopen outbound traffic. Model downloads route through a subprocess-isolated child process that is the only part of the system ever granted network access.
 - Default model briefly promoted to `Qwen3.8-27B-UD-Q2_K_XL.gguf`, then **reverted** to `Qwen2.5-14B-Instruct-Q4_K_M.gguf`. The 27B cannot be loaded by the pinned `llama-cpp-python` 0.3.23: the GGUF declares an MTP (multi-token prediction) head at block 64 via `qwen35.nextn_predict_layers`, which the runtime builds as a standard hybrid layer and then rejects for a missing SSM tensor. The file is valid - a byte-exact re-download fails identically - so this is a runtime support gap, not corruption. Unblocked by a newer llama.cpp; deferred to v1.6.x. See CHANGELOG.md for the full analysis.
 - Test suite expanded from 11 to 50 tests; a platform-relative path-blacklist bug affecting both Windows and Linux sensitive-directory checks was found and fixed.
+
+### v1.6.0-BETA
+
+v1.6.0 unblocks the 27B and makes it the default:
+
+- `scripts/build_llama_cpp_python.ps1` builds `llama-cpp-python` from a pinned commit with native CUDA kernels for the detected GPU. It skips CUDA 13.2, which miscompiles llama.cpp's IQ-quant kernels (garbage output, no error).
+- Default model: `Qwen3.8-27B-UD-IQ1_S.gguf`, fully on an 8GB GPU: 23.6 t/s decode, ~500 t/s prefill.
+- Token streaming (`/ask/stream`), native `<think>` support for Qwen3.x (FreeThink part 1), a working `/shutdown`, and ZAT-SCS made opt-in.
+- If the 27B isn't downloaded (e.g. a v1.5.4 install updated with `git pull`), Peridot boots on the 14B or another local model instead of exiting.
+
+### v1.6.0-STABLE [AGENTIC]
+
+- Uncensored kernel: refusal rules and the prompt keyword filter removed.
+- Extensions: local skills (`SKILL.md`) and approved, sandboxed plugins; `/skills`, `/plugins`, `/<skill>`; model tool use with an 8-step cap.
+- Web search (beta), off by default, DuckDuckGo or SearXNG, installer opt-in.
+- Sovereign Invocation: MCP bridge (`mcp/`), `/invoke` with allowlisted file tools, review/full/status-only return modes, tray Relay that idles the engine out to free the GPU.
+- UI: brand palette, append-only streaming, thread-safe Tk updates, Extensions tab, WEB/SEARCH/ATTACH, settings persisted through `/settings`.
 
 ---
 
@@ -778,15 +804,15 @@ without requiring cloud infrastructure.
 Core inference runtime:
 
 ```text
-Primary Model:   Qwen2.5-14B-Instruct-Q4_K_M
-Backend:         llama-cpp-python + cuBLAS
+Primary Model:   Qwen3.8-27B-UD-IQ1_S (fallback: Qwen2.5-14B-Instruct-Q4_K_M)
+Backend:         llama-cpp-python (source build, native CUDA)
 Endpoint:        localhost:5000 (local-only)
 Context:         8192 tokens (sliding window)
-Temperature:     0.1
+Temperature:     0.6 (top_p 0.95, top_k 20 -- Qwen's thinking-model defaults)
 Execution:       Fully Local
 ```
 
-### Why Qwen2.5-14B?
+### Why Qwen3.8-27B (and before it, Qwen2.5-14B)?
 
 Peridot's previous architecture relied on smaller parameter count models to preserve VRAM overhead.
 
@@ -806,6 +832,8 @@ The transition to Qwen2.5-14B-Instruct-Q4_K_M significantly improves:
 - Instruction adherence
 
 while remaining deployable on validated 8GB hardware through Split Tensor Allocation.
+
+The 14B only fits 28 of its 48 layers in 8GB, which capped it near 5 t/s. The 27B at UD-IQ1_S is 5.9GB and fits entirely, so v1.6.0 gets a larger model and 4.4x the decode speed on the same card. It needs the source-built engine; on the stock PyPI wheel, use the 14B or a smaller model.
 
 ---
 
@@ -875,7 +903,7 @@ research status
 
 | Tier | Hardware | Configuration | Expected Performance |
 |:-----|:---------|:--------------|:--------------------:|
-| **Validated Baseline** | NVIDIA RTX 5050 (8GB) + Ryzen 7 250 AI | Split-Tensor Allocation | **~39 t/s** |
+| **Validated Baseline** | NVIDIA RTX 5050 (8GB) + Ryzen 7 250 AI | Qwen3.8-27B, full GPU offload | **23.6 t/s** |
 | **Full Support** | NVIDIA RTX 4050+ (8GB+) | Split-Tensor Allocation | High |
 | **Full Support** | NVIDIA RTX 5060 / 5070 / 5080 | Split-Tensor Allocation | Very High |
 | **CPU Fallback** | Modern x64 CPUs | CPU Only | 10–20 t/s |
@@ -886,15 +914,15 @@ research status
 
 Peridot is optimized for modern NVIDIA hardware but remains operational across a wide range of deployment environments.
 
-The validated baseline for v1.5 is:
+The validated baseline for v1.6 is:
 
 ```text
 RTX 5050 8GB
 Ryzen 7 250 AI
-Qwen2.5-14B-Instruct-Q4_K_M
+Qwen3.8-27B-UD-IQ1_S, source-built llama-cpp-python (CUDA 13.1)
 ```
 
-using Split Tensor Allocation.
+Other tiers above are unvalidated estimates. A desktop display also takes VRAM, so an 8GB card driving a monitor may not fit the 27B; the installer falls back to a smaller model.
 
 CPU only execution paths remain fully supported at reduced throughput.
 
@@ -952,11 +980,13 @@ The wizard automatically:
 - Configures security boundaries
 - Generates cryptographic authentication
 - Enables offline execution controls
-- Downloads runtime weights
 - Installs runtime dependencies
+- On NVIDIA + Windows, offers to build the native engine for the 27B (~20-25 minutes; needs Visual Studio Build Tools and CUDA Toolkit 13.1 or earlier -- not 13.2)
+- Downloads runtime weights (falls back to Qwen2.5-3B if the build is declined or fails)
+- Writes `ACTIVE_MODEL_NAME` to `.env`
 
 ```bash
-python setup.py
+python install_wizard.py
 ```
 
 ---
@@ -1043,14 +1073,14 @@ The kernel will initialize using the configured runtime environment.
 [████████████████████] v1.3 BETA      RAG Engine (Document Analysis)
 [████████████████████] v1.4.0 STABLE  TurboQuant Architecture
 [████████████████████] v1.5.4 STABLE  Linux Support (code-complete; GPU unvalidated on Linux)
-[█████░░░░░░░░░░░░░░░] v1.6.x         Provider abstraction, multi-engine inference, episodic memory
-[░░░░░░░░░░░░░░░░░░░░] v1.7.x         FreeThink, sandboxed REPL, image input, RAG rebuild, web gateway
+[██████████░░░░░░░░░░] v1.6.x         Native engine + 27B default (v1.6.0 beta), FreeThink, model swap, episodic memory
+[░░░░░░░░░░░░░░░░░░░░] v1.7.x         Sandboxed REPL, image input, RAG rebuild, web gateway
 [░░░░░░░░░░░░░░░░░░░░] v1.8.x         Optional local WebUI, artifact system
 ```
 
 **Current Focus (v1.6.x)**
 
-`BaseInferenceProvider` lands first: a shared contract (`load()`, `unload()`, streaming generation, capability flags) so ExLlamaV2 and vLLM can be added later without a breaking interface change. TurboQuant and `llama-cpp-python` stay the permanent, hardcoded default underneath it — a ChromaDB migration was investigated and dropped, since TurboVec's own 4-bit quantization already outperforms it and an external vector database would violate Peridot's zero-cloud-dependency stance. Once the abstraction is wired into `server.py`, each model runs in its own child process, since `llama-cpp-python`'s CUDA context does not reliably release VRAM without a full process exit. Alongside it: infrastructure for Peridot's own episodic self-improvement memory, built on the same TurboVec index as the RAG vault. Qwen3.8-27B stays reverted to Qwen2.5-14B as the shipped default, blocked on a `llama-cpp-python` upgrade for MTP-head support and on re-establishing a real throughput floor — the previous 39/62 t/s figures were retracted after turning out to be cache-hit artifacts, not genuine decode-rate measurements.
+v1.6.0-beta ships the native engine: `BaseInferenceProvider` is wired into `server.py`, the source-built `llama-cpp-python` runs Qwen3.8-27B fully on 8GB, and FreeThink part 1 (native `<think>` detection, no scaffold mandate for thinking models) is in. Still to come in v1.6.x point releases: FreeThink part 2 (separate reasoning budget, a per-message "show reasoning" toggle, a ledger `reasoning` column), one child process per model with `POST /model/swap` (llama-cpp-python's CUDA context does not reliably release VRAM without a process exit), and episodic self-improvement memory on the same TurboVec index as the RAG vault. TurboQuant and `llama-cpp-python` stay the permanent default underneath; ExLlamaV2/vLLM remain optional additions.
 
 ---
 
@@ -1115,7 +1145,7 @@ Peridot exists to be studied, audited, modified and expanded by its operators.
 
 <div align="center">
 
-`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.5.4 STABLE`
+`PERIDOT` · `SOVEREIGN AI KERNEL` · `v1.6.0 BETA`
 
 **Engineered by [uncoalesced](https://github.com/uncoalesced)**
 

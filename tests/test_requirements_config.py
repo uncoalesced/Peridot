@@ -40,13 +40,15 @@ def _parsed_requirements():
     return parsed
 
 
-def test_requirements_are_valid_pep508_and_use_turbovec():
+def test_requirements_are_valid_pep508_and_do_not_pin_refused_turbovec():
     requirements = _parsed_requirements()
     by_name = {_canon(req.name): req for req in requirements}
 
     # turbovec replaced faiss as the vector index; faiss must not creep back in.
     assert "faiss-cpu" not in by_name
-    assert str(by_name["turbovec"].specifier) == "==0.7.1"
+    # turbovec 0.7.1's API doesn't match turbovec_index.py's native path, which
+    # refuses it and uses the numpy fallback -- pinning it installs dead weight.
+    assert "turbovec" not in by_name
 
     # PyPDF2 used to be asserted here, but nothing imports it -- PDF extraction
     # goes through PyMuPDF/fitz (core_system/memory/vault.py) -- so it was
@@ -95,7 +97,10 @@ def test_torch_matrix_is_platform_isolated():
         assert len(non_windows_entries) == 1, f"missing non-Windows standard marker for {package}"
 
         windows_entry = windows_entries[0]
-        assert "+cu" in str(windows_entry.url or windows_entry.specifier), f"{package} Windows entry must use a CUDA wheel"
+        url = str(windows_entry.url or "")
+        assert "%2Bcu" in url, f"{package} Windows entry must use a CUDA wheel"
+        # download.pytorch.org answers 403 to a raw "+" in the wheel URL.
+        assert "+" not in url, f"{package} Windows wheel URL must keep '+' encoded as %2B"
 
         non_windows_entry = non_windows_entries[0]
         assert not non_windows_entry.url, f"{package} non-Windows entry must use standard package index resolution"

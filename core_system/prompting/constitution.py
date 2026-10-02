@@ -13,6 +13,8 @@ dual-phase formatting.
 """
 
 import json
+import re
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -150,71 +152,102 @@ def get_chat_template(model_format: str) -> dict:
             "stop_tokens": ["<|im_end|>", "<|im_start|>"],
         }
 
+_QUANT_SUFFIX_RE = re.compile(r"[-._](?:UD[-_])?(?:I?Q\d\w*|BF16|F16|F32)(?:[-_.]imat)?$", re.IGNORECASE)
+
+DEFAULT_IDENTITY = ("You are Peridot, a private AI assistant running entirely on the "
+                    "user's own computer.")
+
+
+def model_display_name(model_name: str) -> str:
+    """'Qwen3.8-27B-UD-IQ1_S.gguf' -> 'Qwen3.8-27B' (extension and quant tag dropped)."""
+    name = Path(model_name or "").name
+    if name.lower().endswith(".gguf"):
+        name = name[:-5]
+    return _QUANT_SUFFIX_RE.sub("", name)
+
+
+def _capability_lines(capabilities: Optional[dict], has_documents: bool) -> list[str]:
+    caps = capabilities or {}
+    names = list(caps.get("tools") or [])
+    if names:
+        lines = ["Tools available this turn: " + ", ".join(names) + ". Use one only when it "
+                 "actually helps answer the user's latest message."]
+    else:
+        lines = ["You have no tools this turn; you cannot browse the web or read files. "
+                 "Say so plainly if the user asks you to."]
+    if caps.get("web"):
+        lines.append("Web access is on: you can search the web with the web_search tool."
+                     if "web_search" in names else
+                     "Web search results for this message, if any, are included below.")
+    else:
+        lines.append("Web access is off. If the user wants something looked up online, tell "
+                     "them they can enable web access in Peridot's Settings.")
+    if caps.get("documents", has_documents):
+        lines.append("Excerpts from the user's own documents are included below; use them "
+                     "when they are relevant.")
+    return lines
+
+
 def build_system_prompt(
     context_str: str = "",
     model_format: str = "chatml",
     thinking: bool = False,
+    tools_block: str = "",
+    model_name: str = "",
+    capabilities: Optional[dict] = None,
 ) -> str:
     """
-    Surgically compiles the hard constitution boundaries with live RAG vectors.
-    Forces dual-phase reasoning loop, preventing language bleed.
+    The system turn: identity, model and date, what Peridot can actually do
+    this turn, behaviour rules from config/constitution.json, the tool
+    declarations and any document context.
 
-    thinking=True (FreeThink scaffold bypass, for model_supports_thinking()
-    models): the model's own <think> block replaces the [ANALYSIS] /
-    [KERNEL_RESPONSE] mandate, so that mandate and every rule demanding it are
-    left out. Measured 2026-09-25 on Qwen3.8-27B: with the mandate, 4 of 6
-    short questions closed an empty <think> and then stopped with no answer
-    (each costing a retry); the same questions without it answered directly.
+    model_name: model file name (e.g. MODEL_PATH.name); shown as its display name.
+    capabilities: {"tools": [tool names], "web": bool}, computed by the caller.
+    Documents count as available iff context_str is non-empty.
+
+    No answer scaffold is mandated for any model: parse_kernel_response()
+    accepts a direct answer, and thinking models reason in their own native
+    block, which the prompt never names (the model used to quote the tags
+    from the instructions inside its reasoning, which leaked into answers).
     """
     constitution = load_constitution()
     perimeter = constitution.get("system_perimeter", {})
     exec_proto = constitution.get("execution_protocol", {})
-    rules = constitution.get("hard_rules", [])
 
-    identity = perimeter.get("identity", "Peridot Sovereign Kernel v1.5.4")
-    lang_guard = perimeter.get("language_guardrail", "Output must be 100% English only.")
-    protocol = exec_proto.get("structure", "Output must follow [ANALYSIS] and [KERNEL_RESPONSE] blocks strictly.")
-    constraints = exec_proto.get("behavioral_constraints", [])
+    identity = perimeter.get("identity") or DEFAULT_IDENTITY
+    lang_guard = perimeter.get("language_guardrail", "Reply in the language the user writes in.")
+    rules = list(constitution.get("hard_rules", [])) + list(exec_proto.get("behavioral_constraints", []))
+    structure = exec_proto.get("structure", "")
 
-    if thinking:
-        scaffold = ("[ANALYSIS]", "[KERNEL_RESPONSE]")
-        rules = [r for r in rules if not any(tag in r for tag in scaffold)]
-        constraints = [c for c in constraints if not any(tag in c for tag in scaffold)]
-        protocol = ("Reason privately inside <think></think>, then give the answer "
-                    "directly after </think>. No headers or preamble.")
+    about = identity
+    display = model_display_name(model_name)
+    if display:
+        about += f" The underlying model is {display}, running locally via llama.cpp."
+    about += f" Today's date is {date.today().isoformat()}."
 
     tmpl = get_chat_template(model_format)
-
-    sys_prompt = tmpl["sys_start"]
-    sys_prompt += f"CORE IDENTITY: {identity}\n"
-    sys_prompt += f"LANGUAGE CONSTRAINT: {lang_guard}\n\n"
-    sys_prompt += f"{'RESPONSE FORMAT' if thinking else 'STRUCTURAL PARSE MANDATE'}:\n{protocol}\n\n"
-
-    if rules or constraints:
-        sys_prompt += "BEHAVIORAL CONSTRAINTS & HARD RULES:\n"
-        for rule in rules:
-            sys_prompt += f"- {rule}\n"
-        for constraint in constraints:
-            sys_prompt += f"- {constraint}\n"
-        sys_prompt += "\n"
-
-    sys_prompt += (
-        "ANTI-PATTERN WARNING: You are forbidden from stating 'The term X does not appear in the context'. "
-        "Evaluate context silently. If empty, pivot to a sharp, minimal objective summary.\n\n"
-    )
-
+    parts = [about]
+    directive = perimeter.get("core_directive", "")
+    if directive:
+        parts.append(directive)
+    parts.append("What you can do right now:\n" + "\n".join(
+        f"- {line}" for line in _capability_lines(capabilities, bool(context_str))))
+    guidelines = [r for r in rules if r] + ([lang_guard] if lang_guard else [])
+    if guidelines:
+        parts.append("Guidelines:\n" + "\n".join(f"- {g}" for g in guidelines))
+    if structure:
+        parts.append(structure)
+    if tools_block:
+        parts.append(tools_block.rstrip("\n"))
     if context_str:
-        sys_prompt += f"[SECURED KERNEL VAULT CONTEXT]:\n{context_str}\n"
-    else:
-        sys_prompt += "[SECURED KERNEL VAULT CONTEXT]: VRAM Vault empty/unmapped for this node.\n"
+        parts.append(f"Relevant excerpts from the user's documents:\n{context_str}")
 
-    sys_prompt += tmpl["sys_end"]
-    return sys_prompt
+    return tmpl["sys_start"] + "\n\n".join(parts) + "\n" + tmpl["sys_end"]
 
 # --- RESPONSE CONTRACT PARSING ---------------------------------------------
-# The constitution mandates that every reply is [ANALYSIS] ... [KERNEL_RESPONSE]
-# ... , so the parser for that contract lives next to the mandate that creates
-# it. Both server.py (empty-answer detection) and core.py (what gets written to
+# Replies may be a direct answer or the legacy [ANALYSIS] ... [KERNEL_RESPONSE]
+# scaffold (still the server's wire format to the UI), optionally preceded by
+# native reasoning. Both server.py (empty-answer detection) and core.py (what gets written to
 # the chat ledger) route through here, so the two can never disagree about what
 # counts as "the answer".
 
@@ -224,22 +257,38 @@ _THINK_CLOSE = "</think>"
 
 def strip_reasoning(text: str) -> str:
     """
-    Remove Qwen3-style <think> reasoning blocks from raw model output.
+    The answer part of raw model output: everything after the LAST </think>.
 
-    Handles the unclosed case too: if generation stopped inside a think block,
-    everything from <think> onward is reasoning, not answer. That case is the
-    whole reason this exists -- an unclosed <think> tail used to survive into
-    the chat ledger and then get replayed as an assistant turn, teaching the
-    model in-context that an empty reply is the house style.
+    The last one, not the first: the model sometimes quotes the tags inside
+    its own reasoning, and splitting at the first close leaked the rest of
+    the reasoning (plus a literal </think>) into the answer. An unclosed
+    <think> means generation stopped mid-reasoning: no answer at all (an
+    unclosed tail replayed from the ledger teaches the model empty replies).
+    Thinking-model output starts inside the pre-seeded think block, so the
+    opening tag may be missing; callers prepend it before parsing.
     """
-    while _THINK_OPEN in text:
-        head, _, tail = text.partition(_THINK_OPEN)
-        if _THINK_CLOSE in tail:
-            text = head + tail.split(_THINK_CLOSE, 1)[1]
-        else:
-            text = head
-            break
+    text = text or ""
+    if _THINK_CLOSE in text:
+        return text.rpartition(_THINK_CLOSE)[2].strip()
+    if _THINK_OPEN in text:
+        return ""
     return text.strip()
+
+
+def split_reasoning(text: str) -> tuple[str, str]:
+    """(reasoning, answer). Reasoning runs from the first <think> (or the start)
+    to the last </think>, tags removed; answer is strip_reasoning(text)."""
+    text = text or ""
+    if _THINK_CLOSE in text:
+        reasoning = text.rpartition(_THINK_CLOSE)[0]
+    elif _THINK_OPEN in text:
+        reasoning = text
+    else:
+        return "", text.strip()
+    if _THINK_OPEN in reasoning:
+        reasoning = reasoning.partition(_THINK_OPEN)[2]
+    reasoning = reasoning.replace(_THINK_OPEN, "").replace(_THINK_CLOSE, "")
+    return reasoning.strip(), strip_reasoning(text)
 
 
 def parse_kernel_response(raw: str) -> tuple[str, str]:
@@ -264,13 +313,17 @@ def stream_visible_body(raw: str) -> str:
     """
     The part of a partially streamed completion that is safe to show live.
 
-    Hides reasoning (<think>, closed or not) and the [ANALYSIS] preamble:
-    nothing is visible until [KERNEL_RESPONSE] appears, unless the model is
-    answering without the scaffold at all. A half-streamed tag ("[ANA",
-    "<thi") also stays hidden. The final text is still rendered from
+    Hides reasoning and the [ANALYSIS] preamble: while the latest <think> is
+    still open nothing is shown, after it only the text past the last
+    </think>. Nothing is visible until [KERNEL_RESPONSE] appears, unless the
+    model is answering without the scaffold at all. A half-streamed tag
+    ("[ANA", "<thi") also stays hidden. The final text is still rendered from
     parse_kernel_response() once the stream completes.
     """
-    text = strip_reasoning(raw or "")
+    text = raw or ""
+    if text.rfind(_THINK_OPEN) > text.rfind(_THINK_CLOSE):
+        return ""
+    text = text.rpartition(_THINK_CLOSE)[2].strip()
     if "[KERNEL_RESPONSE]" in text:
         return text.partition("[KERNEL_RESPONSE]")[2].lstrip()
     head = text.lstrip()
@@ -284,3 +337,55 @@ def stream_visible_body(raw: str) -> str:
 def format_kernel_response(analysis: str, body: str) -> str:
     """Re-assemble the wire format the UI's dual-phase renderer expects."""
     return f"[ANALYSIS]\n{analysis or 'Direct synthesis.'}\n\n[KERNEL_RESPONSE]\n{body}"
+
+
+# --- TOOL MARKUP & STORABLE ANSWERS -------------------------------------------
+# Here rather than in extensions.tools so the ledger can filter history without
+# importing the extension registry. Qwen3.x calls tools in XML
+# (<tool_call><function=NAME><parameter=K>V</parameter></function></tool_call>);
+# older Qwen wrote JSON inside <tool_call>. A final unclosed block is markup
+# too: </tool_call> is a stop string, so llama.cpp leaves it out.
+TOOL_CALL_RE = re.compile(r"<tool_call>(.*?)(?:</tool_call>|\Z)", re.DOTALL)
+FUNCTION_RE = re.compile(r"<function=([^>\n]+)>(.*?)(?:</function>|\Z)", re.DOTALL)
+_TOOL_RESPONSE_RE = re.compile(r"<tool_response>.*?(?:</tool_response>|\Z)", re.DOTALL)
+_STRAY_TAG_RE = re.compile(r"</?(?:tool_call|function|parameter[^>]*|tool_response)>")
+
+# Filler the model writes when it means to call a tool but doesn't. Stored as
+# an answer it gets imitated on later turns (history poisoning, 2026-10-01).
+_STUB_PHRASES = frozenset({
+    "let me look that up", "let me look it up", "let me check", "let me check that",
+    "let me search", "let me search for that", "let me search for it", "one moment",
+    "just a moment", "let me find out", "searching", "looking that up",
+})
+
+
+def strip_tool_markup(text: str) -> str:
+    """Remove tool calls (both forms) and tool responses from model text."""
+    text = TOOL_CALL_RE.sub("", text or "")
+    text = FUNCTION_RE.sub("", text)
+    text = _TOOL_RESPONSE_RE.sub("", text)
+    return _STRAY_TAG_RE.sub("", text).strip()
+
+
+def is_bare_tool_json(text: str) -> bool:
+    """True for a bare JSON tool call such as {"name": "web_search", "arguments": {...}}."""
+    try:
+        obj = json.loads((text or "").strip())
+    except ValueError:
+        return False
+    return isinstance(obj, dict) and "name" in obj and ("arguments" in obj or "parameters" in obj)
+
+
+def is_storable_answer(text: str) -> bool:
+    """
+    False for replies that must never reach the chat ledger (and so never be
+    replayed as history): empty, reasoning/scaffold only, tool markup only, a
+    bare tool-call JSON object, or a short stub like "Let me look that up."
+    """
+    _analysis, body = parse_kernel_response(text or "")
+    body = strip_tool_markup(body)
+    if not body or is_bare_tool_json(body):
+        return False
+    if len(body) < 60 and re.sub(r"[^a-z ]", "", body.lower()).strip() in _STUB_PHRASES:
+        return False
+    return True

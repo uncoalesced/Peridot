@@ -16,6 +16,7 @@ benchmarking/venv/
 # Logs & Telemetry
 logs/
 *.log
+mirror/
 
 # Cache & Temporary Files
 __pycache__/
@@ -87,3 +88,7 @@ build/
 dist/
 *.egg-info/
 *.whl
+
+# v1.6.0: user-installed skills/plugins (bundled sources live in core_system/extensions/bundled)
+/extensions/
+.env.lock

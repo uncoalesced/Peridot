@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peridot-local"
-version = "1.5.4"
+version = "1.6.0"
 description = "A sovereign local kernel with dynamic hardware scaling."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -65,7 +65,6 @@ audit = [
 # Optional accelerators. Each is guarded by try/except in source with a working
 # fallback, so the app runs without them.
 accel = [
-    "turbovec==0.7.1",
     "pyspellchecker",
     "pynput",
 ]

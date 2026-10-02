@@ -6,6 +6,7 @@
 # Engineered by uncoalesced.
 # -----------------------------------------------------------------------------
 
+import inspect
 import json
 import requests
 import sys
@@ -16,15 +17,78 @@ import importlib
 from core_system.enhancedlogger import logger
 from core_system.command_router import CommandRouter
 from core_system.research import MedicalResearchModule
-from core_system.security import sanitize_input, load_constitution
+from core_system.security import MAX_INPUT_CHARS, sanitize_input, load_constitution
 from config import AI_SERVER_URL, SHUTDOWN_URL, API_KEY, SERVER_HOST, SERVER_PORT
 
 from core_system.memory.chat_ledger import get_chat_ledger
 from core_system.prompting.constitution import parse_kernel_response, stream_visible_body
 
+try:  # newer constitution: refuses degenerate answers before they reach the ledger
+    from core_system.prompting.constitution import is_storable_answer
+except ImportError:
+    is_storable_answer = None
+
 ACTIVE_API_KEY = API_KEY
 INGEST_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ingest"
 STREAM_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ask/stream"
+SETTINGS_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/settings"
+CANCEL_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/ask/cancel"
+
+# stream_visible_body() rescans the whole accumulated reply, so calling it per
+# token is O(n^2) over a reply. The UI pumps at ~30 Hz, so recomputing more
+# often than that is wasted: bound it to one scan per interval instead.
+STREAM_EMIT_S = 0.03
+
+
+def _settings_request(method, body=None, timeout=10):
+    """GET/POST /settings. Always a dict: the settings, or {"error": str}."""
+    try:
+        r = requests.request(method, SETTINGS_URL, json=body, timeout=timeout,
+                             headers={"Authorization": f"Bearer {ACTIVE_API_KEY}"})
+    except requests.exceptions.RequestException as e:
+        return {"error": f"engine unreachable: {e}"}
+    try:
+        data = r.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return {"error": f"HTTP {r.status_code}: unexpected reply"}
+    if r.status_code != 200:
+        return {"error": str(data.get("error") or f"HTTP {r.status_code}")}
+    return data
+
+
+def _notify(on_notice, notice):
+    if on_notice is not None and notice:
+        on_notice(str(notice))
+
+
+def _final(on_final, data):
+    """Hand the reply's metadata (model reasoning, whether it was stopped) to on_final."""
+    if on_final is not None:
+        on_final({"reasoning": str(data.get("reasoning") or ""),
+                  "cancelled": bool(data.get("cancelled"))})
+
+
+def post_cancel():
+    """POST /ask/cancel. True when the engine stopped an in-flight reply. Never raises."""
+    try:
+        r = requests.post(CANCEL_URL, timeout=5,
+                          headers={"Authorization": f"Bearer {ACTIVE_API_KEY}"})
+        return r.status_code == 200 and bool(r.json().get("cancelled"))
+    except Exception:
+        return False
+
+
+def get_settings():
+    """All server settings, or {"error": str}. Never raises."""
+    return _settings_request("GET", timeout=5)
+
+
+def post_settings(changes):
+    """POST changes; the server is the only writer. Returns the full updated
+    settings, or {"error": str}. Never raises."""
+    return _settings_request("POST", changes)
 
 # A launch more than this far after the last message starts a fresh session
 # instead of continuing the previous one.
@@ -163,7 +227,8 @@ class PeridotCore:
         if self.ui:
             self.ui.display_system_message(f">> {name} Subsystem: [{status}]")
 
-    def respond_to_input(self, text, on_delta=None):
+    def respond_to_input(self, text, on_delta=None, on_tool=None, web=False, on_notice=None,
+                         on_final=None):
         if not text.strip():
             return
 
@@ -171,8 +236,8 @@ class PeridotCore:
         
         clean_text, is_safe = sanitize_input(text)
         if not is_safe:
-            self.logger.warning("Malicious input intercepted and destroyed.", source="SECURITY")
-            return "[SECURITY BLOCK] Access Denied: Malicious code pattern detected. Incident logged."
+            self.logger.warning("Oversized input rejected.", source="SECURITY")
+            return f"[INPUT REJECTED] Message exceeds the {MAX_INPUT_CHARS:,}-character limit."
 
         clean_text = clean_text.strip()
         
@@ -191,21 +256,49 @@ class PeridotCore:
         if cmd in self.command_router.command_registry:
             return self.command_router.route(cmd, args) if args else self.command_router.route(cmd)
 
-        response = self._ask_ai_with_memory(clean_text, on_delta=on_delta)
-        
+        # /skills, /plugins, /<skill>: the extensions dir is on this machine,
+        # so these resolve here; unknown /x falls through unchanged.
+        prompt = None
+        if clean_text.startswith("/"):
+            from core_system.extensions import slash
+            kind, value = slash.route(clean_text)
+            if kind == "local":
+                return value
+            if kind == "prompt":
+                prompt = value
+
+        response = self._ask_ai_with_memory(clean_text, on_delta=on_delta, prompt=prompt,
+                                            on_tool=on_tool, web=web, on_notice=on_notice,
+                                            on_final=on_final)
+
         return response
 
-    def _ask_ai_with_memory(self, user_text, on_delta=None):
+    def _ask_ai_with_memory(self, user_text, on_delta=None, prompt=None, on_tool=None, web=False,
+                            on_notice=None, on_final=None):
+        """prompt: what the model sees when it differs from what the user typed
+        (a /skill expansion); the ledger always keeps user_text. web: search
+        the web for this one message. on_tool(name, status, error): streamed
+        tool-call progress. on_notice(text): a server notice for this
+        message (e.g. why a web search did not run). on_final(meta): the
+        reply's {"reasoning", "cancelled"}."""
         self._ensure_active_session()
-        
+
         self.chat_ledger.add_message(self.current_session_id, "user", user_text)
         self._autotitle_session(user_text)
+
+        meta = {}
+
+        def record_final(m):
+            meta.update(m)
+            if on_final is not None:
+                on_final(m)
 
         # The server rebuilds history itself from the ledger by session_id (in
         # the model's own chat format); a client-side transcript used to be
         # built and sent here as "prompt" and was never read.
         response = self._send_to_server(
-            query=user_text, session_id=self.current_session_id, on_delta=on_delta
+            query=prompt or user_text, session_id=self.current_session_id, on_delta=on_delta,
+            on_tool=on_tool, web=web, on_notice=on_notice, on_final=record_final,
         )
         
         if "[SYSTEM ERROR]" not in response and "[HTTP ERROR]" not in response:
@@ -216,14 +309,27 @@ class PeridotCore:
             # is the house style. That feedback loop is what produced the
             # self-sustaining run of empty responses on 2026-08-20.
             _analysis, body = parse_kernel_response(response)
-            if body and "[KERNEL FAULT]" not in body:
-                self.chat_ledger.add_message(self.current_session_id, "assistant", body)
+            storable = is_storable_answer is None or is_storable_answer(body)
+            if body and "[KERNEL FAULT]" not in body and storable:
+                self._store_answer(body, meta.get("reasoning", ""))
             else:
                 self.logger.warning(
-                    "Empty kernel body; turn not persisted to ledger.", source="CORE"
+                    "Empty or unstorable kernel body; turn not persisted to ledger.", source="CORE"
                 )
 
         return response
+
+    def _store_answer(self, body, reasoning=""):
+        """Ledger write; the reasoning goes along only if this ledger accepts it."""
+        add = self.chat_ledger.add_message
+        try:
+            takes_reasoning = "reasoning" in inspect.signature(add).parameters
+        except (TypeError, ValueError):
+            takes_reasoning = False
+        if reasoning and takes_reasoning:
+            add(self.current_session_id, "assistant", body, reasoning=reasoning)
+        else:
+            add(self.current_session_id, "assistant", body)
 
     def _autotitle_session(self, user_text):
         """Name a session after its first real prompt instead of 'New Session'."""
@@ -237,12 +343,17 @@ class PeridotCore:
     def _ask_ai_isolated(self, prompt):
         return self._send_to_server(query=prompt)
 
-    def _send_to_server(self, query, session_id=None, on_delta=None):
+    def _send_to_server(self, query, session_id=None, on_delta=None, on_tool=None, web=False,
+                        on_notice=None, on_final=None):
         """POST the query; with on_delta, stream it via /ask/stream.
 
         on_delta(visible_text) is called with the answer text shown so far
-        (reasoning and [ANALYSIS] scaffolding hidden). Either way the return
-        value is the final formatted response, same as /ask's.
+        (reasoning and [ANALYSIS] scaffolding hidden), at most once per
+        STREAM_EMIT_S. on_tool(name, status, error) is called for each tool
+        event ("start", then "ok"/"error"). Either way the return value is
+        the final formatted response, same as /ask's. A "notice" on the final
+        reply goes to on_notice(text), never into the answer text; the
+        reply's "reasoning" and "cancelled" fields go to on_final(meta).
         """
         try:
             headers = {
@@ -253,26 +364,45 @@ class PeridotCore:
             payload = {"query": query}
             if session_id:
                 payload["session_id"] = session_id
+            if web:
+                payload["web"] = True
 
             if on_delta is None:
                 r = requests.post(AI_SERVER_URL, json=payload, headers=headers, timeout=900)
                 r.raise_for_status()
-                return r.json().get("response", "No response from brain.")
+                data = r.json()
+                _notify(on_notice, data.get("notice"))
+                _final(on_final, data)
+                return data.get("response", "No response from brain.")
 
             r = requests.post(STREAM_URL, json=payload, headers=headers, timeout=900, stream=True)
             r.raise_for_status()
             raw = ""
+            last_emit = 0.0
+            dirty = False
             for line in r.iter_lines(decode_unicode=True):
                 if not line:
                     continue
                 event = json.loads(line)
                 if "delta" in event:
                     raw += event["delta"]
-                    on_delta(stream_visible_body(raw))
+                    dirty = True
+                    now = time.monotonic()
+                    if now - last_emit >= STREAM_EMIT_S:
+                        last_emit, dirty = now, False
+                        on_delta(stream_visible_body(raw))
+                elif "tool" in event:
+                    if dirty:  # show the text that led up to the call first
+                        dirty = False
+                        on_delta(stream_visible_body(raw))
+                    if on_tool is not None:
+                        on_tool(str(event["tool"]), str(event.get("status", "")), event.get("error"))
                 elif event.get("done"):
+                    _notify(on_notice, event.get("notice"))
                     status = event.get("status", 200)
                     if status >= 400:
                         return f"[HTTP ERROR] {status}: {event.get('error') or event.get('response', '')}"
+                    _final(on_final, event)
                     return event.get("response", "No response from brain.")
             return "[SYSTEM ERROR] Stream ended without a final response."
 

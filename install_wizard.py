@@ -15,9 +15,14 @@
 # Renaming it fixes the build. Run it directly:  python install_wizard.py
 
 """
-PERIDOT SETUP WIZARD v1.5.4 - ZAT-SCS
-Intelligent hardware detection, VRAM profiling, and engine configuration
-Supports NVIDIA GPUs and CPU-only fallback
+PERIDOT SETUP WIZARD v1.6.0
+Hardware detection, model selection, engine build, and first-run configuration.
+Supports NVIDIA GPUs and CPU-only fallback.
+
+Steps: hardware scan -> profile -> dependencies (requirements.txt, then the
+engine: source build for the 27B or the stock wheel) -> model download ->
+optional web search plugin -> .env -> summary with launch and
+Sovereign Invocation (MCP) instructions.
 """
 
 import os
@@ -25,6 +30,7 @@ import sys
 import platform
 import subprocess
 import secrets
+import shutil
 from pathlib import Path
 from typing import Dict
 import urllib.request
@@ -51,7 +57,7 @@ def print_banner():
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 {Colors.ENDC}
-{Colors.GREEN}       SETUP WIZARD v1.5.4 (ZAT-SCS) - SOVEREIGN AI KERNEL{Colors.ENDC}
+{Colors.GREEN}     SETUP WIZARD v1.6.0 [AGENTIC] - SOVEREIGN LOCAL AI KERNEL{Colors.ENDC}
 {Colors.CYAN}{'='*70}{Colors.ENDC}
 
 {Colors.YELLOW}Engineered by uncoalesced{Colors.ENDC}
@@ -148,8 +154,8 @@ class HardwareProfile:
         'nvidia_8gb_deep': {
             'name': 'NVIDIA 8GB+ (Deep Thinker Profile)',
             'vram_min': 8,
-            'recommended_model': 'llama3-8b-iq3',
-            'expected_speed': '50-60 t/s',
+            'recommended_model': 'qwen3.8-27b-iq1s',
+            'expected_speed': '~24 t/s',
             'backend': 'cuda',
         },
         'nvidia_8gb_agile': {
@@ -162,8 +168,8 @@ class HardwareProfile:
         'nvidia_12gb_plus': {
             'name': 'NVIDIA 12GB+ (Heavy Profile)',
             'vram_min': 12,
-            'recommended_model': 'llama3-8b-q4',
-            'expected_speed': '60+ t/s',
+            'recommended_model': 'qwen3.8-27b-iq1s',
+            'expected_speed': '~24 t/s',
             'backend': 'cuda',
         },
         'nvidia_low_vram': {
@@ -183,6 +189,13 @@ class HardwareProfile:
     }
     
     MODELS = {
+        'qwen3.8-27b-iq1s': {
+            'name': 'Qwen 3.8 27B (UD-IQ1_S) [Deep Thinker]',
+            'file': 'Qwen3.8-27B-UD-IQ1_S.gguf',
+            'url': 'https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-IQ1_S.gguf',
+            'size_gb': 6.2,
+            'description': 'Kernel default. Needs the source-built llama-cpp-python (scripts/build_llama_cpp_python.ps1).',
+        },
         'llama3-8b-iq3': {
             'name': 'Llama 3 8B Instruct (IQ3_XXS) [Deep Thinker]',
             'file': 'Meta-Llama-3-8B-Instruct-IQ3_XXS.gguf',
@@ -259,30 +272,65 @@ def download_model(model_id: str, install_dir: Path) -> bool:
         if model_path.exists(): model_path.unlink()
         return False
 
-def install_dependencies(profile_id: str) -> bool:
+def build_llama_from_source(install_dir: Path) -> bool:
+    """The 27B default needs the source build; the PyPI wheel cannot load it."""
+    if os.name != 'nt':
+        return False
+    print(f"\n{Colors.YELLOW}The 27B model needs llama-cpp-python built from source (~20-25 min, needs CUDA toolkit + MSVC).{Colors.ENDC}")
+    if not wait_for_enter("Build now? (cancel = fall back to Qwen 2.5 3B)"):
+        return False
+    try:
+        subprocess.check_call([
+            "powershell", "-ExecutionPolicy", "Bypass",
+            "-File", str(install_dir / "scripts" / "build_llama_cpp_python.ps1"),
+        ])
+        return True
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(f"{Colors.RED}[ERROR] Source build failed: {e}{Colors.ENDC}")
+        return False
+
+def install_dependencies(profile_id: str, model_id: str, install_dir: Path) -> str:
+    """Installs deps; returns the model to use (falls back if the 27B build fails)."""
     backend = HardwareProfile.PROFILES[profile_id]['backend']
-    print(f"\n{Colors.CYAN}[SYS] Installing TurboQuant architecture dependencies...{Colors.ENDC}")
-    
-    core_packages = ['flask', 'flask-cors', 'requests', 'psutil', 'pynvml', 'websocket-client', 'python-dotenv']
-    for pkg in core_packages:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
-        
+    print(f"\n{Colors.CYAN}[SYS] Installing Peridot dependencies (requirements.txt)...{Colors.ENDC}")
+
+    # Everything except the engine, which is built or installed below. Installing
+    # the pinned stock llama-cpp-python here would overwrite a native build.
+    req = install_dir / 'requirements.txt'
+    filtered = install_dir / 'storage' / '.requirements.no-engine.txt'
+    filtered.parent.mkdir(exist_ok=True)
+    lines = [ln for ln in req.read_text(encoding='utf-8').splitlines()
+             if not ln.strip().lower().startswith(('llama_cpp_python', 'llama-cpp-python'))]
+    filtered.write_text("\n".join(lines) + "\n", encoding='utf-8')
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", str(filtered), "-q"])
+
+    if model_id == 'qwen3.8-27b-iq1s' and build_llama_from_source(install_dir):
+        print(f"{Colors.GREEN}[OK] Dependencies locked.{Colors.ENDC}")
+        return model_id
+    if model_id == 'qwen3.8-27b-iq1s':
+        print(f"{Colors.YELLOW}[WARN] Stock wheel cannot load the 27B. Falling back to Qwen 2.5 3B.{Colors.ENDC}")
+        model_id = 'qwen2.5-3b'
+
     if backend == 'cuda':
         print(f"{Colors.CYAN}[SYS] Binding CUDA acceleration...{Colors.ENDC}")
         subprocess.check_call([
-            sys.executable, "-m", "pip", "install", "llama-cpp-python", 
-            "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cu121", "-q"
+            sys.executable, "-m", "pip", "install", "llama-cpp-python",
+            "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cu124", "-q"
         ])
     else:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python", "-q"])
-        
-    print(f"{Colors.GREEN}[OK] Dependencies locked.{Colors.ENDC}")
-    return True
 
-def create_environment(install_dir: Path) -> bool:
+    print(f"{Colors.GREEN}[OK] Dependencies locked.{Colors.ENDC}")
+    return model_id
+
+def create_environment(install_dir: Path, model_file: str) -> bool:
     """Generates the .env file with strict OS-level owner-only permissions (0o600)."""
     env_path = install_dir / '.env'
     if env_path.exists():
+        # Pin the installed model; config.py's default (27B) needs the source build.
+        if 'ACTIVE_MODEL_NAME=' not in env_path.read_text():
+            with open(env_path, 'a') as f:
+                f.write(f"\nACTIVE_MODEL_NAME={model_file}\n")
         print(f"{Colors.GREEN}[OK] Security perimeter (.env) already exists.{Colors.ENDC}")
         return True
         
@@ -294,6 +342,7 @@ def create_environment(install_dir: Path) -> bool:
 HF_HUB_OFFLINE=1
 TRANSFORMERS_OFFLINE=1
 API_KEY={api_key}
+ACTIVE_MODEL_NAME={model_file}
 """
     try:
         # Security Upgrade: Lock file permissions to Owner Read/Write only (600)
@@ -310,12 +359,67 @@ API_KEY={api_key}
         print(f"{Colors.RED}[ERROR] Failed to lock environment: {e}{Colors.ENDC}")
         return False
 
+def _approve_bundled_plugin(name: str) -> bool:
+    """Pre-approve a plugin we ship; the registry owns the hash + storage/settings.json write."""
+    try:
+        from core_system.extensions.registry import approve
+        if approve(name):
+            return True
+        reason = "plugin not found by the registry"
+    except Exception as e:  # registry missing/older, or config import failed this early
+        reason = str(e)
+    print(f"{Colors.YELLOW}[WARN] Could not pre-approve '{name}' ({reason}). Approve it in the Extensions tab.{Colors.ENDC}")
+    return False
+
+def setup_web_search(install_dir: Path) -> None:
+    """Optional opt-in: copy the bundled web_search plugin. It stays off until web.enabled is turned on."""
+    print(f"\n{Colors.CYAN}{'='*70}{Colors.ENDC}")
+    print(f"{Colors.BOLD}OPTIONAL: WEB SEARCH (BETA){Colors.ENDC}")
+    print(f"{Colors.CYAN}{'='*70}{Colors.ENDC}\n")
+    print("Lets the model search the web (DuckDuckGo, or your own SearXNG) and read public pages.")
+    print(f"{Colors.YELLOW}Off by default even when installed:{Colors.ENDC} turn it on later with the web.enabled setting.")
+    print(f"{Colors.RED}When enabled, your search queries and fetched URLs leave this machine.{Colors.ENDC}")
+    print("It runs in the plugin sandbox with network access only, no file access.")
+    if not wait_for_enter("Install web search? ENTER = install"):
+        print(f"{Colors.YELLOW}[SKIP] Web search not installed. Peridot stays fully offline.{Colors.ENDC}")
+        return
+    src = install_dir / 'core_system' / 'extensions' / 'bundled' / 'web_search'
+    dst = install_dir / 'extensions' / 'plugins' / 'web_search'
+    try:
+        shutil.copytree(src, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    except OSError as e:
+        print(f"{Colors.RED}[ERROR] Could not install web search plugin: {e}{Colors.ENDC}")
+        return
+    print(f"{Colors.GREEN}[OK] Web search plugin installed to {dst} (disabled until web.enabled is on).{Colors.ENDC}")
+    if _approve_bundled_plugin('web_search'):
+        print(f"{Colors.GREEN}[OK] Web search plugin pre-approved.{Colors.ENDC}")
+
+def print_summary(install_dir: Path, model_file: str) -> None:
+    """Closing screen: what was set up and how to use the v1.6.0 features."""
+    web = (install_dir / 'extensions' / 'plugins' / 'web_search').is_dir()
+    mcp_cmd = f'claude mcp add peridot -- "{sys.executable}" "{install_dir / "mcp" / "peridot_mcp.py"}"'
+    print(f"{Colors.BOLD}{Colors.GREEN}SETUP COMPLETE{Colors.ENDC}\n")
+    print(f"Active model:  {Colors.CYAN}{model_file}{Colors.ENDC}  (change it later in Settings -> Model swap)")
+    print(f"Web search:    {Colors.CYAN}{'installed, off until you switch WEB on' if web else 'not installed (Extensions tab -> Install bundled web search)'}{Colors.ENDC}")
+    print(f"Extensions:    {Colors.CYAN}{install_dir / 'extensions'}{Colors.ENDC}  (skills/ and plugins/; plugins need approval)\n")
+    print(f"{Colors.GREEN}Start Peridot:{Colors.ENDC}  {sys.executable} launcher.py\n")
+    print(f"{Colors.YELLOW}Sovereign Invocation (optional):{Colors.ENDC} let Claude Code, Codex or Gemini CLI hand")
+    print("private-data jobs to your local model. Allowlist a folder in Settings, then run:")
+    print(f"  {Colors.CYAN}{mcp_cmd}{Colors.ENDC}")
+    print("Codex / Gemini CLI setup: mcp/README.md\n")
+
+
 def main():
     try:
         clear_screen()
         print_banner()
         if not wait_for_enter("Initialize Setup?"): sys.exit(0)
-        
+
+        if sys.prefix == sys.base_prefix:
+            print(f"\n{Colors.YELLOW}[WARN] Not running inside a virtual environment. Peridot's packages will go into")
+            print(f"your global Python. Recommended: python -m venv venv, activate it, then rerun this wizard.{Colors.ENDC}")
+            if not wait_for_enter("Continue anyway?"): sys.exit(0)
+
         install_dir = Path.cwd()
         
         # Hardware Detection
@@ -339,9 +443,9 @@ def main():
             print(f"{Colors.YELLOW}Your {vram}GB GPU supports multiple execution paths. Choose your primary directive:{Colors.ENDC}\n")
             
             print(f" 1. {Colors.BOLD}DEEP THINKER (High Quality, Slower){Colors.ENDC}")
-            print(f"    {Colors.CYAN}Engine:{Colors.ENDC} Llama 3 8B (IQ3_XXS) | ~60 t/s | ~4.7GB VRAM")
-            print(f"    {Colors.GREEN}Pros:{Colors.ENDC} Maximum semantic depth. Strict RAG document citation. Highly accurate.")
-            print(f"    {Colors.RED}Cons:{Colors.ENDC} Consumes more VRAM, leaving less overhead for background Folding@home.\n")
+            print(f"    {Colors.CYAN}Engine:{Colors.ENDC} Qwen 3.8 27B (UD-IQ1_S) | ~24 t/s decode, ~500 t/s prefill | ~6GB VRAM")
+            print(f"    {Colors.GREEN}Pros:{Colors.ENDC} Largest model that fits fully on an 8GB card. Native reasoning and tool use (skills, plugins, web search).")
+            print(f"    {Colors.RED}Cons:{Colors.ENDC} ~20-25 min source build of llama-cpp-python. 1.6-bit quant: occasional slips. Little VRAM left for Folding@home while loaded.\n")
             
             print(f" 2. {Colors.BOLD}AGILE / DAILY DRIVER (Blistering Fast, Lower Precision){Colors.ENDC}")
             print(f"    {Colors.CYAN}Engine:{Colors.ENDC} Qwen 2.5 3B (Q4_K_M) | ~100+ t/s | ~2.7GB VRAM")
@@ -380,17 +484,14 @@ def main():
         
         clear_screen()
         print_banner()
+        model_id = install_dependencies(selected, model_id, install_dir)
         if not download_model(model_id, install_dir): sys.exit(1)
-        if not install_dependencies(selected): sys.exit(1)
-        if not create_environment(install_dir): sys.exit(1)
-        
+        setup_web_search(install_dir)
+        if not create_environment(install_dir, HardwareProfile.MODELS[model_id]['file']): sys.exit(1)
+
         clear_screen()
         print_banner()
-        print(f"{Colors.BOLD}{Colors.GREEN}SYSTEM INITIALIZATION COMPLETE{Colors.ENDC}\n")
-        print(f"{Colors.YELLOW}Important Configuration Note:{Colors.ENDC}")
-        print(f"Open {Colors.CYAN}config.py{Colors.ENDC} and ensure ACTIVE_MODEL_NAME matches:")
-        print(f"-> {HardwareProfile.MODELS[model_id]['file']}\n")
-        print(f"{Colors.GREEN}To ignite the kernel: python launcher.py{Colors.ENDC}\n")
+        print_summary(install_dir, HardwareProfile.MODELS[model_id]['file'])
         
     except KeyboardInterrupt:
         print(f"\n{Colors.RED}[CANCELLED] Setup interrupted.{Colors.ENDC}")
