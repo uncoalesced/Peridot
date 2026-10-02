@@ -57,11 +57,14 @@ class CommandRouter:
         )
 
     def clear_command(self, args):
-        if self.core.ui:
-            self.core.ui.chat_display.config(state="normal")
-            self.core.ui.chat_display.delete(1.0, "end")
-            self.core.ui.print_logo()
-            self.core.ui.chat_display.config(state="disabled")
+        ui = self.core.ui
+        if ui:
+            # Commands run on the UI's worker thread, so the widgets are only
+            # touched via ui_call (queued onto the Tk thread, in order). This
+            # used `ui.chat_display`, which never existed (the widget is
+            # `ui.chat`), so `clear` raised every time.
+            ui.ui_call(ui.clear_chat)
+            ui.ui_call(ui.print_logo)
         # Was `self.core.chat_memory = []`, an attribute PeridotCore stopped
         # having when conversation state moved to the chat ledger in Phase 4.
         # The assignment created a new unused attribute and cleared nothing,

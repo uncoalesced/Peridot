@@ -381,10 +381,19 @@ def test_default_model_is_the_benchmarked_27b():
     Guards against silently landing on either old default: the unloadable
     Q2_K_XL, or the 14B that only fits 28/48 layers on 8GB (5.3 t/s).
     """
-    if "ACTIVE_MODEL_NAME" in os.environ:
-        pytest.skip("operator override active")
-    assert config.ACTIVE_MODEL_NAME != QWEN_27B
-    assert config.ACTIVE_MODEL_NAME == "Qwen3.8-27B-UD-IQ1_S.gguf"
+    assert config.DEFAULT_MODEL_NAME != QWEN_27B
+    assert config.DEFAULT_MODEL_NAME == "Qwen3.8-27B-UD-IQ1_S.gguf"
+
+
+def test_missing_default_model_falls_back_to_a_local_one(tmp_path):
+    """A v1.5.4 install upgraded by git pull has the 14B, not the 27B: boot on it, don't exit."""
+    assert config._resolve_default_model(tmp_path) == config.DEFAULT_MODEL_NAME  # nothing local
+    (tmp_path / "other.gguf").touch()
+    assert config._resolve_default_model(tmp_path) == "other.gguf"
+    (tmp_path / "Qwen2.5-14B-Instruct-Q4_K_M.gguf").touch()
+    assert config._resolve_default_model(tmp_path) == "Qwen2.5-14B-Instruct-Q4_K_M.gguf"
+    (tmp_path / config.DEFAULT_MODEL_NAME).touch()
+    assert config._resolve_default_model(tmp_path) == config.DEFAULT_MODEL_NAME
 
 
 def test_iq1s_default_fully_offloads_on_reference_gpu():

@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any
 
 from config import STORAGE_PATH
 from core_system.audit import ghost
-from core_system.prompting.constitution import parse_kernel_response
+from core_system.prompting.constitution import is_storable_answer, parse_kernel_response
 
 
 def _drop_empty_assistant_turns(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -37,7 +37,9 @@ def _drop_empty_assistant_turns(messages: List[Dict[str, Any]]) -> List[Dict[str
     for msg in messages:
         if msg.get("role") == "assistant":
             _analysis, body = parse_kernel_response(msg.get("content", ""))
-            if not body:
+            # Also drops tool-markup-only, bare tool JSON and "Let me look
+            # that up." stubs, which the model imitated on later turns.
+            if not is_storable_answer(body):
                 if cleaned and cleaned[-1].get("role") == "user":
                     cleaned.pop()
                 continue
@@ -96,6 +98,11 @@ class ChatLedger:
                     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
                 )
             """)
+            # v1.6.0: the model's reasoning, kept for display only. Never read
+            # by get_history, so it is never fed back into a prompt.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+            if "reasoning" not in columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)")
 
@@ -171,13 +178,19 @@ class ChatLedger:
             conn.commit()
             return cursor.rowcount > 0
 
-    def add_message(self, session_id: str, role: str, content: str) -> int:
-        """Add a message to a session. Returns message ID."""
+    def add_message(self, session_id: str, role: str, content: str,
+                    reasoning: Optional[str] = None) -> int:
+        """Add a message to a session. Returns message ID.
+
+        reasoning: the model's reasoning for an assistant turn; stored for
+        display only and never returned by get_history.
+        """
         now = time.time()
         with self._connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (session_id, role, content, now)
+                "INSERT INTO messages (session_id, role, content, timestamp, reasoning) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (session_id, role, content, now, reasoning or None)
             )
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
@@ -193,7 +206,7 @@ class ChatLedger:
                 """
                 SELECT role, content, timestamp FROM messages
                 WHERE session_id = ?
-                ORDER BY timestamp DESC
+                ORDER BY timestamp DESC, id DESC
                 LIMIT ?
                 """,
                 (session_id, limit * 2)
@@ -210,10 +223,11 @@ class ChatLedger:
             return _drop_empty_assistant_turns(deduped)
 
     def get_full_history(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get complete conversation history for a session."""
+        """Get complete conversation history for a session (for display; includes reasoning)."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "SELECT role, content, timestamp FROM messages WHERE session_id = ? ORDER BY timestamp",
+                "SELECT role, content, timestamp, reasoning FROM messages "
+                "WHERE session_id = ? ORDER BY timestamp, id",
                 (session_id,)
             )
             rows = cursor.fetchall()

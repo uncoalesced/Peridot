@@ -30,7 +30,7 @@ TURBOVEC_NATIVE = True
 # Try to import the official TurboVec package
 # If not available, fall back to pure-Python implementation
 # The native path below calls add_with_ids/search/delete_by_id/get_vector_by_id/
-# save/load/size. turbovec 0.7.1 (the pinned release) instead exposes
+# save/load/size. turbovec 0.7.1 (latest release, no longer pinned) instead exposes
 # add_with_ids/search/remove/contains/write/load/prepare, so enabling it just
 # because the import succeeds crashed the vault on first save/delete. Only use
 # a build that actually has the API this wrapper speaks.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.4 | IGNITION LAUNCHER
+# PERIDOT SOVEREIGN KERNEL v1.6.0 | IGNITION LAUNCHER
 # Copyright (C) 2026 uncoalesced
 # 
 # Licensed under the MIT License.
@@ -18,7 +18,12 @@ from dotenv import load_dotenv
 # 1. ENVIRONMENT BOOTSTRAP
 load_dotenv()
 
-from config import SERVER_HOST, SERVER_PORT, LOG_PATH
+from config import SERVER_HOST, SERVER_PORT, LOG_PATH, STORAGE_PATH
+
+# The engine's pid. The launcher writes its own child here; the UI overwrites
+# it when a model swap restarts the engine (ui.spawn_server), so cleanup can
+# still find a server this process never spawned.
+SERVER_PID_FILE = STORAGE_PATH / "server.pid"
 
 def kill_proc_tree(pid, including_parent=True):
     """Sovereign protocol to forcibly terminate all child threads."""
@@ -32,9 +37,32 @@ def kill_proc_tree(pid, including_parent=True):
     except psutil.NoSuchProcess:
         pass
 
+def kill_pidfile_server(pid_file=SERVER_PID_FILE):
+    """Kill the engine recorded in pid_file, then remove the file.
+
+    Only a process whose command line runs server.py is killed: a stale file
+    whose pid has since been reused must never take an unrelated process down.
+    """
+    try:
+        pid = int(pid_file.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    killed = False
+    try:
+        if any(os.path.basename(arg) == "server.py" for arg in psutil.Process(pid).cmdline()):
+            kill_proc_tree(pid)
+            killed = True
+    except (psutil.Error, OSError):
+        pass
+    try:
+        pid_file.unlink()
+    except OSError:
+        pass
+    return killed
+
 def main():
     print("==================================================")
-    print("  PERIDOT SOVEREIGN KERNEL v1.5.4 | INITIATING BOOT ")
+    print("  PERIDOT SOVEREIGN KERNEL v1.6.0 | INITIATING BOOT ")
     print("==================================================")
 
     custom_env = os.environ.copy()
@@ -50,6 +78,7 @@ def main():
         server_process = subprocess.Popen(
             server_cmd, cwd=os.getcwd(), stdout=server_log, stderr=subprocess.STDOUT, env=custom_env
         )
+        SERVER_PID_FILE.write_text(str(server_process.pid))
     except Exception as e:
         print(f"[FATAL] Inference server failed to start: {e}")
         sys.exit(1)
@@ -89,6 +118,7 @@ def main():
         except Exception:
             pass
         kill_proc_tree(server_process.pid)
+        kill_pidfile_server()
         sys.exit(1)
 
     print(">> [2/2] Launching Interface (main.py)...")
@@ -101,7 +131,8 @@ def main():
     finally:
         print("\n>> Shutting down Kernel Subsystems...")
         kill_proc_tree(server_process.pid)
-        
+        kill_pidfile_server()  # a server the UI restarted for a model swap
+
         token_path = LOG_PATH / "auth.token"
         if token_path.exists():
             try:

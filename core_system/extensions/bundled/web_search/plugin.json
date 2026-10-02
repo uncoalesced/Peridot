@@ -1,0 +1,32 @@
+{
+  "name": "web_search",
+  "description": "Search the web (DuckDuckGo, or your SearXNG instance) and fetch public web pages as readable text.",
+  "version": "1.0.0",
+  "entry": "main.py",
+  "permissions": {"network": true, "files": "none"},
+  "tools": [
+    {
+      "name": "web_search",
+      "description": "Search the web. Returns numbered results with title, URL and snippet.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query."},
+          "n": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5, "description": "Number of results (1-10)."}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "web_fetch",
+      "description": "Fetch a public http/https web page and return its readable text (truncated to about 6000 characters).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "description": "Absolute http:// or https:// URL."}
+        },
+        "required": ["url"]
+      }
+    }
+  ]
+}

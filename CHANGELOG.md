@@ -6,6 +6,213 @@ All notable changes to the Peridot Sovereign Kernel are documented in this file.
 
 ---
 
+## [v1.6.0] - 2026-10-02
+
+**Release Summary:** Peridot Goes Agentic: Extensions, Model Tool Use, Web Search (Beta), Sovereign Invocation, and an Uncensored Kernel
+
+### Overview
+
+v1.6.0 is the stable release of the v1.6.0-BETA engine work (native CUDA engine, Qwen3.8-27B default, token streaming) and adds Peridot's first agentic layer. The local model can now use skills and sandboxed plugins, optionally search the web, and act as a private worker for cloud coding agents such as Claude Code, Codex CLI and Gemini CLI. It is aimed at users who want a capable assistant on their own hardware without handing their files or conversations to a third party. The sovereignty promise is unchanged: inference runs on your machine, extensions live in a local folder, web access is off until you turn it on, and delegated jobs read your files locally and return only a result you can review first.
+
+### Highlights
+
+- **Extensions:** drop-in skills (Markdown prompts) and plugins (Python tools) that run in a sandboxed child process after explicit approval.
+- **Model tool use:** the model can call approved tools itself, up to 8 steps per turn, with tool activity shown live in the chat.
+- **Web search (beta):** a bundled, opt-in plugin using DuckDuckGo or your own SearXNG instance; off by default.
+- **Sovereign Invocation:** an MCP server lets cloud agents delegate private-data tasks to the local model, with a review-before-share mode as the default.
+- **Uncensored kernel:** Peridot no longer adds refusals or keyword filters of its own, and the system prompt was rewritten to be accurate about what the assistant can do.
+- **Chat experience:** message queue, STOP, collapsible reasoning, file attachments, and model swaps that restart the engine for you.
+
+### Added
+
+#### Extensions (skills and plugins)
+
+- **Skills:** folders at `extensions/skills/<name>/SKILL.md` with `name` and `description` frontmatter. Invoke one with `/<name> task` in the chat box; the skill body is prepended to that turn. `/skills` and `/plugins` list what is installed.
+- **Plugins:** folders at `extensions/plugins/<name>/` containing a `plugin.json` manifest (tools, parameters, and `network` / `files` permissions) and a Python entry file.
+- **Approval:** a plugin is unavailable until you approve it in the Extensions tab, which shows its requested permissions first. Approval is tied to a SHA-256 hash of the plugin's files, so any change to the plugin revokes it.
+- **Sandboxed execution:** every plugin call runs in a short-lived, isolated child interpreter with resource limits and a file/network policy (see Security).
+
+#### Model tool use
+
+- **Setting "Let the model use skills and plugins"** (on by default): approved tools are described to the model, which can call them during a turn. Skills are exposed through a `use_skill` tool.
+- **Tool-call formats:** Qwen3.x's native XML `<tool_call>` format is parsed; the earlier JSON form is still accepted. Malformed calls or unknown tool names are treated as plain text, never executed.
+- **Loop limits:** up to 8 tool steps per turn; each tool result fed back to the model is capped at 8,000 characters.
+- **Streaming:** tool runs appear in `/ask/stream` as `tool` events and in the chat as compact activity chips. Tool markup is withheld from the visible answer.
+
+#### Web search (beta)
+
+- **Bundled `web_search` plugin** with two tools, `web_search` and `web_fetch`. Uses DuckDuckGo's HTML endpoint by default, or the JSON API of a SearXNG URL you set in Settings.
+- **Off by default.** A global WEB toggle in the status bar enables it, and a per-message SEARCH button runs a search before the model answers. With WEB off, Peridot makes no web requests.
+- **Web tools are hidden from the model while WEB is off,** so the model is not offered tools it cannot use. A per-message search with WEB off returns a short notice explaining why no search ran.
+- **Fetch limits:** downloads are capped at 2 MB and extracted text at 6,000 characters.
+- **Installer opt-in:** `install_wizard.py` asks whether to install the plugin. Declining installs nothing; it can be added later from the Extensions tab.
+
+#### Sovereign Invocation
+
+- **MCP bridge (`mcp/peridot_mcp.py`):** a stdio MCP server built on the Python standard library only. It exposes one tool, `peridot_invoke(task, paths, return_mode)`, that any MCP client (Claude Code, Codex CLI, Gemini CLI and others) can call. Peridot's local model does the work on your machine. Setup snippets for each client are in `mcp/README.md`.
+- **Return modes:**
+  - `review` (default): Peridot writes a redacted summary that you approve, edit or deny in an always-on-top dialog. Denying, closing the window or letting the 120-second timer expire shares nothing.
+  - `full`: the final answer is returned. Raw file contents are never sent, only the answer.
+  - `status_only`: only "completed" or "failed" is returned.
+  - Tasks that only perform an action (a successful file write with a short answer) return status only, regardless of the requested mode.
+- **File tools for delegated tasks:** `read_file`, `list_dir` and `write_file`, confined to folders you allowlist in Settings. Folders are read-only unless you flag them as writable.
+- **Invocation Relay (`core_system/invocation/relay.py`):** a lightweight background process (about 50 MB of memory) with a system-tray icon on Windows and headless mode on Linux. It starts the Peridot server when a delegated task arrives and stops it after 5 idle minutes (configurable), returning the GPU's VRAM to other workloads such as Folding@home. It never stops a server it did not start. Tray menu: Open Peridot, Unload model now, Quit.
+
+#### Chat experience
+
+- **Message queue:** messages sent while a reply is streaming wait as chips in the chat and run in order; click a chip to cancel it.
+- **STOP:** the SEND button becomes STOP while a reply streams. Stopping keeps the partial answer, marks it as stopped, and starts the next queued message.
+- **Reasoning toggle:** for thinking models, the model's reasoning is kept out of the answer and shown as a collapsed `[+]` line you can expand.
+- **ATTACH:** PDFs are ingested into the Vault for retrieval; text and code files up to 20,000 characters are inlined into the message.
+- **Redesigned input row:** ATTACH | SEARCH | MIC | SEND, with hover states and the SEND/STOP switch.
+
+#### Settings and model management
+
+- **Settings store:** user settings live in `storage/settings.json`, written atomically by the server only. New settings cover model tool use, web search and the SearXNG URL, allowlisted folders (with a per-folder write flag), invocation idle and review timeouts, and plugin approvals.
+- **Settings UI:** Extensions tab (list, approve, reload, model tool-use toggle), allowlisted folders, SearXNG URL, Invocation timeouts, and a COPY MCP SETUP button for the `claude mcp add` command.
+- **Model swap:** the model list shows only `.gguf` files, each with its size and a VRAM fit estimate (fits in VRAM, partial offload, and so on). Selecting a model saves it, restarts the engine, and waits for `/health` before reporting success. The status bar shows the model that is actually loaded.
+
+#### Computer use (scaffold, not yet active)
+
+- **Foundation for v1.6.1:** `core_system/computer/` defines the action model (screenshot, click, move, drag, type, key, scroll, wait) with strict validation, a backend interface, and a safety policy (off by default, approval required, app allowlist, per-turn action cap, blocked system key combinations such as Win+R and Ctrl+Alt+Del). No backend is implemented and the model is never offered these tools in v1.6.0. A Windows backend and tool-loop integration are planned for v1.6.1-beta, with full support in v1.6.1.
+
+#### API
+
+All endpoints except `/health` require the `X-API-KEY` header.
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /settings` | API key | Return all settings. |
+| `POST /settings` | API key, 30/min | Update settings. Setting `model.active` validates the file in `models/`, writes `ACTIVE_MODEL_NAME` to `.env`, and returns `restart_required: true`. |
+| `POST /invoke` | API key, 60/min | Run a delegated task with the file tools. Body: `task`, `paths`, `return_mode` (`full` / `review` / `status_only`), `model` (accepted, not yet used). Returns `answer`, `summary`, `action_only`, `model_used`, `steps`. Returns 403 if no folders are allowlisted or a path is outside them. |
+| `POST /ask/cancel` | API key | Stop the running `/ask` or `/ask/stream` generation. Returns `{"cancelled": true}`, or `false` if nothing was running. |
+| `POST /ask`, `POST /ask/stream` | API key, 60/min | New request field `web` (run a web search first). New response fields `reasoning` (the model's thinking, separated from the answer), `cancelled`, and `notice` (for example, why a requested search did not run). `/ask/stream` also emits `{"tool": name, "status": "start" \| "ok" \| "error"}` events. |
+| `GET /health` | None | New fields `idle_s`, `inflight`, `pid` and `model`, used by the Relay and the model swap. |
+
+### Changed
+
+- **Uncensored kernel.** Peridot no longer adds refusals of its own. `config/constitution.json` dropped the `refusal_topics` list, the `[KERNEL PANIC]` refusal rule, the "sterile runtime" identity and the English/ASCII-only rule. The input keyword filter in `core_system/security.py`, which rejected any prompt that mentioned strings such as `subprocess.`, `eval(` or `os.system`, was removed; prompt text is never executed. This only removes Peridot's own layer: any alignment trained into a model's weights still applies (see Known Limitations).
+- **Rewritten constitution.** The system prompt now gives the model its identity, the loaded model's name and today's date, and an accurate per-turn statement of what it can do (available tools, whether web access is on). Guidelines are written in plain language: answer the latest message directly, be honest about capabilities, never claim to have searched or read something without a tool result, and match the user's language and tone. Tool and reasoning tags no longer appear in the instructions.
+- **Reasoning handling.** For thinking models, prompts open the reasoning block themselves and the parser takes the answer from after the last `</think>`, so reasoning does not leak into answers.
+- **Sampling.** Repeat penalty defaults to 1.0 for thinking models (1.1 otherwise), overridable with `REPEAT_PENALTY`.
+- **Input limit** raised from 10,000 to 24,000 characters, shared by the UI and server. Over-length input is reported as too long instead of being labelled malicious.
+- **UI design system.** PeridotDZN brand palette (Lime `#00FF19`, Black, Dusty Grape, Mint Cream, Dusty Taupe) defined in one place; Segoe UI / DejaVu Sans for interface text and Consolas for code; consistent spacing; themed scrollbars and tabs.
+- **UI performance.** Streaming appends only new text instead of redrawing the whole reply on every update; auto-scroll happens only when already at the bottom; telemetry uses one background worker instead of a new thread every 1.5 seconds; kinetic scrolling runs at 16 ms frames (was 5 ms); the spellcheck dictionary loads after the window appears.
+- **Installer.** `install_wizard.py` installs requirements without replacing a source-built engine, uses the CUDA 12.4 wheel index for the stock `llama-cpp-python`, warns when run outside a virtual environment, offers web search as an opt-in step, and ends with a v1.6.0 summary that includes the MCP setup command.
+- **Repository.** Launch video added under `assets/video/`; `.gitignore` covers the user `extensions/` folder (`storage/`, which holds `settings.json`, was already ignored).
+
+### Fixed
+
+- **Model swap did nothing.** The previous implementation reported success without changing the model. Swaps now persist the choice, restart the engine and confirm the new model is loaded.
+- **Reasoning text leaked into answers** when a model quoted reasoning tags or produced more than one reasoning block.
+- **Tool calls in Qwen's native XML format were ignored,** which could leave the model repeating "let me look that up" without ever searching.
+- **Empty-answer retries** no longer re-insert the legacy analysis scaffold for thinking models and no longer store tool-call fragments as answers.
+- **Chat history** never stores tool-call-only or placeholder answers, and such entries from older sessions are filtered out so the model does not imitate them.
+- **First-boot API key race:** the server and UI could generate different keys, causing 403 errors. Key creation is now serialised with an exclusive lock file.
+- **Fresh installs failed on torch:** the wheel URL in `requirements.txt` contained a raw `+`, which download.pytorch.org rejects with 403. It is now encoded as `%2B`.
+- **UI stability:** Tk calls from background threads (telemetry, voice, system messages) now run on the main thread; blocking requests (VRAM reclaim, research toggle) no longer freeze the window.
+- **Smaller UI fixes:** the `clear` command crashed; the window icon path pointed at a missing file; the status bar was clipped on scaled displays; the research toggle changed state even when the server refused.
+- **`/skill` turns appeared twice** in the history sent to the model.
+
+### Security
+
+- **Plugin sandbox (defense in depth).** Each plugin call runs in a fresh `python -I` child process with a 30-second timeout. On Windows the child joins a Job Object (512 MB memory cap, kill-on-close, no child processes); on Linux it uses `setrlimit`. A Python audit-hook policy then limits file access to the plugin's own folder and your allowlisted folders, allows network access only if the manifest requests it, and blocks subprocess creation, `os.system` and `ctypes`. Installation-time approval, bound to a hash of the plugin's files, is the primary control.
+- **Allowlisted folders.** Delegated tasks can only touch folders you list in Settings. Paths are fully resolved (symlinks followed, `..` collapsed) before the containment check, writes require a per-folder write flag, and errors never include file contents.
+- **SSRF guard.** `web_fetch` refuses private, loopback, link-local and reserved addresses, including when reached through a redirect. The SearXNG URL can only come from Settings; a URL supplied by the model is discarded.
+- **Authentication.** API key comparison is constant-time (`hmac.compare_digest`).
+- **Keyword filter removal.** The removed input filter matched words in chat messages, which are only ever sent to the model and never executed, so it blocked legitimate questions without protecting anything. The controls that do protect the system are unchanged: API key authentication, rate limits, file path blacklists and model download validation.
+- **Honest limits.** The plugin sandbox is not a kernel-enforced sandbox: a deliberately hostile plugin can bypass audit hooks (for example through native extension modules). Only approve plugins you trust. Kernel-level isolation (AppContainer on Windows, Landlock on Linux) is planned.
+
+### Known Limitations
+
+- Removing Peridot's own refusals does not remove refusals trained into a model's weights. For fully uncensored output, use an uncensored or abliterated GGUF.
+- Tool-use quality depends on the model. The 1.6-bit 27B default can produce malformed tool calls; these are ignored safely.
+- DuckDuckGo's HTML page is not a stable API and may change; SearXNG is the more reliable option.
+- `/invoke` accepts but ignores the `model` field; delegated tasks use the loaded model. Per-request model selection is planned for v1.6.1-beta.
+- Plugins can only use the standard library and Peridot's own dependencies; per-plugin dependencies are planned for v1.6.1-beta.
+- Running `pip install -r requirements.txt` on a machine with the native engine build replaces it with the stock `llama-cpp-python==0.3.23`, which cannot run the 27B model.
+
+### Upgrade Notes
+
+From v1.5.4 or v1.6.0-BETA:
+
+1. **Update dependencies inside the project venv** by running `python install_wizard.py`, or rebuild the engine with `scripts/build_llama_cpp_python.ps1`. Do not run `pip install -r requirements.txt` over a native engine build.
+2. **Settings** are now stored in `storage/settings.json` and managed through the UI or `/settings`. `ACTIVE_MODEL_NAME` in `.env` is still the model loaded at boot, and a swap from the UI updates it.
+3. **Extensions** go in `extensions/skills/` and `extensions/plugins/` at the project root. The folder is ignored by git.
+4. **Web search:** install the bundled plugin from the installer or the Extensions tab, approve it, then switch WEB on. Optionally set a SearXNG URL in Settings.
+5. **MCP server:** allowlist at least one folder in Settings, then use COPY MCP SETUP or run `claude mcp add peridot -- <venv python> <Peridot>\mcp\peridot_mcp.py`. Codex CLI and Gemini CLI configurations are in `mcp/README.md`.
+6. **Constitution:** `config/constitution.json` was rewritten. If you customised it, re-apply your changes to the new file.
+
+### Testing
+
+- New suites: settings, extensions, sandbox, tool loop, web search, `/invoke`, Relay, MCP bridge, UI static checks, UI panels, and fix-pass regressions for core and UI (`tests/test_v160_*.py`).
+- Full suite under the project venv: 473 passed, 1 skipped (the live-server authentication check, which needs a running engine); ruff clean.
+- Live UI tests share one window per session (`tests/conftest.py`) because Tcl on Windows cannot start a second interpreter in one process.
+
+---
+
+## [v1.6.0-BETA] - 2026-09-27
+
+**Release Summary:** Native CUDA Engine, Qwen3.8-27B Default, Streaming and Request-Path Latency
+
+Beta because the 27B install path (source-built engine) has been validated on one machine only: RTX 5050 Laptop 8GB (sm_120), Ryzen 7 250 AI, Windows 11. Every number below was measured there; results files are under `benchmarking/results/`.
+
+### Performance
+
+| Metric | v1.5.4 | v1.6.0 |
+|---|---|---|
+| Default model | Qwen2.5-14B Q4_K_M (28/48 layers on GPU) | Qwen3.8-27B UD-IQ1_S (all layers on GPU) |
+| Decode | 5.31 t/s | **23.61 t/s** |
+| Prefill, ~1.7k-token prompt | ~34 t/s | **~500 t/s** |
+| Per-request F@H handoff | 2005-2015 ms | **0-4 ms** |
+| `/ask` turn 1 | 18.81 s | 2.23 s |
+| Empty-answer retries (27B, 6 turns) | 4/6 | **0/6** |
+| Server cold start | 33.67 s | 24.09 s |
+| Vector search, 100k chunks | 258 ms/query | **8.4 ms/query** |
+
+### Added
+
+- **Native engine build:** `scripts/build_llama_cpp_python.ps1` builds `llama-cpp-python` ea3b56bd (llama.cpp fb34fc262) from a long-path-safe clone, auto-detects the GPU architecture, sets up MSVC + Ninja, and keeps the built wheel under `%LOCALAPPDATA%\peridot\wheels`. ~20-25 minutes.
+- **Qwen3.8-27B-UD-IQ1_S is the default model.** The post-v1.5.4 revert conditions are met: it loads, and a real benchmark exists (`decode_rate_20260925_224748.json`). f16 KV cache, 8k context from a measured per-model table.
+- **Token streaming:** `POST /ask/stream` (NDJSON deltas, then one final response). `/ask` is unchanged. The UI renders a dim `>> reasoning...` while the model thinks, then streams the answer.
+- **FreeThink part 1:** a thinking registry (`model_supports_thinking()`, vocab-pre `qwen35`) and a scaffold bypass: native `<think>` models no longer get the `[ANALYSIS]`/`[KERNEL_RESPONSE]` mandate, which was the cause of the empty-answer retries.
+- **Installer runs the new default:** `install_wizard.py` recommends the 27B on 8GB+ NVIDIA, offers the native build on Windows, and falls back to the stock wheel + Qwen2.5-3B if the build is declined or fails. Writes `ACTIVE_MODEL_NAME` to `.env`.
+- **Provider knobs:** `n_ubatch`, `n_threads_batch`, `kv_cache_type`, `use_mlock`, streaming `on_chunk`; config `THREADS` (physical cores), `THREADS_BATCH` (logical), `UBATCH_SIZE=512`, `KV_CACHE_TYPE=f16`.
+- **Benchmarks:** `benchmark_turn_latency.py`; `benchmark_decode_rate.py --sweep` with a long-prompt prefill probe.
+
+### Fixed
+
+- **2 s tax on every request:** the F@H websocket was contacted even when F@H wasn't running, and a refused localhost connect on Windows takes ~2 s. `fah_listening()` checks the socket table first (0.4 ms).
+- **`/shutdown` did nothing:** it relied on `werkzeug.server.shutdown`, removed in Werkzeug 2.1, so the engine kept running and holding VRAM.
+- **Duplicated user turn:** the server re-read the just-written question from the ledger and appended it again.
+- **Upgrade crash:** a v1.5.4 install updated with `git pull` has no 27B file and no `ACTIVE_MODEL_NAME`; the server exited on boot. It now falls back to Qwen2.5-14B or another local GGUF, with a warning.
+- **New PDFs invisible to RAG until restart:** UI-side ingest now goes through the server.
+- **Voice input dead on fresh installs:** `PyAudio` restored to requirements (the refactor dropped it; `speech_recognition.Microphone` imports it at runtime).
+- **Latent turbovec crash:** the native path is only used when the installed turbovec exposes the API it calls; 0.7.1 doesn't, so it is refused and the requirements pin dropped.
+- **UI freezes:** the VRAM bar used `nvidia-smi` on the Tk thread (~1.7 s per call); now NVML (<1 ms). The UI process no longer imports torch.
+- **`>> >>` double prefix** on some UI system messages.
+
+### Changed
+
+- **ZAT-SCS is opt-in** (`ZAT_SCS_ENABLED=1`); no microphone stream or keyboard hook starts by default.
+- `/ask` waits on a `threading.Condition` instead of 100 ms polling; the 2 s `COOLDOWN` sleep and per-request `llm.reset()` are gone.
+- Vector search fallback vectorised (contiguous matrix + mat-vec + argpartition); embedder query memo (one embed per request, was three); chat ledger in WAL mode.
+- Refactor audit (2026-09-14/15) closed out: dead code removed across `audit.py`, `security.py`, `constitution.py`, telemetry and the FSM.
+
+### Known Limitations
+
+- **CUDA 13.2 miscompiles llama.cpp's IQ-quant kernels on sm_120** (garbage output, no error). The build script skips 13.2; use 13.1.
+- The stock PyPI `llama-cpp-python` cannot run the 27B. Without the native build, use Qwen2.5-14B or smaller.
+- Linux GPU inference and non-Blackwell GPUs remain unvalidated.
+- `MAX_TOKENS=1024` is still shared by the `<think>` block and the answer (no truncation observed yet).
+- Deferred to v1.6.x: FreeThink part 2 (reasoning budget, show-reasoning toggle, ledger column), child process per model + `POST /model/swap`, episodic memory, a quality check for `--sweep`, and routing Tk updates from background threads through `root.after`.
+
+### Testing
+
+- 188 tests (1 skipped: live-server auth), ruff clean. New: kernel FSM, stream route, history dedupe, `stream_visible_body`, scaffold bypass, vector-search brute-force equivalence, missing-model fallback.
+
+---
+
 ## [post-v1.5.4f] - 2026-08-20
 
 **Release Summary:** Chat Ledger Degenerate Feedback Loop Remediation & Response Contract Alignment

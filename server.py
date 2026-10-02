@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.4 | NEURAL ENGINE & INGESTION CORE
+# PERIDOT SOVEREIGN KERNEL v1.6.0 | NEURAL ENGINE & INGESTION CORE
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
@@ -7,6 +7,7 @@
 
 import os
 import sys
+import hmac
 import logging
 import threading
 import time
@@ -31,6 +32,7 @@ from config import (
     RESEARCH_IDLE_THRESHOLD, THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH_SIZE, KV_CACHE_TYPE,
     ZAT_SCS_ENABLED,
 )
+from core_system import settings
 
 # --- SOVEREIGNTY GATE ---
 # config has already force-set offline mode; fail loud rather than boot an
@@ -43,10 +45,17 @@ assert_main_process_offline()
 from core_system.prompting.constitution import (
     format_kernel_response,
     get_model_format,
+    is_bare_tool_json,
+    is_storable_answer,
     model_supports_thinking,
     parse_kernel_response,
+    split_reasoning,
 )
-from core_system.prompting.builder import build_full_context
+from core_system.prompting.builder import THINK_SEED, build_full_context
+
+# --- v1.6.0 MODEL TOOLS & SOVEREIGN INVOCATION ---
+from core_system.extensions import registry, tools
+from core_system.invocation import agent, filetools
 
 # --- v1.6.x INFERENCE PROVIDER ABSTRACTION ---
 # .gguf always routes to LlamaCppProvider today; provider_for() is used (rather
@@ -263,7 +272,7 @@ def idle_monitor():
 def boot_engine():
     global llm
     print(f"\n{'='*50}")
-    print("   PERIDOT NEURAL ENGINE (v1.5.4 SOVEREIGN KERNEL)")
+    print("   PERIDOT NEURAL ENGINE (v1.6.0 SOVEREIGN KERNEL)")
     print(f"{'='*50}")
     
     if not MODEL_PATH.exists():
@@ -321,7 +330,7 @@ def require_auth(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
-        if not auth_header or auth_header != f"Bearer {API_KEY}":
+        if not auth_header or not hmac.compare_digest(auth_header, f"Bearer {API_KEY}"):
             return jsonify({"error": "Unauthorized. Invalid or missing API Key."}), 403
         return f(*args, **kwargs)
     return decorated
@@ -333,12 +342,51 @@ def queue_requests(f):
             return f(*args, **kwargs)
     return decorated
 
+# --- REQUEST ACTIVITY (v1.6.0 Sovereign Invocation Relay) ---
+# The relay (core_system/invocation/relay.py) reads idle_s/inflight from
+# /health and exits this process when idle, so /health itself must not count.
+_last_activity = time.monotonic()
+_inflight = 0
+_activity_lock = threading.Lock()
+
+@app.before_request
+def _track_request_start():
+    global _last_activity, _inflight
+    if request.path == "/health" or request.method == "OPTIONS":
+        return
+    request.environ["peridot.inflight"] = True
+    with _activity_lock:
+        _last_activity = time.monotonic()
+        _inflight += 1
+
+@app.teardown_request
+def _track_request_end(_exc=None):
+    # pop(): /ask/stream's copy_current_request_context shares this environ,
+    # so its second teardown must not decrement again.
+    global _last_activity, _inflight
+    if request.environ.pop("peridot.inflight", None):
+        with _activity_lock:
+            _last_activity = time.monotonic()
+            _inflight -= 1
+
 # --- API ENDPOINTS ---
 @app.route('/health', methods=['GET'])
 def health_check():
+    global _last_activity
+    # A stream's view returns before its worker finishes generating; the held
+    # inference_lock is what proves work is still running.
+    busy = inference_lock.locked()
+    if busy:
+        _last_activity = time.monotonic()
+    info = {
+        "idle_s": int(time.monotonic() - _last_activity),
+        "inflight": max(_inflight, int(busy)),
+        "pid": os.getpid(),
+        "model": MODEL_PATH.name,
+    }
     if llm is not None and llm.is_loaded:
-        return jsonify({"status": "online"}), 200
-    return jsonify({"status": "booting"}), 503
+        return jsonify({"status": "online", **info}), 200
+    return jsonify({"status": "booting", **info}), 503
 
 @app.route("/ingest", methods=["POST"])
 @require_auth
@@ -377,8 +425,11 @@ def ask_stream():
     {"done": true, "status": <http code>, ...the /ask JSON body...}. Deltas are
     raw model output (reasoning and scaffolding included); clients show them via
     constitution.stream_visible_body() and render the final "response" exactly
-    as they would /ask's. Only the primary generation streams: a retry, a cache
-    hit or an error arrives as the final line alone.
+    as they would /ask's. Every tool-loop generation streams, with anything
+    from <tool_call> onward held back; tool runs arrive as
+    {"tool": name, "status": "start"} then {"tool": name, "status": "ok"|"error",
+    "error"?: short}. A retry, a cache hit or an error arrives as the final
+    line alone.
 
     The pipeline runs in a worker thread holding inference_lock for the whole
     generation, so the lock and the kernel's INFERENCE_COMPLETE (in
@@ -390,7 +441,8 @@ def ask_stream():
     def worker():
         try:
             with inference_lock:
-                result = _ask_impl(delta_sink=lambda text: events.put({"delta": text}))
+                result = _ask_impl(delta_sink=lambda text: events.put({"delta": text}),
+                                   event_sink=events.put)
             body, status = result if isinstance(result, tuple) else (result, 200)
             events.put({"done": True, "status": status, **(body.get_json() or {})})
         except Exception as e:
@@ -412,9 +464,202 @@ def ask_stream():
     return Response(stream(), mimetype="application/x-ndjson")
 
 
-def _ask_impl(delta_sink=None):
+# --- CANCELLATION (/ask/cancel) ---
+# One flag: at most one /ask generation runs at a time (inference_lock).
+# Cleared when each /ask starts, checked on every streamed chunk.
+_cancel = threading.Event()
+
+
+class Cancelled(Exception):
+    """Raised from the chunk callback once /ask/cancel fires; carries the raw text so far."""
+
+    def __init__(self, partial):
+        super().__init__("generation cancelled")
+        self.partial = partial
+
+
+@app.route("/ask/cancel", methods=["POST"])
+@require_auth
+def ask_cancel():
+    """Stop the running /ask or /ask/stream generation.
+
+    The running request then returns its partial answer with "cancelled": true.
+    Nothing running -> {"cancelled": false}.
+    """
+    if not inference_lock.locked():
+        return jsonify({"cancelled": False}), 200
+    _cancel.set()
+    return jsonify({"cancelled": True}), 200
+
+
+def _acquire_kernel():
+    """PROMPT_RECEIVED handshake. None once cleared for INFERENCE, else (error, status).
+
+    The caller owns the matching INFERENCE_COMPLETE (in its finally).
+    """
+    if kernel.state == KernelState.SPECULATIVE_PREPARED:
+        if ghost:
+            try: ghost.info("API | [ZAT-SCS] Predictive preemption hit! Bypassing VRAM purge.")
+            except Exception: pass
+        kernel.request_state_change(KernelState.INFERENCE, "ZAT-SCS direct generation.")
+        return None
+    if ghost:
+        try: ghost.info("API | Received payload. Requesting hardware clearance...")
+        except Exception: pass
+    kernel.event_queue.put("PROMPT_RECEIVED")
+
+    cleared = kernel.wait_for_state(
+        lambda s: s in (KernelState.INFERENCE, KernelState.PANIC), timeout=10.0
+    )
+    if kernel.state == KernelState.PANIC:
+        return "KERNEL PANIC: Hardware failed to yield.", 503
+    if not cleared:
+        kernel.request_state_change(KernelState.PANIC, "FAH Timeout")
+        return "KERNEL TIMEOUT: Hardware clearance not granted.", 504
+    return None
+
+
+def _stop_tokens(model_format):
+    if model_format == "llama3":
+        return ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"]
+    if model_format == "mistral":
+        # ponytail: was silently falling through to the ChatML stop
+        # tokens below, which never appear in Mistral output -- generation
+        # would have run to MAX_TOKENS every time instead of stopping at
+        # </s>. Untested against real hardware; verify a Mistral-Nemo run
+        # actually stops cleanly before trusting this.
+        return ["</s>", "[INST]"]
+    return ["<|im_end|>", "<|im_start|>"]
+
+
+def _raw_text(prompt_text, text):
+    """Generated text as the model sees it: a pre-seeded think opener at the
+    end of the prompt (builder.THINK_SEED) is part of the reply."""
+    return (THINK_SEED if prompt_text.endswith(THINK_SEED) else "") + text
+
+
+def _make_generate(stops, max_tokens, delta_sink=None, cancellable=False):
+    """generate(prompt_text, tag) -> GenerationResult, for one request.
+
+    The budget is recomputed per prompt because tool turns grow it. Every
+    tag but the pre-seeded retry streams to delta_sink, with tool-call
+    markup held back (agent.MarkupFilter); a pre-seeded think opener is
+    streamed first so clients hide the reasoning that follows. cancellable:
+    raise Cancelled once /ask/cancel sets _cancel.
+    """
+    def _generate(prompt_text, tag):
+        """Run one completion and log the RAW, unstripped text it produced.
+
+        The raw repr is the only thing that separates "model stopped
+        immediately" from "model answered and we dropped it downstream".
+        Without it this bug was undiagnosable from the logs, which only
+        ever recorded a token count.
+        """
+        try:
+            prompt_tokens = llm.token_count(prompt_text)
+            budget = min(max_tokens, CONTEXT_LENGTH - prompt_tokens - 10)
+        except Exception:
+            prompt_tokens, budget = -1, max_tokens
+        if budget < 1:
+            # ponytail: tool results filled the context window; the turn fails
+            # with the generic 500. Summarise old tool turns if this shows up.
+            raise RuntimeError(f"Context window exhausted ({prompt_tokens} prompt tokens).")
+        sink = agent.MarkupFilter(delta_sink) if delta_sink and tag != "retry_preseeded" else None
+        parts = [_raw_text(prompt_text, "")]
+        if cancellable and _cancel.is_set():
+            raise Cancelled("".join(parts))
+        if sink and parts[0]:
+            delta_sink(parts[0])
+
+        def on_chunk(chunk):
+            if cancellable and _cancel.is_set():
+                raise Cancelled("".join(parts))
+            parts.append(chunk)
+            if sink:
+                sink(chunk)
+
+        result = llm.generate(
+            prompt_text,
+            max_tokens=budget,
+            stop=stops,
+            temperature=TEMPERATURE,
+            top_p=TOP_P,
+            top_k=TOP_K,
+            repeat_penalty=REPEAT_PENALTY,
+            **({"on_chunk": on_chunk} if sink or cancellable else {}),
+        )
+        if sink:
+            sink.flush()
+        if ghost:
+            try:
+                ghost.info(
+                    f"RAW_OUTPUT | {tag} | finish={result.finish_reason} "
+                    f"| prompt_tokens={prompt_tokens} | budget={budget} "
+                    f"| text={result.text[:1200]!r}"
+                )
+            except Exception:
+                pass
+        return result
+    return _generate
+
+
+LEGACY_RETRY_SEED = '<think>\n\n</think>\n\n[ANALYSIS]\nDirect synthesis.\n\n[KERNEL_RESPONSE]\n'
+THINKING_RETRY_SEED = "\n</think>\n\n"  # completes the prompt's "<think>\n" to an empty block
+
+
+def _answer(output, prompt, generate, resume=None):
+    """(analysis, body, output, raw) from the final generation, tool markup stripped.
+
+    An empty or unstorable body (tool markup only, bare tool-call JSON, a "Let
+    me look that up." stub) gets one retry with the reasoning closed (thinking
+    models) or the legacy scaffold pre-seeded. If the retry calls a tool,
+    resume(prompt, output) -> (output, prompt) hands it back to the tool loop.
+    raw is the final generation including its pre-seeded think opener.
+    """
+    raw = _raw_text(prompt, output.text)
+    analysis, body = parse_kernel_response(tools.strip_tool_calls(raw))
+    if not is_storable_answer(body):
+        # The model closed an empty think (or emitted a bare header / stub)
+        # and stopped. Re-run with the reasoning closed so it can only
+        # continue with the answer itself.
+        if ghost:
+            try: ghost.warning("INFERENCE   | Empty or unstorable answer. Re-running pre-seeded.")
+            except Exception: pass
+        thinking = prompt.endswith(THINK_SEED)
+        seed = THINKING_RETRY_SEED if thinking else LEGACY_RETRY_SEED
+        retry_prompt = prompt + seed
+        output = generate(retry_prompt, "retry_preseeded")
+        raw = (THINK_SEED if thinking else "") + seed + output.text
+        if resume is not None and tools.parse_tool_calls(output.text):
+            output, retry_prompt = resume(retry_prompt, output)
+            raw = _raw_text(retry_prompt, output.text)
+        retry_analysis, retry_body = parse_kernel_response(tools.strip_tool_calls(raw))
+        analysis, body = retry_analysis or analysis, retry_body or body
+    if is_bare_tool_json(body):
+        body = ""  # never hand a tool call back as the answer (markup is already stripped)
+    return analysis, body, output, raw
+
+
+def _web_presearch(query, emit=None):
+    """Per-message web button: run web_search before generation.
+
+    -> (context block labelled [WEB SEARCH RESULTS] or "", notice or "").
+    """
+    if not settings.get("web.enabled"):
+        return "", "Web access is disabled in Settings."
+    plugin = registry.scan().plugins.get(tools.WEB_PLUGIN)
+    if plugin is None or not plugin.approved:
+        return "", "The web_search plugin is not installed or not approved."
+    out = agent.dispatch("web_search", {"query": query}, emit)
+    if not out["ok"]:
+        return "", f"Web search failed: {str(out['error'])[:200]}"
+    return "[WEB SEARCH RESULTS]\n" + str(out["result"])[:6000], ""
+
+
+def _ask_impl(delta_sink=None, event_sink=None):
     global last_activity_time
     last_activity_time = time.time()
+    _cancel.clear()
 
     data = request.json
     session_id = data.get("session_id", None)
@@ -438,35 +683,25 @@ def _ask_impl(delta_sink=None):
     else:
         history = []
     # core.py writes the user turn to the ledger before calling /ask, so the
-    # history read back already ends with this very query. build_full_context
+    # history read back already ends with this very turn. build_full_context
     # appends current_prompt itself -- without this trim every prompt carried
     # the question twice (user Q, user Q, assistant), which also broke KV
-    # prefix reuse across turns.
-    if history and history[-1].get("role") == "user" and history[-1].get("content", "").strip() == user_query.strip():
+    # prefix reuse across turns. Dropped on role alone: for /skill messages
+    # the ledger holds the typed "/name task" while the query is the expanded
+    # skill prompt, so a content match missed it.
+    if history and history[-1].get("role") == "user":
         history = history[:-1]
 
-    if kernel.state == KernelState.SPECULATIVE_PREPARED:
-        if ghost:
-            try: ghost.info("API | [ZAT-SCS] Predictive preemption hit! Bypassing VRAM purge.")
-            except Exception: pass
-        kernel.request_state_change(KernelState.INFERENCE, "ZAT-SCS direct generation.")
-    else:
-        if ghost:
-            try: ghost.info("API | Received payload. Requesting hardware clearance...")
-            except Exception: pass
-        kernel.event_queue.put("PROMPT_RECEIVED")
+    # Per-message web button. Results are time-dependent, so neither this
+    # turn nor any turn that ran a tool touches the L1 cache.
+    web_requested = bool(data.get("web"))
 
-        cleared = kernel.wait_for_state(
-            lambda s: s in (KernelState.INFERENCE, KernelState.PANIC), timeout=10.0
-        )
-        if kernel.state == KernelState.PANIC:
-            return jsonify({"error": "KERNEL PANIC: Hardware failed to yield."}), 503
-        if not cleared:
-            kernel.request_state_change(KernelState.PANIC, "FAH Timeout")
-            return jsonify({"error": "KERNEL TIMEOUT: Hardware clearance not granted."}), 504
+    kernel_error = _acquire_kernel()
+    if kernel_error:
+        return jsonify({"error": kernel_error[0]}), kernel_error[1]
 
     try:
-        if l1_cache is not None:
+        if l1_cache is not None and not web_requested:
             if ghost:
                 try: ghost.info(f"VRAM_STATE | Action: ROUTING | Free: {get_vram_free()}MB")
                 except Exception: pass
@@ -476,7 +711,8 @@ def _ask_impl(delta_sink=None):
                 if ghost:
                     try: ghost.info("ROUTER | L1 Cache HIT. Bypassing GPU entirely.")
                     except Exception: pass
-                return jsonify({"response": cached_response, "session_id": session_id})
+                return jsonify({"response": cached_response, "session_id": session_id,
+                                "cancelled": False, "reasoning": ""})
 
         context_str = ""
         if vault is not None and embedder is not None:
@@ -540,19 +776,23 @@ def _ask_impl(delta_sink=None):
                     except Exception: pass
                 context_str = ""
 
-        model_format = get_model_format(MODEL_PATH)
+        has_documents = bool(context_str)
+        notice = ""
+        if web_requested:
+            web_block, notice = _web_presearch(user_query, event_sink)
+            extra = web_block or f"[SYSTEM NOTE]: {notice}"
+            context_str = extra + ("\n---\n" + context_str if context_str else "")
 
-        if model_format == "llama3":
-            target_stops = ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"]
-        elif model_format == "mistral":
-            # ponytail: was silently falling through to the ChatML stop
-            # tokens below, which never appear in Mistral output -- generation
-            # would have run to MAX_TOKENS every time instead of stopping at
-            # </s>. Untested against real hardware; verify a Mistral-Nemo run
-            # actually stops cleanly before trusting this.
-            target_stops = ["</s>", "[INST]"]
-        else:
-            target_stops = ["<|im_end|>", "<|im_start|>"]
+        model_format = get_model_format(MODEL_PATH)
+        target_stops = _stop_tokens(model_format)
+
+        catalog = tools.tool_catalog() if settings.get("extensions.model_invoke") is True else []
+        tools_block = tools.render_tools_block(catalog)
+        if catalog:
+            target_stops = target_stops + [agent.TOOL_CALL_CLOSE]
+        # What the system prompt tells the model it can do this turn.
+        capabilities = {"tools": [t["name"] for t in catalog],
+                        "web": bool(settings.get("web.enabled")), "documents": has_documents}
 
         final_prompt = build_full_context(
             rag_context=context_str,
@@ -560,6 +800,9 @@ def _ask_impl(delta_sink=None):
             current_prompt=user_query,
             model_format=model_format,
             thinking=MODEL_THINKS,
+            tools_block=tools_block,
+            model_name=MODEL_PATH.name,
+            capabilities=capabilities,
         )
 
         start_time = time.time()
@@ -576,6 +819,9 @@ def _ask_impl(delta_sink=None):
                     current_prompt=user_query,
                     model_format=model_format,
                     thinking=MODEL_THINKS,
+                    tools_block=tools_block,
+                    model_name=MODEL_PATH.name,
+                    capabilities=capabilities,
                 )
                 prompt_tokens = llm.token_count(final_prompt)
                 safe_max_tokens = CONTEXT_LENGTH - prompt_tokens - 10
@@ -587,77 +833,60 @@ def _ask_impl(delta_sink=None):
             return jsonify({"response": "[SYSTEM ERROR] The conversation history and context have exceeded the AI's memory window, and could not be truncated safely. Please clear memory and start a new session."}), 400
             
         token_budget = min(MAX_TOKENS, safe_max_tokens)
+        _generate = _make_generate(target_stops, token_budget, delta_sink, cancellable=True)
+        allowed = {t["name"] for t in catalog}
+        calls = []
 
-        def _generate(prompt_text, tag):
-            """Run one completion and log the RAW, unstripped text it produced.
-
-            The raw repr is the only thing that separates "model stopped
-            immediately" from "model answered and we dropped it downstream".
-            Without it this bug was undiagnosable from the logs, which only
-            ever recorded a token count.
-            """
-            streaming = {"on_chunk": delta_sink} if delta_sink and tag == "primary" else {}
-            result = llm.generate(
-                prompt_text,
-                max_tokens=token_budget,
-                stop=target_stops,
-                temperature=TEMPERATURE,
-                top_p=TOP_P,
-                top_k=TOP_K,
-                repeat_penalty=REPEAT_PENALTY,
-                **streaming,
+        def _tool_loop(prompt, first=None):
+            output, prompt, made = agent.run_tool_loop(
+                prompt, _generate, model_format, allowed=allowed, emit=event_sink,
+                max_steps=agent.MAX_TOOL_STEPS - len(calls), thinking=MODEL_THINKS, first=first,
             )
-            if ghost:
-                try:
-                    ghost.info(
-                        f"RAW_OUTPUT | {tag} | finish={result.finish_reason} "
-                        f"| prompt_tokens={prompt_tokens} | budget={token_budget} "
-                        f"| text={result.text[:1200]!r}"
-                    )
-                except Exception:
-                    pass
-            return result
+            calls.extend(made)
+            return output, prompt
 
-        output = _generate(final_prompt, "primary")
-        analysis, body = parse_kernel_response(output.text)
-
-        if not body:
-            # The model emitted the [KERNEL_RESPONSE] header (or an empty
-            # <think> block) and then stopped. Re-run with the scaffolding
-            # pre-seeded into the assistant turn so there is no header left
-            # for it to stop on: it can only continue with the answer itself.
-            if ghost:
-                try: ghost.warning("INFERENCE   | Empty kernel body. Re-running with pre-seeded response header.")
-                except Exception: pass
-            seed = '<think>\n\n</think>\n\n[ANALYSIS]\nDirect synthesis.\n\n[KERNEL_RESPONSE]\n'
-            output = _generate(final_prompt + seed, "retry_preseeded")
-            retry_analysis, retry_body = parse_kernel_response(
-                seed + output.text
-            )
-            analysis = retry_analysis or analysis
-            body = retry_body
+        try:
+            resume = None
+            if catalog:
+                output, final_prompt = _tool_loop(final_prompt)
+                if len(calls) < agent.MAX_TOOL_STEPS:
+                    resume = _tool_loop
+            else:
+                output = _generate(final_prompt, "primary")
+            analysis, body, output, raw = _answer(output, final_prompt, _generate, resume)
+            tokens_generated, cancelled = output.completion_tokens, False
+        except Cancelled as c:
+            # /ask/cancel: hand back whatever answer text was already visible.
+            raw, tokens_generated, cancelled = c.partial, 0, True
+            analysis, body = parse_kernel_response(tools.strip_tool_calls(raw))
+        reasoning = split_reasoning(raw)[0]
 
         elapsed_s = time.time() - start_time
 
-        if not body:
+        storable = not cancelled and is_storable_answer(body)
+        if not body and not cancelled:
             body = ("[KERNEL FAULT] The model produced no answer for this turn. "
                     "Raw output was empty; see RAW_OUTPUT in logs/ghost_audit.log.")
 
         final_response = format_kernel_response(analysis, body)
 
-        tokens_generated = output.completion_tokens
         tps = tokens_generated / elapsed_s if elapsed_s > 0 else 0
-        
+
         if ghost:
-            try: ghost.info(f"INFERENCE   | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s")
+            try: ghost.info(f"INFERENCE   | Tokens: {int(tokens_generated)} | Time: {elapsed_s:.2f}s | Speed: {tps:.2f} t/s"
+                            + (" | CANCELLED" if cancelled else ""))
             except Exception: pass
-        
-        if l1_cache is not None:
+
+        if l1_cache is not None and not web_requested and not calls and storable:
             l1_cache.add(user_query, final_response)
-            
+
         if ledger: ledger.log_inference()
-             
-        return jsonify({"response": final_response, "session_id": session_id})
+
+        reply = {"response": final_response, "session_id": session_id,
+                 "cancelled": cancelled, "reasoning": reasoning}
+        if notice:
+            reply["notice"] = notice
+        return jsonify(reply)
         
     except Exception as e:
         import traceback
@@ -679,6 +908,113 @@ def _ask_impl(delta_sink=None):
         # torch call freed nothing -- torch holds no CUDA memory (the embedder
         # runs on CPU). /vram/reclaim still resets on demand.
         kernel.event_queue.put("INFERENCE_COMPLETE")
+
+
+# --- SOVEREIGN INVOCATION (v1.6.0; called by mcp/peridot_mcp.py) ---
+INVOKE_MODES = ("full", "review", "status_only")
+NO_FOLDERS_MSG = "No folders are allowlisted for Sovereign Invocation. Add one in Peridot Settings."
+DELEGATE_NOTE = (
+    "You are running as a delegated local agent. Complete the task using the file tools "
+    "on the user's allowlisted folders. Allowlisted folders: {roots}. "
+    "Paths the caller pointed at: {paths}."
+)
+SUMMARY_PROMPT = (
+    "Summarize the following result for a third party in at most 5 sentences. Do not include "
+    "raw numbers, account numbers, names, addresses, file paths, or quotes from the files; "
+    "describe outcomes only.\n\n<result>\n{}\n</result>"
+)
+
+
+@app.route("/invoke", methods=["POST"])
+@require_auth
+@limiter.limit("60 per minute")
+def invoke():
+    """Run a delegated task with the file tools; see mcp/peridot_mcp.py.
+
+    -> {answer, summary, action_only, model_used, steps}. action_only is True
+    iff at least one write_file succeeded and the answer is under 400 chars:
+    the caller then reports "done" instead of relaying an answer.
+    """
+    global last_activity_time
+    last_activity_time = time.time()
+
+    data = request.json
+    if not isinstance(data, dict):
+        return jsonify({"error": "Expected a JSON object."}), 400
+    task = data.get("task")
+    if not isinstance(task, str) or not task.strip():
+        return jsonify({"error": "'task' must be a non-empty string."}), 400
+    paths = data.get("paths") or []
+    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+        return jsonify({"error": "'paths' must be an array of strings."}), 400
+    mode = data.get("return_mode") or "review"
+    if mode not in INVOKE_MODES:
+        return jsonify({"error": f"'return_mode' must be one of {', '.join(INVOKE_MODES)}."}), 400
+
+    roots = filetools.allowed_roots()
+    if not roots:
+        return jsonify({"error": NO_FOLDERS_MSG}), 403
+    if any(filetools.resolve(p, tool="invoke") is None for p in paths):
+        return jsonify({"error": "A requested path is outside the folders allowlisted "
+                                 "for Sovereign Invocation."}), 403
+    if llm is None or not llm.is_loaded:
+        return jsonify({"error": "Peridot is still loading its model."}), 503
+
+    with inference_lock:
+        kernel_error = _acquire_kernel()
+        if kernel_error:
+            return jsonify({"error": kernel_error[0]}), kernel_error[1]
+        try:
+            model_format = get_model_format(MODEL_PATH)
+            stops = _stop_tokens(model_format)
+            # Plugins ride along per the model_invoke setting; file tools always.
+            if settings.get("extensions.model_invoke") is True:
+                catalog = tools.tool_catalog(include_files=True)
+            else:
+                catalog = [dict(t) for t in tools.FILE_TOOLS]
+            note = DELEGATE_NOTE.format(roots=", ".join(str(r) for r, _w in roots),
+                                        paths=", ".join(paths) or "none")
+            names = [t["name"] for t in catalog]
+            prompt = build_full_context(
+                rag_context="", chat_history=[], current_prompt=f"{note}\n\n[TASK]\n{task}",
+                model_format=model_format, thinking=MODEL_THINKS,
+                tools_block=tools.render_tools_block(catalog), model_name=MODEL_PATH.name,
+                capabilities={"tools": names, "web": bool(settings.get("web.enabled"))},
+            )
+            generate = _make_generate(stops + [agent.TOOL_CALL_CLOSE], MAX_TOKENS)
+            output, prompt, calls = agent.run_tool_loop(
+                prompt, generate, model_format,
+                allowed=set(names), allow_files=True, thinking=MODEL_THINKS,
+            )
+            _analysis, answer, _output, _raw = _answer(output, prompt, generate)
+
+            summary = ""
+            if mode == "review":
+                summary_prompt = build_full_context(
+                    rag_context="", chat_history=[], current_prompt=SUMMARY_PROMPT.format(answer),
+                    model_format=model_format, thinking=MODEL_THINKS, model_name=MODEL_PATH.name,
+                )
+                if summary_prompt.endswith(THINK_SEED):
+                    summary_prompt += THINKING_RETRY_SEED  # 300 tokens is no room to reason
+                summary_out = _make_generate(stops, 300)(summary_prompt, "invoke_summary")
+                summary = tools.strip_tool_calls(parse_kernel_response(summary_out.text)[1])
+
+            if ledger: ledger.log_inference()
+            return jsonify({
+                "answer": answer,
+                "summary": summary,
+                "action_only": any(c["name"] == "write_file" and c["ok"] for c in calls)
+                               and len(answer) < 400,
+                "model_used": MODEL_PATH.name,
+                "steps": len(calls),
+            })
+        except Exception as e:
+            if ghost:
+                try: ghost.error(f"CRITICAL    | Component: server_invoke | Error: {type(e).__name__}: {e}")
+                except Exception: pass
+            return jsonify({"error": "Peridot failed to run the task; see the engine log."}), 503
+        finally:
+            kernel.event_queue.put("INFERENCE_COMPLETE")
 
 
 @app.route("/vram/reclaim", methods=["POST"])
@@ -762,6 +1098,42 @@ def disable_research():
     if kernel.state == KernelState.FAH_ACTIVE:
         kernel.request_state_change(KernelState.IDLE, "Research disabled via UI.")
     return jsonify({"status": "disabled"})
+
+# --- SETTINGS (v1.6.0) ---
+@app.route("/settings", methods=["GET"])
+@require_auth
+def get_settings():
+    return jsonify(settings.all())
+
+@app.route("/settings", methods=["POST"])
+@require_auth
+@limiter.limit("30 per minute")
+def post_settings():
+    body = request.json
+    if not isinstance(body, dict):
+        return jsonify({"error": "Expected a JSON object."}), 400
+
+    # A model swap only takes effect at boot: validate the file here, persist
+    # it to .env (where config reads ACTIVE_MODEL_NAME), and tell the caller.
+    model = body.get("model.active")
+    restart = isinstance(model, str) and bool(model)
+    if restart:
+        import config
+        if (os.path.basename(model) != model or not model.lower().endswith(".gguf")
+                or not (config.MODEL_DIR / model).is_file()):
+            return jsonify({"error": f"Model not found in models/: {model}"}), 400
+
+    try:
+        settings.update(body)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    result = settings.all()
+    if restart:
+        from dotenv import set_key
+        set_key(str(config.ENV_PATH), "ACTIVE_MODEL_NAME", model)
+        result["restart_required"] = True
+    return jsonify(result)
 
 if __name__ == "__main__":
     from flask import cli

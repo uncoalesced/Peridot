@@ -6,20 +6,36 @@
 
 from core_system.prompting.constitution import build_system_prompt
 
-def build_full_context(rag_context, chat_history, current_prompt, model_format, thinking=False):
+THINK_SEED = "<think>\n"
+# Qwen3.x template (preserve_thinking default): past assistant turns carry an
+# empty think block.
+_PAST_THINK = "<think>\n\n</think>\n\n"
+
+
+def build_full_context(rag_context, chat_history, current_prompt, model_format, thinking=False,
+                       tools_block="", model_name="", capabilities=None):
     """
     Assembles the final string sent to the LLM.
     Order: [System Directive + RAG Context] -> [Chat History] -> [Current Prompt]
-    thinking: native-<think> model; see build_system_prompt's scaffold bypass.
+    thinking: native-<think> model. ChatML prompts then end with "<think>\\n",
+    exactly as the GGUF chat template's generation prompt does; without it the
+    1-bit model often closed an empty think and answered an earlier question.
+    The generated text therefore starts inside the think block.
+    tools_block / model_name / capabilities: passed through to build_system_prompt.
     """
     # 1. Base System Prompt (incorporates RAG Context and cleanly closes the system tag)
-    prompt_str = build_system_prompt(context_str=rag_context, model_format=model_format, thinking=thinking)
-    
+    prompt_str = build_system_prompt(context_str=rag_context, model_format=model_format,
+                                     thinking=thinking, tools_block=tools_block,
+                                     model_name=model_name, capabilities=capabilities)
+
     # 2. Inject Historical Turns (as distinct conversational role blocks)
     if model_format == "chatml":
         for turn in chat_history:
-            prompt_str += f"<|im_start|>{turn['role']}\n{turn['content']}<|im_end|>\n"
+            past = _PAST_THINK if thinking and turn['role'] == "assistant" else ""
+            prompt_str += f"<|im_start|>{turn['role']}\n{past}{turn['content']}<|im_end|>\n"
         prompt_str += f"<|im_start|>user\n{current_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        if thinking:
+            prompt_str += THINK_SEED
         
     elif model_format == "llama3":
         for turn in chat_history:

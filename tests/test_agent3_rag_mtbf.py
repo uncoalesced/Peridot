@@ -45,6 +45,7 @@ def _drop_modules(*names):
 
 def _install_fake_config():
     config = types.ModuleType("config")
+    config.BASE_DIR = PROJECT_ROOT
     config.MODEL_PATH = PROJECT_ROOT / "models" / "unit-test.gguf"
     config.GPU_LAYERS = 0
     config.MAX_TOKENS = 64
@@ -95,6 +96,11 @@ def _install_common_runtime_stubs():
             def decorator(func):
                 return func
             return decorator
+
+        def before_request(self, func):
+            return func
+
+        teardown_request = before_request
 
     class FakeJsonResponse(dict):
         """jsonify() stand-in: indexable like the payload, get_json() like Flask."""

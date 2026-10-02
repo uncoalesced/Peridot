@@ -64,7 +64,8 @@ def test_answer_without_kernel_header_is_kept():
 def test_unclosed_think_block_drops_the_tail():
     # Generation cut off inside the reasoning block: none of it is an answer.
     assert strip_reasoning("<think>\nstill reasoning when we ran out") == ""
-    assert strip_reasoning("prefix <think>a</think> suffix") == "prefix  suffix"
+    # v1.6.0 fix pass: the answer is everything after the LAST </think>.
+    assert strip_reasoning("prefix <think>a</think> suffix") == "suffix"
 
 
 def test_format_round_trips():
@@ -111,17 +112,28 @@ def test_stream_visible_body_hides_reasoning_and_scaffold_until_answer():
     assert visible("") == ""
 
 
-def test_thinking_models_get_no_scaffold_mandate():
+def test_no_model_gets_a_scaffold_mandate_or_think_tags():
+    # v1.6.0 fix pass: every model answers directly (parse_kernel_response
+    # accepts both forms), and the prompt never names the reasoning tags --
+    # the model quoted them inside its reasoning and they leaked into answers.
     from core_system.prompting.constitution import build_system_prompt
 
-    scaffold = build_system_prompt(model_format="chatml")
-    thinking = build_system_prompt(model_format="chatml", thinking=True)
-    assert "[KERNEL_RESPONSE]" in scaffold
-    # Neither the mandate nor any rule that demands it survives the bypass...
-    assert "[ANALYSIS]" not in thinking and "[KERNEL_RESPONSE]" not in thinking
-    assert "</think>" in thinking
-    # ...while identity and the vault context line are kept.
-    assert "CORE IDENTITY" in thinking and "VAULT CONTEXT" in thinking
+    for thinking in (False, True):
+        prompt = build_system_prompt(model_format="chatml", thinking=thinking)
+        assert "[ANALYSIS]" not in prompt and "[KERNEL_RESPONSE]" not in prompt
+        assert "<think>" not in prompt and "</think>" not in prompt
+        assert "You are Peridot" in prompt
+
+
+def test_system_prompt_has_no_refusal_rules():
+    """v1.6.0: Peridot itself never instructs the model to refuse."""
+    from core_system.prompting.constitution import build_system_prompt
+
+    for thinking in (False, True):
+        prompt = build_system_prompt(model_format="chatml", thinking=thinking).lower()
+        assert "kernel panic" not in prompt
+        assert "refusal_topics" not in prompt
+        assert "100% english" not in prompt
 
 
 if __name__ == "__main__":

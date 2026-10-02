@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.5.4 | ISOLATED MODEL FETCH
+# PERIDOT SOVEREIGN KERNEL v1.6.0 | ISOLATED MODEL FETCH
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
