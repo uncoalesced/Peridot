@@ -69,6 +69,18 @@ def test_model_choices_lists_only_gguf(tmp_path):
     assert ui.model_choices(tmp_path / "missing", 8.0) == []
 
 
+def test_model_choices_lists_hf_folders(tmp_path):
+    hf = tmp_path / "Qwen2.5-0.5B-Instruct"
+    hf.mkdir()
+    (hf / "config.json").write_text("{}")
+    _sized(hf / "model.safetensors", 1024 ** 3)
+    (tmp_path / "embeddings").mkdir()  # not a model folder
+    _sized(tmp_path / "x.gguf", 1024 ** 3)
+    names = [name for _, name in ui.model_choices(tmp_path, 8.0)]
+    assert names == ["Qwen2.5-0.5B-Instruct", "x.gguf"]
+    assert ui.model_choices(tmp_path, 8.0)[0][0].startswith("Qwen2.5-0.5B-Instruct  ·  1.0 GB")
+
+
 # --- model swap orchestration (pure) ------------------------------------------------
 
 class _Engine:

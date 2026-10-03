@@ -76,10 +76,6 @@ def _install_fake_config():
 def _install_common_runtime_stubs():
     _install_fake_config()
 
-    dotenv = types.ModuleType("dotenv")
-    dotenv.load_dotenv = lambda *args, **kwargs: None
-    sys.modules["dotenv"] = dotenv
-
     flask = types.ModuleType("flask")
 
     class FakeFlask:
@@ -120,10 +116,6 @@ def _install_common_runtime_stubs():
     flask.jsonify = lambda payload: FakeJsonResponse(payload)
     sys.modules["flask"] = flask
 
-    flask_cors = types.ModuleType("flask_cors")
-    flask_cors.CORS = lambda *args, **kwargs: None
-    sys.modules["flask_cors"] = flask_cors
-
     flask_limiter = types.ModuleType("flask_limiter")
 
     class FakeLimiter:
@@ -145,13 +137,6 @@ def _install_common_runtime_stubs():
     llama_cpp = types.ModuleType("llama_cpp")
     llama_cpp.Llama = object
     sys.modules["llama_cpp"] = llama_cpp
-
-    websocket = types.ModuleType("websocket")
-    websocket.create_connection = lambda *args, **kwargs: types.SimpleNamespace(
-        send=lambda *_a, **_kw: None,
-        close=lambda *_a, **_kw: None,
-    )
-    sys.modules["websocket"] = websocket
 
     pynvml = types.ModuleType("pynvml")
     pynvml.NVMLError = Exception
@@ -217,7 +202,6 @@ _STUBBED_MODULES = (
     "core_system.memory.chat_ledger",
     "core_system.memory.ephemeral_cache",
     "config",
-    "dotenv",
     "fitz",
 )
 

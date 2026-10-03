@@ -57,7 +57,7 @@ def _log(level, msg):
 
 
 def kill_proc_tree(pid):
-    """Same as launcher.kill_proc_tree (not imported: launcher pulls in requests + dotenv)."""
+    """Same as launcher.kill_proc_tree (not imported: launcher pulls in requests + config)."""
     try:
         parent = psutil.Process(pid)
         for child in parent.children(recursive=True):

@@ -4,6 +4,9 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
+        # Generated public HF model metadata (scripts/build_model_catalog.py);
+        # repo ids read as high-entropy strings.
+        exclude: ^config/model_catalog\.json$
 
   # Enabled: the 101 pre-existing F-rule findings this hook was waiting on are
   # cleared, and `python -m ruff check .` now reports "All checks passed!".

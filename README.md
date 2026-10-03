@@ -368,7 +368,7 @@ v1.5.1 delivered the operator facing stability layer and local conversation pers
 - Glass Box operator visibility for runtime state, research controls and telemetry endpoints.
 - 360Hz Kinetic Scrolling and custom themed ttk.Combobox styling for the operator interface.
 - SQLite chat ledger integration for session CRUD, message logging and six turn sliding history injection.
-- 256-bit API key generation through `secrets.token_hex(32)` and loopback CORS restriction.
+- 256-bit API key generation through `secrets.token_hex(32)`; the API sends no CORS headers, so browsers block cross-origin reads.
 
 ### v1.5.2-STABLE
 

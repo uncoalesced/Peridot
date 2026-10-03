@@ -16,11 +16,11 @@ import os
 import requests
 from pathlib import Path
 from requests.exceptions import RequestException
-from dotenv import load_dotenv
+from core_system.envfile import load_env
 
 # Force the client to load the exact same .env file the server uses
 env_path = Path(__file__).parent.parent / ".env"
-load_dotenv(env_path)
+load_env(env_path)
 
 # Read the operator key from the environment. No fallback: v1.5.1 eliminated the
 # hardcoded default key from the kernel, but this client kept a copy of it.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.6.0 | IGNITION LAUNCHER
+# PERIDOT SOVEREIGN KERNEL v1.6.1-beta | IGNITION LAUNCHER
 # Copyright (C) 2026 uncoalesced
 # 
 # Licensed under the MIT License.
@@ -13,10 +13,11 @@ import sys
 import os
 import psutil
 import requests
-from dotenv import load_dotenv
+from pathlib import Path
+from core_system.envfile import load_env
 
 # 1. ENVIRONMENT BOOTSTRAP
-load_dotenv()
+load_env(Path(__file__).parent / ".env")
 
 from config import SERVER_HOST, SERVER_PORT, LOG_PATH, STORAGE_PATH
 
@@ -62,7 +63,7 @@ def kill_pidfile_server(pid_file=SERVER_PID_FILE):
 
 def main():
     print("==================================================")
-    print("  PERIDOT SOVEREIGN KERNEL v1.6.0 | INITIATING BOOT ")
+    print("  PERIDOT SOVEREIGN KERNEL v1.6.1-beta | INITIATING BOOT ")
     print("==================================================")
 
     custom_env = os.environ.copy()

@@ -246,7 +246,7 @@ def test_config_forces_offline_mode():
 def test_offline_lock_survives_a_hostile_dotenv(tmp_path, monkeypatch):
     """
     A .env that says HF_HUB_OFFLINE=0 must not be able to re-open the network:
-    config.py force-sets the flag after load_dotenv().
+    config.py force-sets the flag after load_env().
     """
     env_file = tmp_path / ".env"
     env_file.write_text(

@@ -8,7 +8,7 @@
 Coverage for core_system/settings.py and the GET/POST /settings routes.
 
 The route tests reuse the stub harness from test_agent3_rag_mtbf.py (fake
-config/flask/dotenv) and call the view functions directly. No network.
+config/flask) and call the view functions directly. No network.
 """
 
 import importlib
@@ -78,7 +78,7 @@ def server(tmp_path):
     env_writes = []
     sys.modules["config"].MODEL_DIR = tmp_path
     sys.modules["config"].ENV_PATH = tmp_path / ".env"
-    sys.modules["dotenv"].set_key = lambda path, key, value: env_writes.append((path, key, value))
+    sys.modules["config"].set_env_key = lambda path, key, value: env_writes.append((path, key, value))
     srv = importlib.import_module("server")
     srv.settings.set_path(tmp_path / "settings.json")
     srv.request.headers = {"Authorization": f"Bearer {srv.API_KEY}"}
@@ -118,13 +118,24 @@ def test_route_model_swap_writes_env(server, tmp_path):
     assert _status(resp) == 200
     assert resp["restart_required"] is True
     assert resp["model.active"] == "real.gguf"
-    assert server.env_writes == [(str(tmp_path / ".env"), "ACTIVE_MODEL_NAME", "real.gguf")]
+    assert server.env_writes == [(tmp_path / ".env", "ACTIVE_MODEL_NAME", "real.gguf")]
 
 
-@pytest.mark.parametrize("name", ["missing.gguf", "notes.txt", "../real.gguf"])
+def test_route_model_swap_accepts_hf_folder(server, tmp_path):
+    hf = tmp_path / "tiny-hf"
+    hf.mkdir()
+    (hf / "config.json").write_text("{}")
+    (hf / "model.safetensors").write_bytes(b"")
+    server.request.json = {"model.active": "tiny-hf"}
+    assert _status(server.post_settings()) == 200
+    assert server.env_writes == [(tmp_path / ".env", "ACTIVE_MODEL_NAME", "tiny-hf")]
+
+
+@pytest.mark.parametrize("name", ["missing.gguf", "notes.txt", "../real.gguf", "emptydir"])
 def test_route_model_swap_rejects_invalid(server, tmp_path, name):
     (tmp_path / "real.gguf").write_bytes(b"")
     (tmp_path / "notes.txt").write_bytes(b"")
+    (tmp_path / "emptydir").mkdir()
     server.request.json = {"model.active": name}
     assert _status(server.post_settings()) == 400
     assert server.env_writes == []

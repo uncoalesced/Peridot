@@ -13,6 +13,7 @@ backend picker, per spec:
 
     .gguf -> llama-cpp-python (TurboQuant; permanent default path)
     .exl2 -> ExLlamaV2        (v1.6.x item 2, not yet implemented)
+    HF folder (config.json + *.safetensors) -> transformers (v1.6.1)
 
 An unknown or not-yet-implemented extension raises UnsupportedModelFormat, which
 callers must treat as recoverable: a bad or unrecognised model file must never
@@ -31,6 +32,7 @@ from core_system.providers.base import (
     ProviderLoadError,
 )
 from core_system.providers.llamacpp import LlamaCppProvider
+from core_system.providers.transformers_hf import TransformersProvider
 
 __all__ = [
     "BaseInferenceProvider",
@@ -38,7 +40,9 @@ __all__ = [
     "ProviderCapabilities",
     "ProviderLoadError",
     "LlamaCppProvider",
+    "TransformersProvider",
     "UnsupportedModelFormat",
+    "is_hf_model_dir",
     "provider_for",
     "supported_extensions",
     "EXTENSION_MAP",
@@ -57,7 +61,6 @@ EXTENSION_MAP: dict[str, type[BaseInferenceProvider]] = {
 
 _PLANNED: dict[str, str] = {
     ".exl2": "ExLlamaV2 (v1.6.x item 2)",
-    ".safetensors": "vLLM (v1.6.x item 2)",
 }
 
 
@@ -65,14 +68,28 @@ def supported_extensions() -> tuple[str, ...]:
     return tuple(sorted(EXTENSION_MAP))
 
 
+def is_hf_model_dir(path: Path | str) -> bool:
+    """A Hugging Face model folder: config.json plus at least one *.safetensors."""
+    path = Path(path)
+    return (path / "config.json").is_file() and any(path.glob("*.safetensors"))
+
+
 def provider_for(model_path: Path | str, **options: Any) -> BaseInferenceProvider:
     """
-    Construct (but do not load) the right provider for this model file.
+    Construct (but do not load) the right provider for this model file or folder.
 
     Raises UnsupportedModelFormat for unknown or planned-but-unbuilt formats.
     """
     path = Path(model_path)
+    if is_hf_model_dir(path):
+        return TransformersProvider(path, **options)
+
     ext = path.suffix.lower()
+    if ext == ".safetensors":
+        raise UnsupportedModelFormat(
+            f"{path.name} is one shard of a Hugging Face model. Select the model's "
+            "folder (the one containing config.json), not the .safetensors file."
+        )
 
     provider_cls = EXTENSION_MAP.get(ext)
     if provider_cls is not None:

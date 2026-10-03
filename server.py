@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# PERIDOT SOVEREIGN KERNEL v1.6.0 | NEURAL ENGINE & INGESTION CORE
+# PERIDOT SOVEREIGN KERNEL v1.6.1-beta | NEURAL ENGINE & INGESTION CORE
 # Copyright (C) 2026 uncoalesced
 # Licensed under the MIT License.
 # Engineered by uncoalesced.
@@ -12,20 +12,19 @@ import logging
 import threading
 import time
 import json
-import websocket
+import base64
+import socket
+import struct
 import psutil
 import pynvml
 import queue
 from flask import Flask, Response, copy_current_request_context, request, jsonify
-from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from dotenv import load_dotenv
 import functools
 
-load_dotenv()
-
 # --- PERIDOT CONFIGURATION ---
+# config loads .env (override=True) itself before reading any setting.
 from config import (
     MODEL_PATH, GPU_LAYERS, MAX_TOKENS, CONTEXT_LENGTH,
     TEMPERATURE, TOP_P, TOP_K, REPEAT_PENALTY, SERVER_HOST, SERVER_PORT, API_KEY,
@@ -61,7 +60,7 @@ from core_system.invocation import agent, filetools
 # .gguf always routes to LlamaCppProvider today; provider_for() is used (rather
 # than importing LlamaCppProvider directly) so a future ExLlamaV2/.exl2 model
 # picks up its provider automatically once that backend is registered.
-from core_system.providers import provider_for
+from core_system.providers import is_hf_model_dir, provider_for
 
 # --- RAG SUBSYSTEM AND v1.5.4 CACHE IMPORTS ---
 try:
@@ -136,7 +135,9 @@ elif ghost:
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 app = Flask(__name__)
-CORS(app, origins=["http://127.0.0.1:5000", "http://localhost:5000"])
+# No CORS headers (flask-cors dropped in v1.6.1): every client is a local
+# process (ui.py, launcher, scripts), none is a browser page, so browsers keep
+# their default same-origin block on cross-origin reads.
 limiter = Limiter(get_remote_address, app=app, default_limits=["60 per minute"])
 
 @app.errorhandler(429)
@@ -177,11 +178,27 @@ def fah_listening() -> bool:
 def send_fah_command(cmd_state: str) -> bool:
     if not fah_listening():
         return False
+    # Minimal RFC 6455 client (websocket-client dropped in v1.6.1): upgrade
+    # handshake, one masked text frame, close. Payloads here are < 126 bytes.
     try:
-        ws = websocket.create_connection("ws://127.0.0.1:7396/api/websocket", timeout=2.0)
-        payload = json.dumps({"cmd": "state", "state": cmd_state})
-        ws.send(payload)
-        ws.close()
+        payload = json.dumps({"cmd": "state", "state": cmd_state}).encode()
+        with socket.create_connection(("127.0.0.1", FAH_WS_PORT), timeout=2.0) as s:
+            key = base64.b64encode(os.urandom(16)).decode()
+            s.sendall((f"GET /api/websocket HTTP/1.1\r\nHost: 127.0.0.1:{FAH_WS_PORT}\r\n"
+                       "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                       f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+            resp = b""
+            while b"\r\n\r\n" not in resp:
+                chunk = s.recv(1024)
+                if not chunk:
+                    return False
+                resp += chunk
+            if b" 101 " not in resp.split(b"\r\n", 1)[0]:
+                return False
+            for opcode, data in ((0x1, payload), (0x8, b"")):
+                mask = os.urandom(4)
+                s.sendall(struct.pack("!BB", 0x80 | opcode, 0x80 | len(data)) + mask
+                          + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
         return True
     except Exception:
         return False
@@ -272,7 +289,7 @@ def idle_monitor():
 def boot_engine():
     global llm
     print(f"\n{'='*50}")
-    print("   PERIDOT NEURAL ENGINE (v1.6.0 SOVEREIGN KERNEL)")
+    print("   PERIDOT NEURAL ENGINE (v1.6.1-beta SOVEREIGN KERNEL)")
     print(f"{'='*50}")
     
     if not MODEL_PATH.exists():
@@ -1119,8 +1136,9 @@ def post_settings():
     restart = isinstance(model, str) and bool(model)
     if restart:
         import config
-        if (os.path.basename(model) != model or not model.lower().endswith(".gguf")
-                or not (config.MODEL_DIR / model).is_file()):
+        path = config.MODEL_DIR / model
+        is_gguf = model.lower().endswith(".gguf") and path.is_file()
+        if os.path.basename(model) != model or not (is_gguf or is_hf_model_dir(path)):
             return jsonify({"error": f"Model not found in models/: {model}"}), 400
 
     try:
@@ -1130,8 +1148,7 @@ def post_settings():
 
     result = settings.all()
     if restart:
-        from dotenv import set_key
-        set_key(str(config.ENV_PATH), "ACTIVE_MODEL_NAME", model)
+        config.set_env_key(config.ENV_PATH, "ACTIVE_MODEL_NAME", model)
         result["restart_required"] = True
     return jsonify(result)
 

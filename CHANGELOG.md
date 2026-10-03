@@ -6,6 +6,34 @@ All notable changes to the Peridot Sovereign Kernel are documented in this file.
 
 ---
 
+## [v1.6.1-beta] - 2026-10-03
+
+**Release Summary:** Know what your machine can run before you download it, and the first step toward Hugging Face safetensors models.
+
+### Added
+
+- **Model fit checker and recommender** (`core_system/modelfit.py`, ported from [LLMFit](https://github.com/AlexsJones/llmfit), MIT). Detects GPU, VRAM, RAM and CPU (NVIDIA via `nvidia-smi`; other Windows GPUs via the registry; Linux and macOS memory), estimates memory, fit (Perfect/Good/Marginal/Too tight), run mode (GPU / CPU offload / MoE offload / CPU) and speed for each model, and ranks a bundled catalog of about 2,200 GGUF-ready models (`config/model_catalog.json`, built by `scripts/build_model_catalog.py`).
+  - **Top 3 for this machine:** chat-tuned models from their original publishers, one per family, with the exact GGUF file resolved live from Hugging Face.
+  - **Check any repo:** paste a Hugging Face repo id to see every GGUF (or the safetensors weights) rated against your hardware.
+  - **Resumable downloads** straight into `models/`; an interrupted download keeps its `.part` file and continues next time.
+  - CLI: `python -m core_system.modelfit [--use-case coding] [--resolve]` and `--check <repo>`.
+- **Installer:** the model step now shows your hardware, the top 3 picks, a repo check and the built-in list. Qwen3.5+ picks route to the native engine build automatically.
+- **App:** a GET MODELS section in Settings (FIND TOP 3, CHECK REPO, DOWNLOAD/CANCEL); downloaded models appear in the swap list.
+- **Safetensors models (beta scaffold):** a Hugging Face model folder (`config.json` + `*.safetensors`) in `models/` can be selected and loaded through a new transformers provider. Chat format and thinking support are read from the folder's config and chat template. Unquantized only.
+
+### Changed
+
+- Removed four dependencies by replacing them with a few lines of standard-library code: `python-dotenv` (`core_system/envfile.py`, atomic `.env` writes), `websocket-client` (built-in Folding@home websocket client), `Pillow` (icons load with `tk.PhotoImage`) and `flask-cors` (the API had no browser client; without CORS headers browsers block cross-origin reads).
+- Clean reinstall of the development environment; requirements pins now match the installed set.
+
+### Known limitations
+
+- **RTX 50-series (sm_120):** the bundled PyTorch 2.6 (CUDA 12.4) has no kernels for these GPUs, so safetensors models run on the CPU there. GGUF models are unaffected.
+- Safetensors models load on one device with no quantization or offload; a model larger than VRAM (or RAM on CPU) fails to load with a clear error.
+- Speed estimates for laptop GPUs use a generic CUDA constant, as upstream LLMFit does.
+
+---
+
 ## [v1.6.0] - 2026-10-02
 
 **Release Summary:** Peridot Goes Agentic: Extensions, Model Tool Use, Web Search (Beta), Sovereign Invocation, and an Uncensored Kernel

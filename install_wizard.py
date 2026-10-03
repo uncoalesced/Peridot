@@ -15,25 +15,31 @@
 # Renaming it fixes the build. Run it directly:  python install_wizard.py
 
 """
-PERIDOT SETUP WIZARD v1.6.0
+PERIDOT SETUP WIZARD v1.6.1-beta
 Hardware detection, model selection, engine build, and first-run configuration.
 Supports NVIDIA GPUs and CPU-only fallback.
 
-Steps: hardware scan -> profile -> dependencies (requirements.txt, then the
-engine: source build for the 27B or the stock wheel) -> model download ->
+Steps: hardware scan -> profile -> model pick (core_system.modelfit: top 3
+for this machine, a live Hugging Face repo check, or the built-in list) ->
+dependencies (requirements.txt, then the engine: source build for the 27B or
+the stock wheel) -> resumable model download ->
 optional web search plugin -> .env -> summary with launch and
 Sovereign Invocation (MCP) instructions.
 """
 
 import os
+import re
 import sys
 import platform
 import subprocess
 import secrets
 import shutil
 from pathlib import Path
-from typing import Dict
-import urllib.request
+from typing import Dict, Optional
+
+# modelfit is stdlib-only, so it is importable before requirements.txt installs.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from core_system import modelfit  # noqa: E402
 
 class Colors:
     CYAN = '\033[96m'
@@ -57,7 +63,7 @@ def print_banner():
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 {Colors.ENDC}
-{Colors.GREEN}     SETUP WIZARD v1.6.0 [AGENTIC] - SOVEREIGN LOCAL AI KERNEL{Colors.ENDC}
+{Colors.GREEN}     SETUP WIZARD v1.6.1-beta [AGENTIC] - SOVEREIGN LOCAL AI KERNEL{Colors.ENDC}
 {Colors.CYAN}{'='*70}{Colors.ENDC}
 
 {Colors.YELLOW}Engineered by uncoalesced{Colors.ENDC}
@@ -100,53 +106,28 @@ def get_numeric_choice(prompt: str, min_val: int, max_val: int) -> int:
             sys.exit(0)
 
 class HardwareDetector:
-    def __init__(self):
+    """Thin wrapper over core_system.modelfit.detect() (stdlib only: no psutil/pynvml)."""
+
+    def detect_hardware(self) -> Dict:
+        print(f"\n{Colors.CYAN}[SYS] Detecting system hardware...{Colors.ENDC}")
+        hw = modelfit.detect()
+        nvidia = hw.backend == 'cuda'
         self.system_info = {
             'os': platform.system(),
             'architecture': platform.machine(),
             'python_version': platform.python_version(),
-            'ram_gb': 0,
-            'gpu_vendor': None,
-            'gpu_name': None,
-            'gpu_memory_gb': 0,
-            'cuda_available': False,
+            'ram_gb': round(hw.ram_gb, 2),
+            'gpu_vendor': 'NVIDIA' if nvidia else ('GPU' if hw.has_gpu else 'CPU'),
+            'gpu_name': hw.gpu_name or 'CPU Only',
+            'gpu_memory_gb': round(hw.vram_gb, 2),
+            'cuda_available': nvidia,
+            'hw': hw,
         }
-        
-    def detect_system_ram(self):
-        try:
-            import psutil
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "psutil", "-q"])
-            import psutil
-        self.system_info['ram_gb'] = round(psutil.virtual_memory().total / (1024**3), 2)
-    
-    def detect_nvidia_gpu(self) -> bool:
-        try:
-            import pynvml
-            pynvml.nvmlInit()
-            if pynvml.nvmlDeviceGetCount() > 0:
-                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                name = pynvml.nvmlDeviceGetName(handle)
-                self.system_info['gpu_name'] = name.decode('utf-8') if isinstance(name, bytes) else name
-                self.system_info['gpu_memory_gb'] = round(pynvml.nvmlDeviceGetMemoryInfo(handle).total / (1024**3), 2)
-                self.system_info['gpu_vendor'] = 'NVIDIA'
-                self.system_info['cuda_available'] = True
-                pynvml.nvmlShutdown()
-                return True
-        except Exception: pass
-        return False
-    
-    def detect_hardware(self) -> Dict:
-        print(f"\n{Colors.CYAN}[SYS] Detecting system hardware...{Colors.ENDC}")
-        self.detect_system_ram()
-        print(f"{Colors.GREEN}[OK] RAM: {self.system_info['ram_gb']} GB{Colors.ENDC}")
-        
-        if self.detect_nvidia_gpu():
-            print(f"{Colors.GREEN}[OK] GPU: {self.system_info['gpu_name']} ({self.system_info['gpu_memory_gb']} GB){Colors.ENDC}")
-        else:
+        print(f"{Colors.GREEN}[OK] RAM: {hw.ram_gb:.1f} GB ({hw.ram_avail_gb:.1f} GB free){Colors.ENDC}")
+        if hw.has_gpu:
+            print(f"{Colors.GREEN}[OK] GPU: {hw.gpu_name} ({hw.vram_gb:.1f} GB, {hw.backend}){Colors.ENDC}")
+        if not nvidia:
             print(f"{Colors.YELLOW}[WARN] No NVIDIA GPU detected - Falling back to CPU mode{Colors.ENDC}")
-            self.system_info['gpu_vendor'] = 'CPU'
-            self.system_info['gpu_name'] = 'CPU Only'
         return self.system_info
 
 class HardwareProfile:
@@ -235,41 +216,132 @@ class HardwareProfile:
             return 'nvidia_low_vram'
         return 'cpu_standard'
 
-def download_model(model_id: str, install_dir: Path) -> bool:
+def _progress(done: int, total: int) -> None:
+    if not total:
+        print(f'\r{Colors.GREEN}[DL] {done / 1024**3:.2f} GB{Colors.ENDC}', end='')
+        return
+    pct = min(100.0, done * 100 / total)
+    bar = '█' * int(pct / 2) + '-' * (50 - int(pct / 2))
+    print(f'\r{Colors.GREEN}[DL] |{bar}| {pct:.1f}%{Colors.ENDC}', end='')
+
+def _plan_from_fit(fit, kind: str = 'gguf') -> dict:
+    """Download plan for a modelfit result. GGUFs land flat in models/; snapshots in models/<name>/."""
+    if kind == 'safetensors':
+        folder = fit.repo.split('/')[1]
+        return {'kind': 'hf', 'repo': fit.repo, 'files': fit.files, 'size_gb': fit.size_gb,
+                'subdir': folder, 'active': folder, 'name': fit.repo}
+    return {'kind': 'hf', 'repo': fit.repo, 'files': fit.files, 'size_gb': fit.size_gb,
+            'subdir': '', 'active': fit.file, 'name': fit.name}
+
+def _legacy_plan(model_id: str) -> dict:
+    return {'kind': 'legacy', 'model_id': model_id, 'active': HardwareProfile.MODELS[model_id]['file']}
+
+def _manual_plan() -> dict:
+    models = list(HardwareProfile.MODELS.items())
+    print()
+    for idx, (_, m) in enumerate(models, 1):
+        print(f" {idx}. {m['name']} ({m['size_gb']} GB)")
+    print(f" {len(models) + 1}. None - I will put my own GGUF in models/")
+    choice = get_numeric_choice("Select Model:", 1, len(models) + 1)
+    if choice <= len(models):
+        return _legacy_plan(models[choice - 1][0])
+    name = input(f"{Colors.GREEN}GGUF filename (inside models/): {Colors.ENDC}").strip()
+    return {'kind': 'none', 'active': name or HardwareProfile.MODELS['qwen2.5-3b']['file']}
+
+def _check_repo_plan(hw) -> Optional[dict]:
+    repo = input(f"{Colors.GREEN}Hugging Face repo id (e.g. bartowski/Qwen2.5-7B-Instruct-GGUF): {Colors.ENDC}").strip()
+    try:
+        res = modelfit.check_repo(repo, hw)
+    except (OSError, ValueError) as e:
+        print(f"{Colors.RED}[ERROR] {e}{Colors.ENDC}")
+        return None
+    print(f"\n{res.repo} [{res.kind}]")
+    for f in res.candidates[:12]:
+        print(('* ' if f is res.chosen else '  ') + f.row())
+    if not res.chosen:
+        print(f"{Colors.YELLOW}[WARN] Nothing in this repo fits this machine (or it has no GGUF/safetensors).{Colors.ENDC}")
+        return None
+    if res.kind == 'safetensors':
+        print(f"{Colors.YELLOW}Note: safetensors models run on the transformers engine (beta, unquantized); "
+              f"a -GGUF repo is faster and smaller.{Colors.ENDC}")
+    if not wait_for_enter(f"Use {res.chosen.file}?"):
+        return None
+    return _plan_from_fit(res.chosen, res.kind)
+
+def choose_model(hw, default_model_id: str) -> dict:
+    """Model step: modelfit's top 3 for this machine, the profile default, a live repo check, or manual."""
+    print(f"\n{Colors.CYAN}{'='*70}{Colors.ENDC}")
+    print(f"{Colors.BOLD}MODEL SELECTION{Colors.ENDC}")
+    print(f"{Colors.CYAN}{'='*70}{Colors.ENDC}\n")
+    print(hw.summary())
+    print(f"\n{Colors.CYAN}[SYS] Ranking models for this machine (asks Hugging Face for the exact files)...{Colors.ENDC}")
+    try:
+        picks = [p for p in modelfit.recommend(hw, 3, resolve=True) if p.files]
+    except Exception as e:  # catalog missing/corrupt: the built-in list still works
+        print(f"{Colors.YELLOW}[WARN] Recommendation failed: {e}{Colors.ENDC}")
+        picks = []
+    if not picks:
+        print(f"{Colors.YELLOW}[WARN] Hugging Face unreachable - use the profile default or the built-in list.{Colors.ENDC}")
+    print()
+    for idx, p in enumerate(picks, 1):
+        print(f" {idx}. {Colors.BOLD}{p.name}{Colors.ENDC}")
+        print(f"    {p.file} | {p.size_gb:.1f} GB | fit: {p.level} ({p.mode}) | ~{p.tps:.0f} tok/s")
+    n = len(picks)
+    print(f" {n + 1}. Profile default: {HardwareProfile.MODELS[default_model_id]['name']}")
+    print(f" {n + 2}. Check a Hugging Face repo id")
+    print(f" {n + 3}. Skip / manual (built-in list or your own file)")
+    while True:
+        choice = get_numeric_choice("Select Model:", 1, n + 3)
+        if choice <= n:
+            return _plan_from_fit(picks[choice - 1])
+        if choice == n + 1:
+            return _legacy_plan(default_model_id)
+        if choice == n + 3:
+            return _manual_plan()
+        plan = _check_repo_plan(hw)
+        if plan:
+            return plan
+
+def download_model(plan: dict, install_dir: Path) -> bool:
     """
     First-run model acquisition.
 
     This is the installer, not the kernel: it runs once, in its own process,
     before dependencies (including huggingface_hub) are guaranteed present, so
-    it fetches over plain urllib from the pinned URLs above. The running kernel
-    never downloads anything -- see core_system/model_fetch.py for the
+    it fetches over plain urllib via core_system.modelfit (resumable: a failed or
+    interrupted download keeps its .part file). The running kernel never
+    downloads anything -- see core_system/model_fetch.py for the
     subprocess-isolated path used after install.
     """
-    model_info = HardwareProfile.MODELS[model_id]
+    if plan['kind'] == 'none':
+        return True
     models_dir = install_dir / 'models'
     models_dir.mkdir(exist_ok=True)
-    model_path = models_dir / model_info['file']
-    
-    if model_path.exists():
-        print(f"{Colors.GREEN}[OK] Model already exists: {model_info['name']}{Colors.ENDC}")
+    if plan['kind'] == 'legacy':
+        info = HardwareProfile.MODELS[plan['model_id']]
+        name, size_gb, targets = info['name'], info['size_gb'], [models_dir / info['file']]
+    else:
+        dest = models_dir / plan['subdir']
+        name, size_gb, targets = plan['name'], plan['size_gb'], [dest / f for f in plan['files']]
+
+    if all(t.exists() for t in targets):
+        print(f"{Colors.GREEN}[OK] Model already exists: {name}{Colors.ENDC}")
         return True
-        
-    print(f"\n{Colors.YELLOW}Downloading: {model_info['name']} ({model_info['size_gb']} GB){Colors.ENDC}")
+
+    print(f"\n{Colors.YELLOW}Downloading: {name} ({size_gb:.1f} GB){Colors.ENDC}")
     if not wait_for_enter("Start download?"): return False
-    
+
     try:
-        def progress(block_num, block_size, total_size):
-            downloaded = block_num * block_size
-            percent = min(100, (downloaded / total_size) * 100)
-            bar = '█' * int(50 * downloaded // total_size) + '-' * (50 - int(50 * downloaded // total_size))
-            print(f'\r{Colors.GREEN}[DL] |{bar}| {percent:.1f}%{Colors.ENDC}', end='')
-            
-        urllib.request.urlretrieve(model_info['url'], model_path, progress)
+        if plan['kind'] == 'legacy':
+            modelfit.download(info['url'], targets[0], progress=_progress)
+        else:
+            modelfit.download_repo_files(plan['repo'], plan['files'], dest, progress=_progress,
+                                         total_bytes=int(plan['size_gb'] * 1024**3))
         print(f"\n{Colors.GREEN}[OK] Download complete!{Colors.ENDC}")
         return True
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"\n{Colors.RED}[ERROR] Download failed: {e}{Colors.ENDC}")
-        if model_path.exists(): model_path.unlink()
+        print(f"{Colors.YELLOW}Partial data kept as .part - rerun the wizard to resume.{Colors.ENDC}")
         return False
 
 def build_llama_from_source(install_dir: Path) -> bool:
@@ -289,8 +361,16 @@ def build_llama_from_source(install_dir: Path) -> bool:
         print(f"{Colors.RED}[ERROR] Source build failed: {e}{Colors.ENDC}")
         return False
 
-def install_dependencies(profile_id: str, model_id: str, install_dir: Path) -> str:
-    """Installs deps; returns the model to use (falls back if the 27B build fails)."""
+def needs_source_build(name: str) -> bool:
+    """Qwen3.5+ (GGUF arch qwen35) is newer than the stock llama-cpp-python wheel."""
+    # ponytail: name match; read general.architecture from the GGUF header if more archs need it.
+    return bool(re.search(r"qwen3\.[5-9]", name.lower()))
+
+def install_dependencies(profile_id: str, model_id: Optional[str], install_dir: Path,
+                         source_build: bool = False) -> Optional[str]:
+    """Installs deps; returns the model to use (falls back to the 3B if a needed source build fails).
+    model_id is None when the model came from modelfit / a repo check; source_build marks such a
+    pick as needing the native engine."""
     backend = HardwareProfile.PROFILES[profile_id]['backend']
     print(f"\n{Colors.CYAN}[SYS] Installing Peridot dependencies (requirements.txt)...{Colors.ENDC}")
 
@@ -304,11 +384,12 @@ def install_dependencies(profile_id: str, model_id: str, install_dir: Path) -> s
     filtered.write_text("\n".join(lines) + "\n", encoding='utf-8')
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", str(filtered), "-q"])
 
-    if model_id == 'qwen3.8-27b-iq1s' and build_llama_from_source(install_dir):
+    needs_build = model_id == 'qwen3.8-27b-iq1s' or source_build
+    if needs_build and build_llama_from_source(install_dir):
         print(f"{Colors.GREEN}[OK] Dependencies locked.{Colors.ENDC}")
         return model_id
-    if model_id == 'qwen3.8-27b-iq1s':
-        print(f"{Colors.YELLOW}[WARN] Stock wheel cannot load the 27B. Falling back to Qwen 2.5 3B.{Colors.ENDC}")
+    if needs_build:
+        print(f"{Colors.YELLOW}[WARN] Stock wheel cannot load this model. Falling back to Qwen 2.5 3B.{Colors.ENDC}")
         model_id = 'qwen2.5-3b'
 
     if backend == 'cuda':
@@ -480,18 +561,28 @@ def main():
                 selected = profiles[get_numeric_choice("Select Profile:", 1, len(profiles)) - 1][0]
             
         profile = HardwareProfile.PROFILES[selected]
-        model_id = profile['recommended_model']
-        
-        clear_screen()
-        print_banner()
-        model_id = install_dependencies(selected, model_id, install_dir)
-        if not download_model(model_id, install_dir): sys.exit(1)
-        setup_web_search(install_dir)
-        if not create_environment(install_dir, HardwareProfile.MODELS[model_id]['file']): sys.exit(1)
 
         clear_screen()
         print_banner()
-        print_summary(install_dir, HardwareProfile.MODELS[model_id]['file'])
+        plan = choose_model(sys_info['hw'], profile['recommended_model'])
+
+        clear_screen()
+        print_banner()
+        if plan['kind'] == 'legacy':
+            # The 27B needs the source-built engine; install_dependencies may fall back to 3B.
+            plan = _legacy_plan(install_dependencies(selected, plan['model_id'], install_dir))
+        else:
+            fallback = install_dependencies(selected, None, install_dir,
+                                            source_build=needs_source_build(plan['name'] + plan['active']))
+            if fallback:
+                plan = _legacy_plan(fallback)
+        if not download_model(plan, install_dir): sys.exit(1)
+        setup_web_search(install_dir)
+        if not create_environment(install_dir, plan['active']): sys.exit(1)
+
+        clear_screen()
+        print_banner()
+        print_summary(install_dir, plan['active'])
         
     except KeyboardInterrupt:
         print(f"\n{Colors.RED}[CANCELLED] Setup interrupted.{Colors.ENDC}")

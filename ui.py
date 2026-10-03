@@ -9,7 +9,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkinter import font as tkfont
-from PIL import Image, ImageTk
 import threading
 import queue
 import time
@@ -30,6 +29,8 @@ from config import (SERVER_HOST, SERVER_PORT, API_KEY, MODEL_PATH, TOTAL_VRAM_GB
                     BASE_DIR, INPUT_PATH, MODEL_DIR, LOG_PATH, STORAGE_PATH)
 from core_system import settings as local_settings
 from core_system.extensions import registry
+from core_system.providers import is_hf_model_dir
+from core_system import modelfit
 from core_system.security import MAX_INPUT_CHARS, is_file_safe
 
 # --- UK ENGLISH DICTIONARY ENGINE ---
@@ -262,15 +263,16 @@ def model_fit(size_gb, vram_gb):
 
 
 def model_choices(model_dir, vram_gb):
-    """[(label, filename)] for each .gguf in model_dir, the only format the engine loads."""
+    """[(label, name)] for each .gguf file and HF safetensors folder in model_dir."""
     try:
         files = sorted(p for p in Path(model_dir).iterdir()
-                       if p.is_file() and p.suffix.lower() == ".gguf")
+                       if (p.is_file() and p.suffix.lower() == ".gguf") or is_hf_model_dir(p))
     except OSError:
         return []
     out = []
     for p in files:
-        gb = p.stat().st_size / 1024 ** 3
+        size = sum(f.stat().st_size for f in p.glob("*.safetensors")) if p.is_dir() else p.stat().st_size
+        gb = size / 1024 ** 3
         out.append((f"{p.name}  ·  {gb:.1f} GB  ·  {model_fit(gb, vram_gb)}", p.name))
     return out
 
@@ -362,7 +364,7 @@ ASCII_LOGO = """
 ██║     ███████╗██║  ██║██║██████╔╝╚██████╔╝   ██║   
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   
 """
-VERSION_TEXT = "SOVEREIGN KERNEL v1.6.0 [AGENTIC]\nENGINEERED BY UNCOALESCED"
+VERSION_TEXT = "SOVEREIGN KERNEL v1.6.1-beta [AGENTIC]\nENGINEERED BY UNCOALESCED"
 
 
 class TechProgressBar(tk.Canvas):
@@ -493,7 +495,9 @@ class PeridotUI:
         directory that has never existed in the tree -- the shipped icons are
         .ico files under assets/icons/ with different names. The exists()
         guard swallowed it, so every button silently rendered its text
-        fallback and the Pillow branch below had never once executed.
+        fallback and the image branch below had never once executed.
+        Icons must be pre-sized 16x16 PNGs: tk.PhotoImage cannot read .ico
+        or resample (Pillow was dropped in v1.6.1).
 
         The MIC/SEND buttons are text-only: their .ico glyphs are non-square
         and were squashed into 16x16. "settings" and "vault" keep their text
@@ -512,11 +516,7 @@ class PeridotUI:
             icon_path = base_dir / filename
             try:
                 if icon_path.exists():
-                    img = Image.open(icon_path)
-                    # .ico carries non-square frames here; LANCZOS to a fixed
-                    # 16x16 keeps the button metrics uniform.
-                    img = img.convert("RGBA").resize((16, 16), Image.LANCZOS)
-                    self.icons[key] = ImageTk.PhotoImage(img)
+                    self.icons[key] = tk.PhotoImage(file=str(icon_path))
                 else:
                     self.icons[key] = fallback
             except Exception:
@@ -694,7 +694,7 @@ class PeridotUI:
 
         # Tab 2: Secured Document Storage Matrix
         self.tab_vault = tk.Frame(self.notebook, bg=COLOR_BG)
-        vault_kw = {"image": self.icons["vault"], "compound": tk.LEFT, "text": " KERNEL VAULT"} if isinstance(self.icons.get("vault"), ImageTk.PhotoImage) else {"text": f"{self.icons.get('vault', '[DIR]')} KERNEL VAULT"}
+        vault_kw = {"image": self.icons["vault"], "compound": tk.LEFT, "text": " KERNEL VAULT"} if isinstance(self.icons.get("vault"), tk.PhotoImage) else {"text": f"{self.icons.get('vault', '[DIR]')} KERNEL VAULT"}
         self.notebook.add(self.tab_vault, **vault_kw)
 
         self.vault_label = tk.Label(self.tab_vault, text=">> DATA-INGEST SECURE CONSOLE VECTOR DIRECTORY:", bg=COLOR_BG, fg=MUTED, font=FONT_UI, anchor="w")
@@ -714,7 +714,7 @@ class PeridotUI:
 
         # Tab 4: Settings & Hardware Configuration
         self.tab_settings = tk.Frame(self.notebook, bg=COLOR_BG)
-        set_kw = {"image": self.icons["settings"], "compound": tk.LEFT, "text": " SETTINGS"} if isinstance(self.icons.get("settings"), ImageTk.PhotoImage) else {"text": f"{self.icons.get('settings', '[SET]')} SETTINGS"}
+        set_kw = {"image": self.icons["settings"], "compound": tk.LEFT, "text": " SETTINGS"} if isinstance(self.icons.get("settings"), tk.PhotoImage) else {"text": f"{self.icons.get('settings', '[SET]')} SETTINGS"}
         self.notebook.add(self.tab_settings, **set_kw)
         self._build_settings_tab()
 
@@ -822,6 +822,8 @@ class PeridotUI:
         self.btn_swap.pack(anchor="w", pady=(0, PAD_L))
 
         tk.Frame(config_frame, bg=BORDER, height=1).pack(fill=tk.X, pady=(0, PAD_L))
+        self._build_get_models(config_frame)
+        tk.Frame(config_frame, bg=BORDER, height=1).pack(fill=tk.X, pady=(0, PAD_L))
 
         tk.Label(config_frame, text=">> HARDWARE MEMORY MANAGEMENT:", bg=COLOR_BG, fg=MUTED, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, PAD))
 
@@ -899,12 +901,107 @@ class PeridotUI:
             pass
 
     def _populate_models(self):
-        """Fill the swap dropdown from MODEL_DIR (.gguf only), rated against total VRAM."""
+        """Fill the swap dropdown from MODEL_DIR (.gguf + HF folders), rated against total VRAM."""
         choices = model_choices(MODEL_DIR, TOTAL_VRAM_GB)
         self.available_models_map = dict(choices)
         self.model_dropdown["values"] = ([label for label, _ in choices]
-                                         or [" [ERROR] no .gguf models in models/."])
+                                         or [" [ERROR] no models in models/ - use GET MODELS."])
         self.model_dropdown.current(0)
+
+    # --- GET MODELS (core_system.modelfit: hardware check, top 3, any HF repo, download) ---
+    def _build_get_models(self, parent):
+        tk.Label(parent, text=">> GET MODELS (checked against this machine, saved to models/):", bg=COLOR_BG,
+                 fg=MUTED, font=FONT_UI, anchor="w").pack(fill=tk.X, pady=(0, PAD))
+        self.lbl_fit_hw = tk.Label(parent, text="   FIND TOP 3 scans this machine and asks Hugging Face.",
+                                   bg=COLOR_BG, fg=COLOR_TEXT, font=FONT_CODE, anchor="w", justify=tk.LEFT)
+        self.lbl_fit_hw.pack(fill=tk.X, pady=(0, PAD))
+        self.fit_list = tk.Listbox(parent, height=5, bg=COLOR_DIM, fg=COLOR_TEXT, font=FONT_CODE,
+                                   selectbackground=BORDER, activestyle="none", highlightthickness=0)
+        self.fit_list.pack(fill=tk.X, pady=(0, PAD))
+        row = tk.Frame(parent, bg=COLOR_BG)
+        row.pack(fill=tk.X, pady=(0, PAD_L))
+        self.repo_var = tk.StringVar()
+        tk.Entry(row, textvariable=self.repo_var, bg=COLOR_DIM, fg=COLOR_TEXT, insertbackground=COLOR_TEXT,
+                 font=FONT_CODE, relief=tk.FLAT).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, PAD))
+        self._small_button(row, "CHECK REPO", self._check_repo).pack(side=tk.LEFT, padx=(0, PAD))
+        self._small_button(row, "FIND TOP 3", self._find_models).pack(side=tk.LEFT, padx=(0, PAD))
+        self.btn_download = self._small_button(row, "DOWNLOAD", self._download_model)
+        self.btn_download.pack(side=tk.LEFT)
+        self._fits, self._dl_cancel = [], None
+
+    def _fit_task(self, work):
+        """Run work() -> (hardware text, fits) off the Tk thread, then show the result."""
+        self.lbl_fit_hw.config(text="   Checking...")
+        def task():
+            try:
+                text, fits = work()
+                self.ui_call(self._show_fits, text, fits)
+            except Exception as e:  # offline, bad repo id, HF error
+                self.ui_call(self._show_fits, f"   [ERROR] {e}", [])
+        threading.Thread(target=task, daemon=True).start()
+
+    def _find_models(self):
+        def work():
+            hw = modelfit.detect()
+            return hw.summary(), [p for p in modelfit.recommend(hw, 3, resolve=True) if p.files]
+        self._fit_task(work)
+
+    def _check_repo(self):
+        repo = self.repo_var.get().strip()
+        def work():
+            hw = modelfit.detect()
+            res = modelfit.check_repo(repo, hw)
+            fits = [f for f in res.candidates if f.level != modelfit.TOO_TIGHT][:8]
+            note = f"{res.repo} [{res.kind}]" + ("" if fits else " - nothing in this repo fits this machine")
+            return f"{hw.summary()}\n{note}", fits
+        self._fit_task(work)
+
+    def _show_fits(self, text, fits):
+        self._fits = fits
+        self.lbl_fit_hw.config(text=text)
+        self.fit_list.delete(0, tk.END)
+        for f in fits:
+            self.fit_list.insert(tk.END, f"{f.name.split('/')[-1]}  ·  {f.file}  ·  {f.size_gb:.1f} GB"
+                                         f"  ·  {f.level}  ·  ~{f.tps:.0f} tok/s")
+        if fits:
+            self.fit_list.selection_set(0)
+
+    def _download_model(self):
+        if self._dl_cancel is not None:  # second press = cancel; the .part file resumes next time
+            self._dl_cancel.set()
+            return
+        sel = self.fit_list.curselection()
+        if not sel:
+            messagebox.showwarning("Get models", "Run FIND TOP 3 or CHECK REPO and pick a model first.",
+                                   parent=self.root)
+            return
+        fit = self._fits[sel[0]]
+        folder = fit.repo.split("/")[1] if fit.file.endswith(".safetensors") else ""
+        self._dl_cancel = threading.Event()
+        self.btn_download.config(text="CANCEL")
+
+        def progress(done, total):
+            pct = f"{done * 100 // total}%" if total else f"{done / 1024 ** 3:.2f} GB"
+            self.ui_call(self._set_status, f"DOWNLOAD {fit.file}: {pct}")
+
+        def task():
+            try:
+                modelfit.download_repo_files(fit.repo, fit.files, Path(MODEL_DIR) / folder, progress=progress,
+                                             cancel=self._dl_cancel, total_bytes=int(fit.size_gb * 1024 ** 3))
+                msg = f"MODEL | Downloaded {folder or fit.file} to models/. Pick it in the swap list."
+            except modelfit.Cancelled:
+                msg = "MODEL | Download cancelled; DOWNLOAD again resumes it."
+            except Exception as e:
+                msg = f"MODEL | Download failed: {e} (DOWNLOAD again resumes it)."
+            self.ui_call(self._download_done, msg)
+        threading.Thread(target=task, daemon=True).start()
+
+    def _download_done(self, msg):
+        self._dl_cancel = None
+        self.btn_download.config(text="DOWNLOAD")
+        self._set_status("GET MODELS: idle")
+        self._populate_models()
+        self.display_system_message(msg)
 
     def _swap_model(self):
         """Persist the pick, restart the engine on it and wait for the load (worker thread)."""

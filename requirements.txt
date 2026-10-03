@@ -23,16 +23,19 @@
 # through PyMuPDF/fitz), and torchaudio/torchvision (never imported).
 # (PyAudio was removed here too, wrongly -- see the voice section below.)
 #
+# v1.6.1 replaced four small dependencies with first-party code: python-dotenv
+# (core_system/envfile.py), websocket-client (server.send_fah_command), Pillow
+# (ui.py loads pre-sized PNGs via tk.PhotoImage) and flask-cors (no browser
+# client exists; the server sends no CORS headers).
+#
 # Development and CI tooling lives in pyproject.toml under
 # [project.optional-dependencies] dev, so a plain test run no longer installs
 # the SBOM toolchain. Install it with:  pip install -e ".[dev]"
 
 # --- Web/API layer (server.py) ---
 Flask==3.1.3
-flask-cors==6.0.5
 Flask-Limiter==4.1.1
 requests==2.33.0
-websocket-client==1.9.0
 
 # --- Inference engine ---
 # PyPI fallback only: runs the small/14B models, NOT the default Qwen3.8-27B
@@ -60,7 +63,6 @@ psutil==7.2.2
 # --- Desktop client (ui.py) ---
 # tkinter is stdlib on Windows but a separate OS package on Linux
 # (apt install python3-tk); it is intentionally not listed here.
-Pillow==12.2.0
 
 # --- Voice / audio telemetry ---
 openai-whisper==20250625
@@ -69,9 +71,6 @@ SpeechRecognition==3.16.1
 # imports it at runtime; without it voice input fails on a fresh install.
 PyAudio==0.2.14
 sounddevice==0.5.5
-
-# --- Configuration ---
-python-dotenv==1.2.2
 
 # --- Compatibility constraints (not direct imports) ---
 # sentence-transformers loads transformers/tokenizers at runtime, and config.py

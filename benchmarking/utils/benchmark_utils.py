@@ -20,7 +20,7 @@ import psutil
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from dotenv import load_dotenv
+from core_system.envfile import load_env
 
 # -----------------------------------------------------------------------------
 # ENVIRONMENT & PATH BOOTSTRAPPING
@@ -29,7 +29,7 @@ PERIDOT_ROOT = Path(__file__).parent.parent.parent.absolute()
 
 # Force load the .env file BEFORE importing config
 env_path = PERIDOT_ROOT / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
+load_env(env_path, override=True)
 
 try:
     from config import AI_SERVER_URL
