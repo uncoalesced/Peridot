@@ -25,10 +25,10 @@ All notable changes to the Peridot Sovereign Kernel are documented in this file.
 
 - Removed four dependencies by replacing them with a few lines of standard-library code: `python-dotenv` (`core_system/envfile.py`, atomic `.env` writes), `websocket-client` (built-in Folding@home websocket client), `Pillow` (icons load with `tk.PhotoImage`) and `flask-cors` (the API had no browser client; without CORS headers browsers block cross-origin reads).
 - Clean reinstall of the development environment; requirements pins now match the installed set.
+- **PyTorch 2.6 (CUDA 12.4) → 2.11 (CUDA 12.8) on Windows**, which adds RTX 50-series (sm_120) support so safetensors models run on those GPUs. Needs NVIDIA driver 570 or newer; older cards keep working. Linux/macOS: `torch==2.11.0` CPU wheels.
 
 ### Known limitations
 
-- **RTX 50-series (sm_120):** the bundled PyTorch 2.6 (CUDA 12.4) has no kernels for these GPUs, so safetensors models run on the CPU there. GGUF models are unaffected.
 - Safetensors models load on one device with no quantization or offload; a model larger than VRAM (or RAM on CPU) fails to load with a clear error.
 - Speed estimates for laptop GPUs use a generic CUDA constant, as upstream LLMFit does.
 
