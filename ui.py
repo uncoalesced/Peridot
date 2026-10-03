@@ -961,8 +961,9 @@ class PeridotUI:
         self.lbl_fit_hw.config(text=text)
         self.fit_list.delete(0, tk.END)
         for f in fits:
-            self.fit_list.insert(tk.END, f"{f.name.split('/')[-1]}  ·  {f.file}  ·  {f.size_gb:.1f} GB"
-                                         f"  ·  {f.level}  ·  ~{f.tps:.0f} tok/s")
+            name = f.name.split("/")[-1]
+            head = f.file if name == f.file else f"{name}  ·  {f.file}"
+            self.fit_list.insert(tk.END, f"{head}  ·  {f.size_gb:.1f} GB  ·  {f.level}  ·  ~{f.tps:.0f} tok/s")
         if fits:
             self.fit_list.selection_set(0)
 
