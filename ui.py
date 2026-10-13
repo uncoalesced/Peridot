@@ -894,6 +894,15 @@ class PeridotUI:
         """Withdraw any open Combobox popdown when the app loses focus."""
         if event is not None and event.widget is not self.root:
             return
+        # Opening the popdown moves focus from the root to the popdown itself,
+        # which also fires root <FocusOut>; withdrawing at once closed the list
+        # the instant the arrow opened it. Focus settles asynchronously, so check
+        # after a beat whether any window of this app still has it.
+        self.root.after(80, self._withdraw_popdown_if_unfocused)
+
+    def _withdraw_popdown_if_unfocused(self):
+        if self.root.focus_displayof() is not None:
+            return
         try:
             popdown = self.root.tk.call("ttk::combobox::PopdownWindow", self.model_dropdown)
             self.root.tk.call("wm", "withdraw", popdown)
