@@ -57,7 +57,7 @@ PyMuPDF==1.27.2.3
 huggingface_hub>=0.24.0,<2.0
 
 # --- Hardware telemetry and process control ---
-nvidia-ml-py==13.595.45
+nvidia-ml-py==13.615.71
 psutil==7.2.2
 
 # --- Desktop client (ui.py) ---
