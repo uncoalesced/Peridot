@@ -77,7 +77,7 @@ sounddevice==0.5.5
 # sets TRANSFORMERS_OFFLINE=1 as part of the sovereignty lock, so the installed
 # transformers version is part of this project's runtime contract even though
 # no first-party module imports it directly. Pinned deliberately.
-transformers>=4.46.0,<5.0
+transformers>=5.19.0,<6.0
 tokenizers>=0.20,<0.23
 
 # --- Optional accelerators / degradable features ---
