@@ -20,11 +20,11 @@ import time
 from pathlib import Path
 
 import requests
-from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from core_system.envfile import read_env  # noqa: E402
 from core_system.memory.chat_ledger import get_chat_ledger  # noqa: E402
 from core_system.prompting.constitution import is_storable_answer, parse_kernel_response  # noqa: E402
 
@@ -42,7 +42,7 @@ def main():
     ap.add_argument("--web", action="store_true", help="set the per-message web flag")
     args = ap.parse_args()
 
-    key = dotenv_values(ROOT / ".env").get("API_KEY", "")
+    key = read_env(ROOT / ".env").get("API_KEY", "")
     headers = {"Authorization": f"Bearer {key}"}
     ledger = get_chat_ledger()
     sid = ledger.create_session("replay " + time.strftime("%Y-%m-%d %H:%M:%S"))

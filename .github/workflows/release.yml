@@ -20,4 +20,5 @@ jobs:
         with:
           generate_release_notes: true
           draft: false
-          prerelease: false
+          # Tags with a suffix (v1.6.1-beta, v2.0.0-rc1) stay pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}

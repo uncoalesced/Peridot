@@ -59,7 +59,7 @@ def test_requirements_are_valid_pep508_and_do_not_pin_refused_turbovec():
     # These must stay pinned, but assert *that* they are pinned rather than to
     # which version: exact-string assertions here broke on every routine bump
     # and taught no one anything.
-    for package in ("pillow", "flask-limiter", "numpy", "llama-cpp-python"):
+    for package in ("flask-limiter", "numpy", "llama-cpp-python"):
         specifier = str(by_name[package].specifier)
         assert specifier.startswith("=="), f"{package} must stay exactly pinned"
 
@@ -80,6 +80,17 @@ def test_runtime_requirements_have_no_unimported_extras():
             f"{package} is declared but imported nowhere in first-party code; "
             "dev/audit tooling belongs in pyproject.toml optional-dependencies"
         )
+
+
+def test_v161_replaced_dependencies_stay_out():
+    """v1.6.1 replaced these with first-party code; they must not creep back."""
+    import tomllib
+
+    pyproject = tomllib.loads((REQUIREMENTS.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = [Requirement(d).name for d in pyproject["project"]["dependencies"]]
+    for names in ({_canon(r.name) for r in _parsed_requirements()}, {_canon(n) for n in declared}):
+        for package in ("python-dotenv", "websocket-client", "pillow", "flask-cors"):
+            assert package not in names, f"{package} was replaced in v1.6.1"
 
 
 def test_torch_matrix_is_platform_isolated():

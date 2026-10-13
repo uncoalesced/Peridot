@@ -74,6 +74,27 @@ def _read_gguf_metadata(model_path: Path) -> tuple[Optional[str], Optional[str]]
     _GGUF_METADATA_CACHE[model_path] = result
     return result
 
+
+# HF folder models (v1.6.1): config.json model_type -> chat format. Anything
+# unlisted (qwen2, qwen3, ...) is ChatML; llama is llama3 only when its
+# tokenizer actually speaks Llama-3 headers (Llama-2 does not).
+_HF_MODEL_TYPE_TO_FORMAT: dict[str, str] = {"mistral": "mistral"}
+
+
+def _read_hf_json(model_dir: Path, name: str) -> dict:
+    try:
+        return json.loads((Path(model_dir) / name).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _hf_format(model_dir: Path) -> str:
+    model_type = _read_hf_json(model_dir, "config.json").get("model_type", "")
+    if model_type == "llama":
+        tok_cfg = json.dumps(_read_hf_json(model_dir, "tokenizer_config.json"))
+        return "llama3" if "<|start_header_id|>" in tok_cfg else "chatml"
+    return _HF_MODEL_TYPE_TO_FORMAT.get(model_type, "chatml")
+
 def load_constitution() -> dict:
     """Load and cache the sovereign constitution from disk."""
     global _CONSTITUTION_CACHE
@@ -97,6 +118,8 @@ def get_model_format(model_path: Path) -> str:
     tokenizer.ggml.pre field (authoritative). Falls back to the old
     filename heuristic only if the header can't be read.
     """
+    if Path(model_path).is_dir():
+        return _hf_format(model_path)
     _arch, vocab_pre = _read_gguf_metadata(model_path)
     if vocab_pre in _VOCAB_PRE_TO_FORMAT:
         return _VOCAB_PRE_TO_FORMAT[vocab_pre]
@@ -115,7 +138,17 @@ _THINKING_VOCAB_PRE: frozenset[str] = frozenset({"qwen35"})
 
 
 def model_supports_thinking(model_path: Path) -> bool:
-    """True for models with native <think> reasoning (see _THINKING_VOCAB_PRE)."""
+    """True for models with native <think> reasoning (see _THINKING_VOCAB_PRE).
+
+    HF folders: the chat template mentions <think> (tokenizer_config.json, or
+    chat_template.jinja which newer transformers saves separately)."""
+    if Path(model_path).is_dir():
+        template = str(_read_hf_json(model_path, "tokenizer_config.json").get("chat_template", ""))
+        try:
+            template += (Path(model_path) / "chat_template.jinja").read_text(encoding="utf-8")
+        except OSError:
+            pass
+        return "<think>" in template
     _arch, vocab_pre = _read_gguf_metadata(model_path)
     return vocab_pre in _THINKING_VOCAB_PRE
 
@@ -195,13 +228,15 @@ def build_system_prompt(
     tools_block: str = "",
     model_name: str = "",
     capabilities: Optional[dict] = None,
+    engine: Optional[str] = None,
 ) -> str:
     """
     The system turn: identity, model and date, what Peridot can actually do
     this turn, behaviour rules from config/constitution.json, the tool
     declarations and any document context.
 
-    model_name: model file name (e.g. MODEL_PATH.name); shown as its display name.
+    model_name: model file or folder name (e.g. MODEL_PATH.name); shown as its display name.
+    engine: named in the prompt; default derived from model_name (.gguf -> llama.cpp).
     capabilities: {"tools": [tool names], "web": bool}, computed by the caller.
     Documents count as available iff context_str is non-empty.
 
@@ -222,7 +257,10 @@ def build_system_prompt(
     about = identity
     display = model_display_name(model_name)
     if display:
-        about += f" The underlying model is {display}, running locally via llama.cpp."
+        # Only .gguf files and HF folders get past provider_for(), so a name
+        # without .gguf is a folder model running on transformers.
+        engine = engine or ("llama.cpp" if model_name.lower().endswith(".gguf") else "transformers")
+        about += f" The underlying model is {display}, running locally via {engine}."
     about += f" Today's date is {date.today().isoformat()}."
 
     tmpl = get_chat_template(model_format)

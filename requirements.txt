@@ -23,16 +23,19 @@
 # through PyMuPDF/fitz), and torchaudio/torchvision (never imported).
 # (PyAudio was removed here too, wrongly -- see the voice section below.)
 #
+# v1.6.1 replaced four small dependencies with first-party code: python-dotenv
+# (core_system/envfile.py), websocket-client (server.send_fah_command), Pillow
+# (ui.py loads pre-sized PNGs via tk.PhotoImage) and flask-cors (no browser
+# client exists; the server sends no CORS headers).
+#
 # Development and CI tooling lives in pyproject.toml under
 # [project.optional-dependencies] dev, so a plain test run no longer installs
 # the SBOM toolchain. Install it with:  pip install -e ".[dev]"
 
 # --- Web/API layer (server.py) ---
 Flask==3.1.3
-flask-cors==6.0.5
 Flask-Limiter==4.1.1
 requests==2.33.0
-websocket-client==1.9.0
 
 # --- Inference engine ---
 # PyPI fallback only: runs the small/14B models, NOT the default Qwen3.8-27B
@@ -60,7 +63,6 @@ psutil==7.2.2
 # --- Desktop client (ui.py) ---
 # tkinter is stdlib on Windows but a separate OS package on Linux
 # (apt install python3-tk); it is intentionally not listed here.
-Pillow==12.2.0
 
 # --- Voice / audio telemetry ---
 openai-whisper==20250625
@@ -69,9 +71,6 @@ SpeechRecognition==3.16.1
 # imports it at runtime; without it voice input fails on a fresh install.
 PyAudio==0.2.14
 sounddevice==0.5.5
-
-# --- Configuration ---
-python-dotenv==1.2.2
 
 # --- Compatibility constraints (not direct imports) ---
 # sentence-transformers loads transformers/tokenizers at runtime, and config.py
@@ -93,10 +92,12 @@ pyspellchecker==0.9.0
 pynput==1.8.2
 
 # --- Platform-isolated deep learning ---
-# Windows uses validated CUDA 12.4 wheels; Linux/macOS stays on standard
-# CPU-compatible PyPI wheels. Only `torch` is imported (benchmark_memory_bandwidth,
-# benchmark_vram_hammer, and server.py's cache-empty path); torchaudio and
-# torchvision were declared but never imported and have been dropped.
+# Windows uses CUDA 12.8 wheels (v1.6.1): the first build line with RTX 50-series
+# (sm_120) kernels, needing NVIDIA driver 570+. cu130 builds (torch 2.12+) would
+# need driver 580+. Linux/macOS stays on standard CPU-compatible PyPI wheels.
+# torch is used by the transformers provider (safetensors models), the CPU
+# embedder (via sentence-transformers), server.py's cache-empty path and two
+# benchmarks; torchaudio and torchvision were never imported and are dropped.
 # The "+" must stay URL-encoded (%2B): download.pytorch.org returns 403 for a raw "+".
-torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
-torch==2.6.0 ; sys_platform != 'win32'
+torch @ https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
+torch==2.11.0 ; sys_platform != 'win32'

@@ -5,3 +5,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # torch 2.12+ ships CUDA 13.0 wheels that need NVIDIA driver 580+.
+      # Pinned to 2.11 + cu128 (driver 570+, RTX 50-series kernels) on purpose.
+      - dependency-name: "torch"
+        versions: [">=2.12"]
+      # The engine is a native build pinned by commit
+      # (scripts/build_llama_cpp_python.ps1); pip bumps would replace it.
+      - dependency-name: "llama-cpp-python"

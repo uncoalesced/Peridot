@@ -14,7 +14,7 @@ import subprocess
 import time
 from pathlib import Path
 import psutil
-from dotenv import dotenv_values, load_dotenv, set_key
+from core_system.envfile import load_env, read_env, set_env_key  # noqa: F401 - re-exported
 
 # Initialize basic logging for the bootstrap phase
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | [CONFIG] %(message)s")
@@ -55,8 +55,10 @@ def _detect_total_vram_mb() -> int:
     return 0
 
 def _get_model_size_mb(model_path: Path) -> int:
-    """Get model file size in MB."""
+    """Get model size in MB: the file, or a HF folder's *.safetensors shards."""
     try:
+        if model_path.is_dir():
+            return sum(f.stat().st_size for f in model_path.glob("*.safetensors")) // (1024 * 1024)
         if model_path.exists():
             return model_path.stat().st_size // (1024 * 1024)
     except Exception:
@@ -128,13 +130,13 @@ _TOTAL_VRAM_GB: float = _TOTAL_VRAM_MB / 1024.0
 # -----------------------------------------------------------------------------
 # ENVIRONMENT BOOTSTRAP
 # -----------------------------------------------------------------------------
-load_dotenv(override=True)
+load_env(Path(__file__).parent / ".env", override=True)
 
 # -----------------------------------------------------------------------------
 # SOVEREIGNTY LOCK (v1.5.4)
 # -----------------------------------------------------------------------------
 # The main process is air-gapped, unconditionally. These are forced AFTER
-# load_dotenv() so a stale or hand-edited .env cannot re-open the network.
+# load_env() so a stale or hand-edited .env cannot re-open the network.
 #
 # huggingface_hub reads these at *import* time, so this must run before any
 # transformers / sentence-transformers / huggingface_hub import. config is the
@@ -314,7 +316,7 @@ ENV_PATH = ROOT_PATH / ".env"
 
 
 def _env_file_key():
-    return dotenv_values(ENV_PATH).get("API_KEY") if ENV_PATH.exists() else None
+    return read_env(ENV_PATH).get("API_KEY")
 
 
 def _ensure_api_key():
@@ -351,11 +353,7 @@ def _ensure_api_key():
             # logs/ on first boot. The key is persisted to .env below; that file is
             # the intended place to read it from.
             logger.warning("No API_KEY found. Generated a new secure key and wrote it to .env")
-            if ENV_PATH.exists():
-                set_key(str(ENV_PATH), "API_KEY", key)
-            else:
-                with open(ENV_PATH, "w", encoding="utf-8") as f:
-                    f.write(f"API_KEY={key}\n")
+            set_env_key(ENV_PATH, "API_KEY", key)
             return key
         finally:
             os.close(fd)

@@ -81,6 +81,12 @@ def test_planned_backend_raises_clear_not_implemented():
         provider_for("model.exl2")
 
 
+def test_bare_safetensors_file_asks_for_the_folder():
+    """.safetensors is no longer 'planned': a lone shard is pointed at its folder."""
+    with pytest.raises(UnsupportedModelFormat, match="folder"):
+        provider_for("model.safetensors")
+
+
 def test_unknown_extension_is_rejected():
     with pytest.raises(UnsupportedModelFormat):
         provider_for("model.bin")

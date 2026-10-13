@@ -223,23 +223,11 @@ Default:
 
 ---
 
-## 2. Missing Dependency
+## 2. Pause/Fold Commands Ignored
 
-If you encounter:
-
-```text
-ModuleNotFoundError: No module named 'websocket'
-```
-
-your environment namespace is poisoned.
-
-Execute:
-
-```bash
-.\venv\Scripts\python.exe -m pip uninstall -y websocket
-.\venv\Scripts\python.exe -m pip uninstall -y websocket-client
-.\venv\Scripts\python.exe -m pip install websocket-client
-```
+Since v1.6.1 Peridot talks to the FAH client's websocket with a small built-in
+client (no `websocket-client` package). If pause/fold commands have no effect,
+check that the FAH client (v8) is running and listening on the port above.
 
 ---
 

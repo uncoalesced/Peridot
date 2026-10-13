@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peridot-local"
-version = "1.6.0"
+version = "1.6.1b0"
 description = "A sovereign local kernel with dynamic hardware scaling."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,15 +18,13 @@ authors = [
 # Corrected here: "colorama" was declared but is imported nowhere, and "pynvml"
 # named the module rather than the distribution that provides it (nvidia-ml-py,
 # which is what requirements.txt installs). Added the runtime dependencies that
-# were missing entirely: websocket-client, python-dotenv, Flask-Limiter,
-# sentence-transformers, safetensors, PyMuPDF, openai-whisper,
-# SpeechRecognition and torch.
+# were missing entirely: Flask-Limiter, sentence-transformers, safetensors,
+# PyMuPDF, openai-whisper, SpeechRecognition and torch. v1.6.1 dropped
+# flask-cors, websocket-client, pillow and python-dotenv (see requirements.txt).
 dependencies = [
     "Flask",
-    "flask-cors",
     "Flask-Limiter",
     "requests",
-    "websocket-client",
     "llama-cpp-python",
     "numpy",
     "sentence-transformers",
@@ -35,12 +33,10 @@ dependencies = [
     "huggingface_hub",
     "nvidia-ml-py",
     "psutil",
-    "pillow",
     "openai-whisper",
     "SpeechRecognition",
     "PyAudio",  # runtime import inside speech_recognition.Microphone
     "sounddevice",
-    "python-dotenv",
     "torch",
 ]
 
