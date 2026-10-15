@@ -88,7 +88,7 @@ tokenizers>=0.20,<0.23
 # turbovec is not listed: the released 0.7.1 API doesn't match what
 # turbovec_index.py's native path calls, so it is refused and the vectorised
 # numpy fallback runs anyway. Re-add once the native adapter exists.
-pyspellchecker==0.9.0
+pyspellchecker==0.9.1
 pynput==1.8.2
 
 # --- Platform-isolated deep learning ---
