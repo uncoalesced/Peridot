@@ -78,7 +78,7 @@ sounddevice==0.5.5
 # transformers version is part of this project's runtime contract even though
 # no first-party module imports it directly. Pinned deliberately.
 transformers>=4.46.0,<5.0
-tokenizers>=0.20,<0.23
+tokenizers>=0.23.3,<0.24
 
 # --- Optional accelerators / degradable features ---
 # Each of these is imported inside a try/except and the code has a working
