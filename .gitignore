@@ -10,6 +10,7 @@ results/
 # Environments & Secrets
 venv/
 env/
+tools/
 benchmarking/venv/
 .env
 

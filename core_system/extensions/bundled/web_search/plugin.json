@@ -1,13 +1,13 @@
 {
   "name": "web_search",
-  "description": "Search the web (DuckDuckGo, or your SearXNG instance) and fetch public web pages as readable text.",
-  "version": "1.0.0",
+  "description": "High-speed live web search, page reading, multi-source research, and verification via agent-wire.",
+  "version": "1.1.0",
   "entry": "main.py",
   "permissions": {"network": true, "files": "none"},
   "tools": [
     {
       "name": "web_search",
-      "description": "Search the web. Returns numbered results with title, URL and snippet.",
+      "description": "Search the live web and platforms. Returns numbered results with the top hit automatically deep-read in compressed markdown.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -19,13 +19,36 @@
     },
     {
       "name": "web_fetch",
-      "description": "Fetch a public http/https web page and return its readable text (truncated to about 6000 characters).",
+      "description": "Fetch a public web page or supported platform URL (X, Reddit, GitHub, YouTube, HN, arXiv, etc.) and return clean, token-compressed text.",
       "parameters": {
         "type": "object",
         "properties": {
           "url": {"type": "string", "description": "Absolute http:// or https:// URL."}
         },
         "required": ["url"]
+      }
+    },
+    {
+      "name": "wire_research",
+      "description": "Synthesize a cited intelligence brief on a topic across Hacker News, Reddit, GitHub, YouTube, and the web over the last N days.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "topic": {"type": "string", "description": "Topic or comparison (e.g. 'local llms' or 'Bun vs Deno')."},
+          "days": {"type": "integer", "minimum": 1, "maximum": 90, "default": 14, "description": "Days to look back (default 14)."}
+        },
+        "required": ["topic"]
+      }
+    },
+    {
+      "name": "wire_cite",
+      "description": "Verify citations and links in text: checks for dead links, missing quotes, or unsourced claims.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string", "description": "Text containing links or claims to verify."}
+        },
+        "required": ["text"]
       }
     }
   ]

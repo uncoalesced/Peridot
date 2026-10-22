@@ -319,3 +319,14 @@ def web_fetch(url: str = "", **_ignored) -> str:
         title, text = _html_to_text(text)
     head = f"Title: {title}\nURL: {url}\n\n" if title else f"URL: {url}\n\n"
     return head + _truncate(text)
+
+
+def wire_research(topic: str = "", days: int = 14, **_ignored) -> str:
+    """Fallback stub when agent-wire is not installed."""
+    return "Error: wire_research requires agent-wire installed in tools/agent-wire. Please run setup."
+
+
+def wire_cite(text: str = "", **_ignored) -> str:
+    """Fallback stub when agent-wire is not installed."""
+    return "Error: wire_cite requires agent-wire installed in tools/agent-wire. Please run setup."
+

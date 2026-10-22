@@ -901,7 +901,14 @@ class PeridotUI:
         self.root.after(80, self._withdraw_popdown_if_unfocused)
 
     def _withdraw_popdown_if_unfocused(self):
-        if self.root.focus_displayof() is not None:
+        try:
+            # Query Tcl directly for the focused window pathname. Avoids calling
+            # tkinter's focus_displayof() which runs _nametowidget() and crashes
+            # with KeyError: 'popdown' because ttk popdown windows are internal to Tcl.
+            focused = str(self.root.tk.call("focus", "-displayof", self.root._w)).strip()
+        except Exception:
+            focused = ""
+        if focused:
             return
         try:
             popdown = self.root.tk.call("ttk::combobox::PopdownWindow", self.model_dropdown)

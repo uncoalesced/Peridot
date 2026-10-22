@@ -65,6 +65,18 @@ accel = [
     "pynput",
 ]
 
+[project.urls]
+Homepage = "https://github.com/uncoalesced/Peridot"
+Releases = "https://github.com/uncoalesced/Peridot/releases"
+
+[project.scripts]
+peridot = "launcher:main"
+
+[tool.setuptools]
+# Top-level modules live beside the packages, not inside one; without this the
+# wheel carries core_system/benchmarking only and the app cannot start.
+py-modules = ["main", "server", "ui", "core", "config", "launcher", "install_wizard"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 # Explicit include: with only an exclude list, find_packages() also walked

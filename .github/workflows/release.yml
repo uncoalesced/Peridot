@@ -22,3 +22,29 @@ jobs:
           draft: false
           # Tags with a suffix (v1.6.1-beta, v2.0.0-rc1) stay pre-releases.
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  pypi:
+    name: Publish to PyPI
+    # Stable tags only; pre-release tags (v1.6.1-beta) are never uploaded.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1

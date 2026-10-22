@@ -226,6 +226,17 @@ def _ram(hw: Hardware) -> None:
         hw.ram_gb, hw.ram_avail_gb = parse_meminfo(Path("/proc/meminfo").read_text())
 
 
+def _nvidia_smi_candidates() -> list[str]:
+    """PATH first, then the Windows install dirs (nvidia-smi is often not on PATH there)."""
+    cands = ["nvidia-smi"]
+    if os.name == "nt":
+        for root in (os.environ.get("SystemRoot", r"C:\Windows"),
+                     os.environ.get("ProgramFiles", r"C:\Program Files")):
+            cands.append(os.path.join(root, "System32", "nvidia-smi.exe") if root.lower().endswith("windows")
+                         else os.path.join(root, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"))
+    return cands
+
+
 def detect() -> Hardware:
     """Best-effort hardware scan. Never raises; unknown fields stay at their defaults."""
     hw = Hardware(cores=os.cpu_count() or 1)
@@ -236,8 +247,12 @@ def detect() -> Hardware:
     except Exception:
         pass
     try:
-        gpus = parse_nvidia_smi(_run(["nvidia-smi", "--query-gpu=memory.total,memory.free,name",
-                                      "--format=csv,noheader,nounits"]))
+        gpus = []
+        for exe in _nvidia_smi_candidates():
+            gpus = parse_nvidia_smi(_run([exe, "--query-gpu=memory.total,memory.free,name",
+                                          "--format=csv,noheader,nounits"]))
+            if gpus:
+                break
         if gpus:
             # ponytail: largest single GPU only; multi-GPU pooling not modelled.
             hw.gpu_name, hw.vram_gb, hw.vram_free_gb = max(gpus, key=lambda g: g[1])

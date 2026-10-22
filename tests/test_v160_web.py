@@ -220,7 +220,7 @@ def test_manifest_valid_and_tools_exist():
     assert manifest["entry"] == "main.py" and (PLUGIN_DIR / manifest["entry"]).is_file()
     assert manifest["permissions"] == {"network": True, "files": "none"}
     names = [t["name"] for t in manifest["tools"]]
-    assert names == ["web_search", "web_fetch"]
+    assert names == ["web_search", "web_fetch", "wire_research", "wire_cite"]
     for tool in manifest["tools"]:
         assert re.fullmatch(r"[a-z0-9_]{1,40}", tool["name"])
         assert tool["description"]

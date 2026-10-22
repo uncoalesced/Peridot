@@ -100,18 +100,20 @@ def test_torch_matrix_is_platform_isolated():
     # imported. Only torch keeps the Windows-CUDA / non-Windows-CPU split.
     for package in ("torch",):
         entries = [req for req in requirements if _canon(req.name) == package]
-        assert len(entries) == 2, f"expected Windows CUDA and non-Windows CPU entries for {package}"
+        assert len(entries) >= 2, f"expected Windows and non-Windows entries for {package}"
 
-        windows_entries = [req for req in entries if req.marker and "sys_platform == \"win32\"" in str(req.marker)]
-        non_windows_entries = [req for req in entries if req.marker and "sys_platform != \"win32\"" in str(req.marker)]
-        assert len(windows_entries) == 1, f"missing Windows-only CUDA marker for {package}"
+        windows_entries = [req for req in entries if req.marker and 'sys_platform == "win32"' in str(req.marker)]
+        non_windows_entries = [req for req in entries if req.marker and 'sys_platform != "win32"' in str(req.marker)]
+        assert len(windows_entries) >= 1, f"missing Windows-only marker for {package}"
         assert len(non_windows_entries) == 1, f"missing non-Windows standard marker for {package}"
 
-        windows_entry = windows_entries[0]
-        url = str(windows_entry.url or "")
-        assert "%2Bcu" in url, f"{package} Windows entry must use a CUDA wheel"
-        # download.pytorch.org answers 403 to a raw "+" in the wheel URL.
-        assert "+" not in url, f"{package} Windows wheel URL must keep '+' encoded as %2B"
+        cuda_entries = [e for e in windows_entries if e.url]
+        assert len(cuda_entries) >= 1, f"{package} Windows entries must include CUDA wheels"
+        for entry in cuda_entries:
+            url = str(entry.url or "")
+            assert "%2Bcu" in url, f"{package} Windows entry must use a CUDA wheel: {url}"
+            # download.pytorch.org answers 403 to a raw "+" in the wheel URL.
+            assert "+" not in url, f"{package} Windows wheel URL must keep '+' encoded as %2B: {url}"
 
         non_windows_entry = non_windows_entries[0]
         assert not non_windows_entry.url, f"{package} non-Windows entry must use standard package index resolution"

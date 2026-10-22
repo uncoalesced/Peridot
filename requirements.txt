@@ -99,5 +99,11 @@ pynput==1.8.2
 # embedder (via sentence-transformers), server.py's cache-empty path and two
 # benchmarks; torchaudio and torchvision were never imported and are dropped.
 # The "+" must stay URL-encoded (%2B): download.pytorch.org returns 403 for a raw "+".
-torch @ https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'
+# The wheel tag must match the interpreter (issue #62: the cp311 wheel is "not a
+# supported wheel" on Python 3.12), so each supported minor gets its own line.
+# Other interpreters fall through to the plain PyPI wheel (CPU on Windows).
+torch @ https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'
+torch @ https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.12'
+torch @ https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp313-cp313-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.13'
+torch==2.11.0 ; sys_platform == 'win32' and python_version not in '3.11 3.12 3.13'
 torch==2.11.0 ; sys_platform != 'win32'

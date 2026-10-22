@@ -452,6 +452,79 @@ def _approve_bundled_plugin(name: str) -> bool:
     print(f"{Colors.YELLOW}[WARN] Could not pre-approve '{name}' ({reason}). Approve it in the Extensions tab.{Colors.ENDC}")
     return False
 
+def setup_agent_wire(install_dir: Path) -> bool:
+    """Pull agent-wire during setup into tools/agent-wire (isolated environment).
+
+    Pulls agent-wire-cli via uv into tools/agent-wire/venv.
+    Zero bloat: zero vendored code inside Peridot, zero dependencies added to
+    Peridot's runtime requirements.
+    """
+    tools_dir = install_dir / "tools" / "agent-wire"
+    venv_dir = tools_dir / "venv"
+    scripts_dir = "Scripts" if os.name == "nt" else "bin"
+    bin_name = "wire.exe" if os.name == "nt" else "wire"
+    py_name = "python.exe" if os.name == "nt" else "python"
+    wire_exe = venv_dir / scripts_dir / bin_name
+    python_exe = venv_dir / scripts_dir / py_name
+
+    print(f"\n{Colors.CYAN}{'='*70}{Colors.ENDC}")
+    print(f"{Colors.BOLD}OPTIONAL: AGENT-WIRE LIVE INTELLIGENCE ENGINE{Colors.ENDC}")
+    print(f"{Colors.CYAN}{'='*70}{Colors.ENDC}\n")
+    print("Gives the model high-speed, token-compressed live access to the web and")
+    print("31 platforms (Twitter, Reddit, GitHub, YouTube, HN, arXiv...), anti-bot bypass,")
+    print("last-30-days research briefs, and source citations.")
+    print(f"Target location: {Colors.CYAN}{tools_dir}{Colors.ENDC} (isolated venv, zero bloat in Peridot).")
+    print(f"{Colors.YELLOW}Zero code is copied into Peridot:{Colors.ENDC} pulls cleanly as an external tool.")
+
+    already_installed = wire_exe.is_file()
+    prompt_text = "Update agent-wire? ENTER = update" if already_installed else "Pull agent-wire? ENTER = pull"
+    if already_installed:
+        try:
+            res = subprocess.run([str(wire_exe), "version"], capture_output=True, text=True, timeout=5)
+            cur_ver = res.stdout.strip() or "installed"
+        except Exception:
+            cur_ver = "installed"
+        print(f"{Colors.GREEN}[PRESENT] agent-wire is already installed ({cur_ver}).{Colors.ENDC}")
+
+    if not wait_for_enter(prompt_text):
+        if already_installed:
+            print(f"{Colors.YELLOW}[KEEP] Keeping existing agent-wire installation.{Colors.ENDC}")
+            return True
+        print(f"{Colors.YELLOW}[SKIP] agent-wire not pulled. Web search will use fallback engine.{Colors.ENDC}")
+        return False
+
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    uv_bin = shutil.which("uv")
+
+    print(f"\n{Colors.CYAN}[SYS] Pulling agent-wire into {tools_dir}...{Colors.ENDC}")
+    try:
+        if uv_bin:
+            if not venv_dir.is_dir():
+                print("[SYS] Creating isolated virtualenv with uv...")
+                subprocess.run([uv_bin, "venv", str(venv_dir), "--python", "3.11"], check=True)
+            print("[SYS] Pulling agent-wire-cli via uv pip...")
+            subprocess.run([uv_bin, "pip", "install", "--upgrade", "agent-wire-cli",
+                            "--python", str(python_exe)], check=True, capture_output=True, text=True)
+        else:
+            if not venv_dir.is_dir():
+                print("[SYS] Creating isolated virtualenv with python -m venv...")
+                subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+            print("[SYS] Pulling agent-wire-cli via pip...")
+            subprocess.run([str(python_exe), "-m", "pip", "install", "--upgrade", "agent-wire-cli"], check=True)
+
+        if wire_exe.is_file():
+            res = subprocess.run([str(wire_exe), "version"], capture_output=True, text=True, timeout=5)
+            version_str = res.stdout.strip()
+            print(f"{Colors.GREEN}[OK] agent-wire pulled successfully ({version_str}) to {tools_dir}.{Colors.ENDC}")
+            return True
+        else:
+            print(f"{Colors.RED}[ERROR] wire binary not found after installation at {wire_exe}.{Colors.ENDC}")
+            return False
+    except Exception as exc:
+        print(f"{Colors.RED}[ERROR] Failed to pull agent-wire: {exc}{Colors.ENDC}")
+        return False
+
+
 def setup_web_search(install_dir: Path) -> None:
     """Optional opt-in: copy the bundled web_search plugin. It stays off until web.enabled is turned on."""
     print(f"\n{Colors.CYAN}{'='*70}{Colors.ENDC}")

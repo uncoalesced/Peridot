@@ -14,11 +14,12 @@ the catalog and are refused at dispatch.
 """
 
 import json
+from pathlib import Path
 import re
 import time
 
 from core_system import settings
-from core_system.extensions import registry, sandbox
+from core_system.extensions import registry, sandbox, wire_runner
 from core_system.prompting.constitution import FUNCTION_RE, TOOL_CALL_RE, strip_tool_markup
 
 try:
@@ -120,8 +121,11 @@ def _dispatch(name, arguments, allow_files):
         # requests skip the private-address guard, so only Settings may set it.
         arguments = {k: v for k, v in arguments.items() if k != "searxng_url"}
         searxng = settings.get("web.searxng_url").strip()
-        if name == "web_search" and searxng:
+        if name in ("web_search", "wire_search") and searxng:
             arguments["searxng_url"] = searxng
+        if wire_runner.is_wire_available() and plugin.path.resolve() == (Path(wire_runner.BASE_DIR) / "extensions" / "plugins" / WEB_PLUGIN).resolve():
+            r = wire_runner.dispatch_wire_tool(name, arguments)
+            return _out(r["ok"], r["result"], r["error"])
     network = plugin.permissions["network"]
     read, write = _folder_policy() if plugin.permissions["files"] == "allowlist" else ([], [])
     policy = {"network": network, "read_paths": read, "write_paths": write, "mem_mb": 512}
