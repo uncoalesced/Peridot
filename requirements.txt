@@ -54,7 +54,7 @@ PyMuPDF==1.27.2.3
 # Imported inside core_system/model_fetch.py's _CHILD_PROGRAM, which is a source
 # string executed in an isolated child interpreter. Invisible to static import
 # scanners -- do not "clean up" as unused.
-huggingface_hub>=0.24.0,<2.0
+huggingface_hub>=2.2.0,<3.0
 
 # --- Hardware telemetry and process control ---
 nvidia-ml-py==13.595.45
